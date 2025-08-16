@@ -38,6 +38,11 @@ python visa_status.py cz --i my_codes.csv
 
 - Note: the previous small `utils/i18n.py` helper has been removed; bilingual messages are now written inline in each module. / 注意：项目中早先使用的 `utils/i18n.py` 已被移除；双语消息现已直接写入各模块。
 
+## Release / 发布
+
+- Current state: functional Czech query module with robust cookie/modal dismissal, per-row CSV persistence, retries and overlay debug capture for failing rows. / 当前状态：捷克查询模块功能可用，包含针对 cookie/modal 的关闭策略、逐行写入 CSV、重试与失败页面快照功能。
+- A small example CSV `sample_query_codes.csv` is included for quick testing. / 已包含 `sample_query_codes.csv` 供快速测试。
+
 ---
 
 See `README.md` for quick start and commands. / 详见 `README.md`。

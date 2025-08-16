@@ -113,3 +113,20 @@ date,code,status
 2025-07-01,PEKI202507010002,
 ```
 
+You can also find a small example file in the repository: `sample_query_codes.csv` which follows the same header format (CSV encoded UTF-8). / 仓库内已包含示例文件 `sample_query_codes.csv`（UTF-8 编码），格式与上述示例一致。
+
+## Implemented features / 已实现功能
+
+- Modular layout: `tools/`, `query_modules/`, and a dispatcher `visa_status.py` that calls country modules by ISO-2 code (currently `cz`). / 模块化布局：包含 `tools/`、`query_modules/`，以及根据国家码调用查询器的主调度器 `visa_status.py`（当前实现：`cz`）。
+- CSV-first operation: read input CSV, write each row's status in-place and flush immediately after each query to avoid data loss. / CSV 优先：读取输入 CSV，并在每条查询完成后立即写回状态，防止中途丢失。
+- Robust cookie/modal dismissal: targets `.cookies__wrapper button.button__outline` (Refuse all) and `.modal__window button.button__close`, uses JS-dispatched clicks and multiple fallbacks. / 强健的 cookie/modal 关闭：优先点击 `.cookies__wrapper button.button__outline`（Refuse all）和 `.modal__window button.button__close`，并提供 JS 派发点击及备选策略。
+- Retries, backoff and pacing: per-query retries with configurable attempts, backoff and jitter to reduce server load. / 重试、退避与速率控制：支持每条重试、可配置延迟与抖动，降低对远端的负载。
+- Driver handling and recovery: prefers an explicit `--driver-path`, otherwise uses `webdriver-manager` if installed; includes driver/session recreation logic when sessions die. / 驱动管理与恢复：优先使用 `--driver-path` 指定驱动，若安装了 `webdriver-manager` 则自动下载；遇到会话关闭会尝试重建浏览器并重试。
+- Result detection hardening: multi-selector polling, Selenium text read, and JS innerText/textContent fallback so rendered alerts are detected even when visibility flags are inconsistent. / 结果检测增强：多选择器轮询、Selenium 文本读取与 JS innerText/textContent 回退，提升在渲染存在但可见性判断不一致时识别结果的稳定性。
+- Overlay debug policy: only save page HTML snapshots to `logs/fails/` when a row returns Unknown or final Query Failed (avoids noisy debug files). / 调试快照策略：仅在返回 Unknown 或最终 Query Failed 时保存页面快照到 `logs/fails/`，避免过多无用文件。
+- Robust CSV header matching and skip logic: case-insensitive/forgiving header detection and correct skip of already-checked rows (no mid-file resume bug). / 稳健的 CSV 头解析与跳过逻辑：支持不区分大小写的列匹配，并确保已检查的行被正确跳过，不会中途重复查询。
+- Bilingual prompts and logging: all user-facing messages include English and Chinese. / 中英双语：所有用户提示与日志包含中英文。
+- Per-day failure files: failing rows appended to `logs/fails/YYYY-MM-DD_fails.csv` for offline retry. / 按日失败归档：失败条目追加到 `logs/fails/YYYY-MM-DD_fails.csv` 以便离线重试。
+
+If you want a shorter README summary or additional examples (e.g., CI, docker), I can add them next. / 若您需要更短版本或额外示例（如 CI、Docker），我可以继续补充。
+
