@@ -2,8 +2,7 @@
 
 # Czech Visa Application Status Check / 捷克签证状态批量查询
 
-Bulk generator and checker for Czech visa application status — generate Czech visa/resident query codes and check statuses on the official IPC portal. 本项目用于批量生成捷克签证/居留查询码并在捷克内政部公开页面批量查询签证申请状态，导出 CSV。README 为中英双语，方便国际使用。
-
+Bulk generator and checker for Czech visa application status — generate Czech visa/resident query codes and check statuses on the official IPC portal. 本项目用于批量生成捷克签证/居留查询码并在捷克内政部公开页面批量查询签证申请状态，导出 CSV。
 
 
 Repository: https://github.com/yuanweize/Czech-Visa-Application-Status-Check
