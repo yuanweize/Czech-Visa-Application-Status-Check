@@ -117,6 +117,64 @@ class VisaStatusQuerier:
                         self.driver.execute_script("document.querySelectorAll('.cookies__wrapper, .cookie-consent, .gdpr-banner').forEach(e=>e.style.display='none');")
                     except Exception:
                         pass
+
+                # new: more persistent overlay clearance helper
+                def _clear_overlays(timeout=6, debug=False):
+                    end = time.time() + timeout
+                    overlay_selectors = ['.cookies__wrapper', '.cookie-consent', '.gdpr-banner', '[data-cookie]', '[data-cookies-edit]', '.modal__window', '.modal-backdrop']
+                    while time.time() < end:
+                        found = False
+                        for sel in overlay_selectors:
+                            try:
+                                elems = self.driver.find_elements(By.CSS_SELECTOR, sel)
+                            except Exception:
+                                elems = []
+                            for el in elems:
+                                try:
+                                    # if not visible skip
+                                    if not el.is_displayed():
+                                        continue
+                                except Exception:
+                                    pass
+                                found = True
+                                if debug:
+                                    print(f"[overlay] found {sel}")
+                                # attempt targeted button clicks inside overlay
+                                try:
+                                    btns = el.find_elements(By.TAG_NAME, 'button')
+                                    for b in btns:
+                                        try:
+                                            t = (b.text or '').strip().lower()
+                                            if any(k in t for k in ('refuse', 'decline', 'odmítnout', 'nepřijmout', 'reject', 'cancel', 'close', 'close')):
+                                                try:
+                                                    b.click()
+                                                except Exception:
+                                                    try:
+                                                        self.driver.execute_script("arguments[0].click();", b)
+                                                    except Exception:
+                                                        pass
+                                        except Exception:
+                                            pass
+                                except Exception:
+                                    pass
+                                # try to neutralize via css
+                                try:
+                                    self.driver.execute_script("arguments[0].style.display='none'; arguments[0].style.pointerEvents='none'; arguments[0].style.zIndex='-9999';", el)
+                                except Exception:
+                                    try:
+                                        self.driver.execute_script("arguments[0].remove();", el)
+                                    except Exception:
+                                        pass
+                        if not found:
+                            return True
+                        time.sleep(0.3)
+                    return False
+
+                # run overlay clearance with short timeout; debug enabled when needed
+                try:
+                    _clear_overlays(timeout=6, debug=False)
+                except Exception:
+                    pass
                 # Targeted attempts to close common cookie/modal buttons (Refuse all / close)
                 try:
                     targeted_selectors = [
