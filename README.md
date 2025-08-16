@@ -124,6 +124,9 @@ Explanation: `--driver-path` lets you point to a specific chromedriver binary wh
 - `--log-dir PATH` — change log directory (default: `logs`).
 - `--log-dir PATH` — 指定日志目录（默认：`logs`）。
 
+## Global options / 全局选项
+- `--no-auto-install` — disable automatic dependency installation at startup. When set, the program will not try to pip-install missing packages and will instead fail early with instructions. / `--no-auto-install` — 启动时禁用自动依赖安装。设置后程序不会尝试自动 pip 安装缺失包，而会直接失败并打印相应的操作指引。
+
 Behavior notes:
 The checker will skip rows where the status column is non-empty — this enables resume/retry workflows.
 若状态列已有值则会跳过该行，从而支持断点续跑与离线重试工作流。
