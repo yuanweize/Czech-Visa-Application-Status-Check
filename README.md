@@ -2,11 +2,9 @@
 
 # Czech Visa Application Status Check / 捷克签证状态批量查询
 
-English and 中文 (bilingual) README for GitHub.
+Bulk generator and checker for Czech visa application status — generate PEKI-style query codes and check statuses on the official IPC portal. 本项目用于批量生成 PEKI 风格查询码并在捷克内政部公开页面批量查询签证申请状态，导出 CSV。README 为中英双语，方便国际使用。
 
-简短说明 | Short description
----|---
-This project automates bulk generation of visa query codes and bulk checking of Czech visa application status via the public portal. | 本项目用于批量生成签证查询码，并通过捷克内政部的公开查询页面批量查询签证申请状态，输出为 CSV，便于后续处理或归档。
+Repository: https://github.com/yuanweize/Czech-Visa-Application-Status-Check
 
 ## Quick start / 快速开始
 
@@ -16,7 +14,7 @@ This project automates bulk generation of visa query codes and bulk checking of 
 python -m pip install -r requirements.txt
 ```
 
-2. Generate codes (example) / 生成查询码（示例）
+2. Generate query codes / 生成查询码
 
 ```bash
 python Visa_Status.py generate-codes -o my_codes.csv --start 2025-06-01 --end 2025-08-15 --per-day 5
@@ -28,45 +26,64 @@ python Visa_Status.py generate-codes -o my_codes.csv --start 2025-06-01 --end 20
 python Visa_Status.py cz --i my_codes.csv
 ```
 
-Notes / 说明
-- Use `python Visa_Status.py -h` to list available commands and per-command `-h` for details. / 使用 `python Visa_Status.py -h` 查看命令，子命令可用 `-h` 查看详细参数。
+Use `python Visa_Status.py -h` to list available commands. / 使用 `python Visa_Status.py -h` 查看可用命令。
 
-## Behavior improvements (retry and incremental save)
+## Key behaviors / 主要行为
 
-- The Czech query module now retries transient failures up to 3 times and returns a standardized status string like `Not Found`, `Proceedings`, `Granted`, `Rejected/Closed`, or `Query Failed` when all retries fail. / 捷克查询模块在遇到网络或渲染问题时会重试（最多3次），并返回标准化状态（Not Found / Proceedings / Granted / Rejected/Closed / Query Failed）。
-- Each query result is flushed to the CSV immediately after retrieval to avoid losing work on long runs. / 每条查询完成后立即写回CSV，防止长时间运行中途失败造成数据丢失。
+- Retries: Czech module retries transient errors up to 3 times; final failures are labeled `Query Failed`. / 重试：捷克查询模块对瞬时错误重试最多3次，最终失败标记为 `Query Failed`。
+- Incremental save: results are flushed to CSV after each query to avoid losing long-run progress. / 实时保存：每条查询后立即写回CSV，避免长时间运行中断造成数据丢失。
 
-## Files / 目录结构
+## New features / 新增功能说明
 
-- `Visa_Status.py` — main CLI dispatcher / 主程序入口
-- `tools/generate_codes.py` — code generator / 查询码生成器
-- `query_modules/cz.py` — Czech query module (country-code-based) / 捷克查询器
-- `requirements.txt` — Python dependencies / 依赖
-- `README.md` — this file / 本文档
-- `PROJECT_OVERVIEW.md` — project overview / 项目概览
+- Auto dependency management: on startup the main program checks for critical Python packages (`selenium`, `webdriver-manager`, `openpyxl`). If missing, it will automatically install them unless `--no-auto-install` is provided. Install events and outcomes are logged to `logs/install_YYYY-MM-DD.log`. / 自动依赖管理：主程序启动时会检测关键依赖并在缺失时自动安装（可通过 `--no-auto-install` 禁用）。安装记录写入 `logs/install_YYYY-MM-DD.log`。
+- ChromeDriver handling: If `chromedriver` is not in PATH, but `webdriver-manager` is available, the program uses `webdriver-manager` to download the correct driver automatically at runtime (multi-platform). If neither is available the program logs a warning and will attempt to run with any system chromedriver if present. You can override by passing `--driver-path` to point to a chromedriver binary. / ChromeDriver 处理：若 PATH 中未发现 chromedriver，但安装了 `webdriver-manager`，程序将在运行时自动下载匹配的驱动（支持多平台）。也可通过 `--driver-path` 指定本地驱动路径。
+- Logging and failures: installation actions are logged under `logs/`. Query failures (final, after retries) are appended to `logs/fails/YYYY-MM-DD_fails.csv` with date, code, status and optional error notes for later inspection and retry. / 日志与失败记录：安装与检测写入 `logs/`，查询在重试后仍失败的项会写入 `logs/fails`，便于离线重试。
 
-## Command reference / 命令参考
+## Global options / 全局选项
 
-- `generate-codes` — Generate CSV of query codes. Options: `--start`, `--end`, `--per-day`, `--include-weekends`, `-o/--out`. / 生成查询码，支持参数：`--start`、`--end`、`--per-day`、`--include-weekends`、`-o/--out`。
-- `cz` — Query Czech visa statuses. Options: `--i` (CSV input). / 查询捷克签证状态，参数：`--i`（CSV路径）。
+- `--retries <n>` — default 3. Controls how many times each query is retried (can be overridden per subcommand). / 全局重试次数，默认 3。
+- `--no-auto-install` — disable automatic dependency installation at startup. / 禁用启动时的自动依赖安装。
+- `--log-dir <dir>` — change the log directory (default: `logs`). / 指定日志目录。
+- `--headless` — enable headless mode globally (subcommands can override). / 全局无头模式。
+
+## Internationalization / 国际化支持
+
+- This repository is bilingual: README/PROJECT_OVERVIEW contain both English and Chinese descriptions. All runtime messages logged to files are UTF-8 encoded and contain timestamps; CLI messages are presented in Chinese by default, with English snippets in documentation. If you'd like full runtime language switching, I can add a `--lang en|zh` flag and localized resource files. / 仓库为中英双语，文档包含 EN/中文；运行日志为 UTF-8，默认 CLI 信息为中文。如需运行时语言切换，可添加 `--lang`。
+
+## Commands / 命令说明
+
+- `generate-codes` — generate a CSV of query codes. Options:
+	- `-o, --out`  output CSV path (default: query_codes.csv)
+	- `--start`    start date (YYYY-MM-DD)
+	- `--end`      end date (YYYY-MM-DD)
+	- `--per-day`  items per day (int)
+	- `--include-weekends` include weekends
+
+- `cz` — Czech status checker. Options:
+	- `--i` CSV input path (default: query_codes.csv)
+
+Example:
+
+```bash
+python Visa_Status.py generate-codes -o codes.csv --start 2025-07-01 --end 2025-07-10 --per-day 3
+python Visa_Status.py cz --i codes.csv
+```
 
 ## Troubleshooting / 故障排查
 
-- If you see `Query Failed` or `查询失败` occasionally, it is likely a transient network/rendering issue. The module retries automatically; rerun the failed entries after some time. / 若偶尔出现 `Query Failed`/`查询失败`，通常为网络或页面渲染问题，模块会自动重试；可在稍后重试失败条目。
-- Make sure Chrome/Chromedriver are compatible and installed if running Selenium locally. / 请确保本地 Chrome 与 Chromedriver 版本兼容并可用。
+- Occasional `Query Failed` entries usually indicate transient network or page rendering issues; retry later or re-run failed entries. / 若出现 `Query Failed`，通常为瞬时网络或页面渲染问题，可稍后重试失败条目。
+- Ensure Chrome and ChromeDriver are available and compatible when running Selenium locally. / 本地运行 Selenium 时请确保 Chrome/ChromeDriver 版本兼容。
 
-## Tests / 单元测试
+## Tests / 测试
 
-Run tests:
+Unit tests were previously included but have been removed from this repository. If you need test coverage, tests can be re-added; I can help create focused tests for generation and parsing logic. / 单元测试已从仓库移除。如需我可协助重新加入针对生成与解析逻辑的测试。
 
-```bash
-python -m pytest -q test_generate_codes.py
-```
+## More details / 更多信息
 
-## License & Privacy / 授权与隐私
+See the project overview for architecture and design notes:
 
-- Do not commit `.env`, credential files, or downloaded pages containing personal data. Add them to `.gitignore`. / 请勿提交包含个人数据的文件到仓库，使用 `.gitignore` 排除它们。
+[PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md)
 
 ---
 
-For more details see `PROJECT_OVERVIEW.md`.
+If you want the README further shortened, expanded with badges, or to include a sample CSV, tell me which format you prefer and I'll update it.

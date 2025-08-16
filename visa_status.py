@@ -25,6 +25,12 @@ def main():
     )
     subparsers = parser.add_subparsers(dest='command', required=True, help='可用子命令')
 
+    # 全局选项
+    parser.add_argument('--retries', type=int, default=3, help='每条查询的重试次数（默认: 3）')
+    parser.add_argument('--no-auto-install', action='store_true', help='禁用启动时自动安装缺失的依赖')
+    parser.add_argument('--log-dir', default='logs', help='日志目录（默认: logs）')
+    parser.add_argument('--headless', action='store_true', help='全局启用无头模式（可被子命令上的 --headless 覆盖）')
+
     # 生成器子命令
     gen_parser = subparsers.add_parser('generate-codes', help='批量生成查询码（支持自定义日期、数量等）')
     gen_parser.add_argument('-o', '--out', default='query_codes.csv', help='输出csv路径')
@@ -37,7 +43,85 @@ def main():
     for country_code, (mod_path, _) in QUERY_MODULES.items():
         q_parser = subparsers.add_parser(country_code, help=f'{country_code.upper()}签证状态批量查询')
         q_parser.add_argument('--i', default='query_codes.csv', help='csv文件路径')
+        q_parser.add_argument('--driver-path', default=None, help='ChromeDriver 可执行文件路径（可选）')
+        q_parser.add_argument('--headless', action='store_true', help='以无头模式运行浏览器')
         # 可扩展更多参数
+
+    # 在运行前进行依赖检查：selenium、webdriver_manager
+    def check_and_install_deps(auto_install: bool, logs_dir_name: str):
+        import shutil
+        import subprocess
+        import datetime
+        import os
+
+        logs_dir = os.path.join(os.getcwd(), logs_dir_name)
+        os.makedirs(logs_dir, exist_ok=True)
+        log_path = os.path.join(logs_dir, f"install_{datetime.date.today().isoformat()}.log")
+
+        def log(msg: str):
+            ts = datetime.datetime.now().isoformat(sep=' ', timespec='seconds')
+            with open(log_path, 'a', encoding='utf-8') as lf:
+                lf.write(f"[{ts}] {msg}\n")
+
+        missing = []
+        try:
+            import selenium  # noqa: F401
+            log('selenium: present')
+        except Exception:
+            missing.append('selenium')
+            log('selenium: missing')
+        try:
+            import webdriver_manager  # noqa: F401
+            log('webdriver-manager: present')
+        except Exception:
+            missing.append('webdriver-manager')
+            log('webdriver-manager: missing')
+        try:
+            import openpyxl  # noqa: F401
+            log('openpyxl: present')
+        except Exception:
+            missing.append('openpyxl')
+            log('openpyxl: missing')
+
+        chromedriver_found = False
+        # check PATH for chromedriver
+        if shutil.which('chromedriver') or shutil.which('chromedriver.exe'):
+            chromedriver_found = True
+            log('chromedriver: found in PATH')
+        else:
+            log('chromedriver: not found in PATH')
+
+        if missing:
+            log('Missing packages: ' + ', '.join(missing))
+            if auto_install:
+                log('Auto-install enabled; attempting pip install')
+                try:
+                    subprocess.check_call([sys.executable, '-m', 'pip', 'install'] + missing)
+                    log('pip install succeeded for: ' + ', '.join(missing))
+                except Exception as e:
+                    log('pip install failed: ' + str(e))
+            else:
+                log('Auto-install disabled; skipping pip install')
+
+        # After install attempt, check for webdriver-manager availability
+        try:
+            import webdriver_manager  # noqa: F401
+            has_wdm = True
+            log('webdriver-manager: available after install check')
+        except Exception:
+            has_wdm = False
+            log('webdriver-manager: still not available')
+
+        if not chromedriver_found:
+            if has_wdm:
+                log('Will use webdriver-manager to download chromedriver at runtime')
+            else:
+                # no chromedriver and no webdriver-manager: log warning
+                log('Warning: chromedriver not found and webdriver-manager not available. User must install chromedriver or provide --driver-path')
+
+    # run dependency check with chosen behavior (use parse_known_args to read global opts before full parse)
+    known_args, _ = parser.parse_known_args()
+    check_and_install_deps(auto_install=not known_args.no_auto_install, logs_dir_name=known_args.log_dir)
 
     # 只将本子命令后的参数传递给对应工具
     cmd_args = sys.argv[2:]
@@ -52,12 +136,23 @@ def main():
         mod_name, func_name = QUERY_MODULES[args.command]
         mod = importlib.import_module(mod_name)
         func = getattr(mod, func_name)
-        # 只传递--i参数
+        # 只传递 --i、--driver-path、--headless 参数到查询模块
         import argparse as ap
         q_parser = ap.ArgumentParser()
         q_parser.add_argument('--i', default='query_codes.csv')
+        q_parser.add_argument('--driver-path', default=None)
+        q_parser.add_argument('--headless', action='store_true')
+        q_parser.add_argument('--retries', type=int, default=None, help='针对该子命令的重试次数，覆盖全局 --retries')
         q_args, _ = q_parser.parse_known_args(cmd_args)
-        func(q_args.i)
+        # 决定最终参数：优先子命令本身的设置，其次全局设置
+        headless_val = bool(q_args.headless) or bool(args.headless)
+        retries_val = q_args.retries if (q_args.retries is not None) else args.retries
+        try:
+            func(q_args.i, driver_path=q_args.driver_path, headless=headless_val, retries=retries_val, log_dir=args.log_dir)
+        except TypeError:
+            # 兼容旧模块签名，仅传入csv路径
+            func(q_args.i)
+    # no separate setup command anymore; dependency handled at startup
     else:
         parser.print_help()
         sys.exit(1)
