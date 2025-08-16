@@ -7,100 +7,118 @@ A small CLI to generate visa application query codes and bulk-check application 
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 ## Tech stack / 技术栈
-- Python 3.8+.
-- Python 3.8+。
-- Selenium WebDriver (Chrome) for browser automation.
-- 使用 Selenium WebDriver（Chrome）进行浏览器自动化。
-- webdriver-manager (optional) to auto-download chromedriver when available.
-- webdriver-manager（可选）在可用时用于自动下载 chromedriver。
-- CSV-based I/O using Python's stdlib (csv) — no Excel / openpyxl dependency.
-- 使用 Python 标准库的 CSV（csv）进行输入输出 — 无 Excel / openpyxl 依赖。
-- Basic logging to file under `logs/`.
-- 基本日志写入 `logs/` 目录。
+Python 3.8+.
+Python 3.8+。
+
+Selenium WebDriver (Chrome) for browser automation.
+使用 Selenium WebDriver（Chrome）进行浏览器自动化。
+
+webdriver-manager (optional) to auto-download chromedriver when available.
+webdriver-manager（可选）在可用时用于自动下载 chromedriver。
+
+CSV-based I/O using Python's stdlib (`csv`) — no Excel / openpyxl dependency.
+使用 Python 标准库的 CSV（`csv`）进行输入输出 — 无 Excel / openpyxl 依赖。
+
+Basic logging to files under `logs/`.
+基本日志写入 `logs/` 目录。
 
 ## What it does / 功能简介
-- Generate visa application query codes and write them to a CSV for later querying.
-- 生成签证申请查询码并写入 CSV 以供后续查询。
-- Read a CSV of codes and query the Czech Immigration Office website per-row, then write normalized results back to the CSV immediately.
-- 读取包含查询码的 CSV，逐行查询捷克移民局网站，并将标准化结果立即写回 CSV。
-- Save failing rows after retries to daily failure files in `logs/fails/` for offline retry.
-- 在重试后仍失败的条目保存到 `logs/fails/` 的按日文件，便于离线重试。
+Generate visa application query codes and write them to a CSV for later querying.
+生成签证申请查询码并写入 CSV 以供后续查询。
+
+Read a CSV of codes and query the Czech Immigration Office website per-row, then write normalized results back to the CSV immediately.
+读取包含查询码的 CSV，逐行查询捷克移民局网站，并将标准化结果立即写回 CSV。
+
+Save failing rows after retries to daily failure files in `logs/fails/` for offline retry.
+在重试后仍失败的条目保存到 `logs/fails/` 的按日文件，便于离线重试。
 
 ## Project structure (for contributors) / 项目结构（面向贡献者）
 - `visa_status.py` — CLI entrypoint and dispatcher that registers country modules and exposes commands.
-- `visa_status.py` — CLI 入口与调度器，负责注册国家模块并暴露命令。
 - `query_modules/` — directory containing one module per country (e.g. `cz.py`). Each module implements a simple querying interface.
-- `query_modules/` — 存放每个国家模块的目录（例如 `cz.py`），每个模块实现统一的查询接口。
 - `tools/generate_codes.py` — code generator utility.
-- `tools/generate_codes.py` — 查询码生成工具。
 - `logs/` — run and fail logs; failing rows are appended to `logs/fails/YYYY-MM-DD_fails.csv`.
-- `logs/` — 运行与失败日志；失败条目追加到 `logs/fails/YYYY-MM-DD_fails.csv`。
-- `requirements.txt` — Python dependencies (selenium, webdriver-manager, etc.).
-- `requirements.txt` — Python 依赖列表（例如 selenium、webdriver-manager 等）。
+- `requirements.txt` — Python dependencies (e.g. selenium, webdriver-manager).
 
-Design note: the checker is modular — to add support for another country, add a file `query_modules/<iso>.py` implementing the module API described in `PROJECT_OVERVIEW.md` and register it in `visa_status.py`.
 设计说明：查询器为模块化设计——要添加新的国家支持，请在 `query_modules/<iso>.py` 下添加文件，按照 `PROJECT_OVERVIEW.md` 中描述的模块 API 实现并在 `visa_status.py` 中注册。
 
 ## Quick start / 快速开始
 1) Install dependencies / 安装依赖
-```bash
-python -m pip install -r requirements.txt
-```
-1）安装依赖
+Python package requirements are listed in `requirements.txt`.
+Python 依赖项列在 `requirements.txt` 中。
+
 ```bash
 python -m pip install -r requirements.txt
 ```
 
 2) Generate codes / 生成查询码
+Generate a CSV of visa application query codes.
+生成签证申请查询码的 CSV。
+
+Simple example:
+简单示例：
 ```bash
 python visa_status.py generate-codes -o my_codes.csv --start 2025-06-01 --end 2025-06-30 --per-day 5
 ```
-2）生成查询码
-```bash
-python visa_status.py generate-codes -o my_codes.csv --start 2025-06-01 --end 2025-06-30 --per-day 5
-```
+
+Advanced options (examples):
+高级用法示例：
+- Use `--include-weekends` to include weekends when generating codes.
+- 使用 `--include-weekends` 在生成时包含周末。
 
 3) Query statuses (Czech) / 查询状态（捷克）
+Run the Czech checker against an input CSV.
+对输入 CSV 运行捷克查询器。
+
+Simple example (recommended):
+简单示例（推荐）：
+```bash
+python visa_status.py cz --i my_codes.csv
+```
+
+Advanced example (when you need explicit driver control):
+高级示例（需要显式驱动控制时使用）：
 ```bash
 python visa_status.py cz --i my_codes.csv --driver-path /path/to/chromedriver --retries 3 --headless
 ```
-3）查询状态（捷克）
-```bash
-python visa_status.py cz --i my_codes.csv --driver-path /path/to/chromedriver --retries 3 --headless
-```
+
+Explanation: `--driver-path` lets you point to a specific chromedriver binary when your system driver is incompatible or you want a different Chrome binary. Most users can omit it; omit it and the tool will try `webdriver-manager` (if installed) or system chromedriver.
+说明：`--driver-path` 允许指定 chromedriver 可执行文件，用于系统驱动不兼容或需要使用特定 Chrome 时。大多数用户可省略；省略时程序会尝试使用 `webdriver-manager`（如已安装）或系统 chromedriver。
 
 ## Commands & parameters (detailed) / 命令与参数（详细）
-- `generate-codes` — generate a CSV of query codes.
-- `generate-codes` — 生成查询码 CSV。
-  - `-o, --out PATH` — output CSV path (default: `query_codes.csv`).
-  - `-o, --out PATH` — 输出 CSV 路径（默认：`query_codes.csv`）。
-  - `--start YYYY-MM-DD` — start date for codes generation.
-  - `--start YYYY-MM-DD` — 生成起始日期（YYYY-MM-DD）。
-  - `--end YYYY-MM-DD` — end date for codes generation.
-  - `--end YYYY-MM-DD` — 生成结束日期（YYYY-MM-DD）。
-  - `--per-day N` — number of codes per day (integer).
-  - `--per-day N` — 每日生成数量（整数）。
-  - `--include-weekends` — include weekends when generating.
-  - `--include-weekends` — 是否包含周末。
+`generate-codes` — generate a CSV of query codes.
+`generate-codes` — 生成查询码 CSV。
 
-- `cz` — run the Czech checker (example module).
-- `cz` — 运行捷克查询器（示例模块）。
-  - `--i PATH` — input CSV path (default: `query_codes.csv`).
-  - `--i PATH` — 输入 CSV 路径（默认：`query_codes.csv`）。
-  - `--driver-path PATH` — explicit chromedriver binary to use (optional).
-  - `--driver-path PATH` — 指定 chromedriver 可执行文件路径（可选）。
-  - `--retries N` — per-row retries (default: 3).
-  - `--retries N` — 每条重试次数（默认：3）。
-  - `--headless` — run browser in headless mode (optional).
-  - `--headless` — 以无头模式运行浏览器（可选）。
-  - `--log-dir PATH` — change log directory (default: `logs`).
-  - `--log-dir PATH` — 指定日志目录（默认：`logs`）。
+- `-o, --out PATH` — output CSV path (default: `query_codes.csv`).
+- `-o, --out PATH` — 输出 CSV 路径（默认：`query_codes.csv`）。
+- `--start YYYY-MM-DD` — start date for codes generation.
+- `--start YYYY-MM-DD` — 生成起始日期（YYYY-MM-DD）。
+- `--end YYYY-MM-DD` — end date for codes generation.
+- `--end YYYY-MM-DD` — 生成结束日期（YYYY-MM-DD）。
+- `--per-day N` — number of codes per day (integer).
+- `--per-day N` — 每日生成数量（整数）。
+- `--include-weekends` — include weekends when generating.
+- `--include-weekends` — 是否包含周末。
+
+`cz` — run the Czech checker (example module).
+`cz` — 运行捷克查询器（示例模块）。
+
+- `--i PATH` — input CSV path (default: `query_codes.csv`).
+- `--i PATH` — 输入 CSV 路径（默认：`query_codes.csv`）。
+- `--driver-path PATH` — explicit chromedriver binary to use (optional).
+- `--driver-path PATH` — 指定 chromedriver 可执行文件路径（可选）。
+- `--retries N` — per-row retries (default: 3).
+- `--retries N` — 每条重试次数（默认：3）。
+- `--headless` — run browser in headless mode (optional).
+- `--headless` — 以无头模式运行浏览器（可选）。
+- `--log-dir PATH` — change log directory (default: `logs`).
+- `--log-dir PATH` — 指定日志目录（默认：`logs`）。
 
 Behavior notes:
-- The checker will skip rows where the status column is non-empty — this enables resume/retry workflows.
-- 若状态列已有值则会跳过该行，从而支持断点续跑与离线重试工作流。
-- Results are standardized into a small set of normalized statuses (e.g. `Granted`, `Rejected/Closed`, `Proceedings`, `Not Found`, `Unknown`, `Query Failed`).
-- 结果会被标准化为一组状态（例如：`Granted`、`Rejected/Closed`、`Proceedings`、`Not Found`、`Unknown`、`Query Failed`）。
+The checker will skip rows where the status column is non-empty — this enables resume/retry workflows.
+若状态列已有值则会跳过该行，从而支持断点续跑与离线重试工作流。
+
+Results are standardized into a small set of normalized statuses (e.g. `Granted`, `Rejected/Closed`, `Proceedings`, `Not Found`, `Unknown`, `Query Failed`).
+结果会被标准化为一组状态（例如：`Granted`、`Rejected/Closed`、`Proceedings`、`Not Found`、`Unknown`、`Query Failed`）。
 
 ## Minimal CSV example / 最小 CSV 示例
 The tool accepts bilingual headers and expects these columns: date, code, optional status column.
@@ -115,10 +133,11 @@ The tool accepts bilingual headers and expects these columns: date, code, option
 ```
 
 ## Output / 输出
-- Each queried row is updated in-place in the CSV and flushed immediately to disk.
-- 每条查询结果会原地写回 CSV 并立即刷新到磁盘。
-- Failing rows after retries are appended to `logs/fails/YYYY-MM-DD_fails.csv` for offline retry.
-- 重试后仍失败的条目会追加到 `logs/fails/YYYY-MM-DD_fails.csv` 以便离线重试。
+Each queried row is updated in-place in the CSV and flushed immediately to disk.
+每条查询结果会原地写回 CSV 并立即刷新到磁盘。
+
+Failing rows after retries are appended to `logs/fails/YYYY-MM-DD_fails.csv` for offline retry.
+重试后仍失败的条目会追加到 `logs/fails/YYYY-MM-DD_fails.csv` 以便离线重试。
 
 ## Technical highlights (implementation & algorithms) / 技术亮点（实现与算法）
 - CSV-first design: keeps all state in the CSV so the tool can resume and is friendly to auditing.
@@ -137,14 +156,15 @@ The tool accepts bilingual headers and expects these columns: date, code, option
 - 失败诊断：仅为 Unknown/Query Failed 行保存页面 HTML 快照，以减少噪声文件；失败条目按日保存为 CSV。
 
 ## Troubleshooting / 故障排查
-- Ensure Chrome and chromedriver are compatible; if in doubt use `--driver-path` to point to a matching binary.
-- 请确保 Chrome 与 chromedriver 兼容；不确定时请使用 `--driver-path` 指向匹配的可执行文件。
-- Increase `--retries` for flaky network conditions or re-run only the `logs/fails/YYYY-MM-DD_fails.csv` rows later.
-- 对网络不稳定情况可增加 `--retries`，或对 `logs/fails/YYYY-MM-DD_fails.csv` 中的条目稍后重试。
+Ensure Chrome and chromedriver are compatible; if in doubt use `--driver-path` to point to a matching binary.
+请确保 Chrome 与 chromedriver 兼容；不确定时请使用 `--driver-path` 指向匹配的可执行文件。
+
+Increase `--retries` for flaky network conditions or re-run only the `logs/fails/YYYY-MM-DD_fails.csv` rows later.
+对网络不稳定情况可增加 `--retries`，或对 `logs/fails/YYYY-MM-DD_fails.csv` 中的条目稍后重试。
 
 ## Contributing / 贡献指南
-- Add a country module in `query_modules/` following the module API in `PROJECT_OVERVIEW.md` and open a PR.
-- 在 `query_modules/` 下添加国家模块，遵循 `PROJECT_OVERVIEW.md` 中的模块 API，并提交 PR。
+Add a country module in `query_modules/` following the module API in `PROJECT_OVERVIEW.md` and open a PR.
+在 `query_modules/` 下添加国家模块，遵循 `PROJECT_OVERVIEW.md` 中的模块 API，并提交 PR。
 
 ## Links / 相关链接
 - Project overview (developer guide): [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md)
