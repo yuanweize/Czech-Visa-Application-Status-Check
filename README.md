@@ -7,7 +7,6 @@ A small CLI to generate visa application query codes and bulk-check application 
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 ## Tech stack / 技术栈
-Python 3.8+.
 Python 3.8+。
 
 Selenium WebDriver (Chrome) for browser automation.
