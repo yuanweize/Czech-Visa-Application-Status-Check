@@ -1,10 +1,12 @@
 import csv
+import random
+import time
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.service import Service
-import time
+from selenium.common.exceptions import ElementNotInteractableException, ElementClickInterceptedException, NoSuchElementException
 
 try:
     # webdriver-manager optional fallback
@@ -18,8 +20,18 @@ class VisaStatusQuerier:
         if headless:
             options.add_argument('--headless')
             options.add_argument('--disable-gpu')
+        # performance tweaks: disable images and extensions, reduce shared memory use
+        options.add_experimental_option('prefs', {"profile.managed_default_content_settings.images": 2})
+        options.add_argument('--disable-extensions')
+        options.add_argument('--disable-dev-shm-usage')
         options.add_argument('--no-sandbox')
         options.add_argument('--window-size=1200,800')
+        # faster page load: don't wait for all resources
+        try:
+            options.set_capability('pageLoadStrategy', 'eager')
+        except Exception:
+            # older selenium may ignore
+            pass
         # Prefer explicit driver_path; otherwise try webdriver-manager to install a matching driver
         if driver_path:
             service = Service(driver_path)
@@ -35,24 +47,41 @@ class VisaStatusQuerier:
         self.wait = WebDriverWait(self.driver, 15)
 
     def query_status(self, code, max_attempts=3):
+        """Query a single code and return a bilingual normalized status string.
+
+        Retries on transient failures and returns a bilingual 'Query Failed / 查询失败' on permanent failure.
+        """
         url = 'https://ipc.gov.cz/en/status-of-your-application/'
         for attempt in range(1, max_attempts + 1):
             try:
                 self.driver.get(url)
-                # 关闭cookies弹窗（如有）
+
+                # Robustly dismiss cookie banners or overlays (click -> js click -> hide)
                 try:
                     cookie_btn = WebDriverWait(self.driver, 5).until(
                         EC.element_to_be_clickable((By.CSS_SELECTOR, '.cookies__wrapper button, .cookies__button, [data-cookies-edit] button, [data-cookies-edit]'))
                     )
-                    cookie_btn.click()
-                    time.sleep(0.5)
+                    try:
+                        cookie_btn.click()
+                    except (ElementNotInteractableException, ElementClickInterceptedException):
+                        try:
+                            self.driver.execute_script("arguments[0].click();", cookie_btn)
+                        except Exception:
+                            # last resort: hide known overlays
+                            try:
+                                self.driver.execute_script("document.querySelectorAll('.cookies__wrapper, .cookies__button, [data-cookies-edit], .cookie-consent, .gdpr-banner').forEach(e=>e.style.display='none');")
+                            except Exception:
+                                pass
                 except Exception:
-                    pass  # 没有弹窗可忽略
+                    # best-effort hide
+                    try:
+                        self.driver.execute_script("document.querySelectorAll('.cookies__wrapper, .cookies__button, [data-cookies-edit], .cookie-consent, .gdpr-banner').forEach(e=>e.style.display='none');")
+                    except Exception:
+                        pass
 
-                # 输入查询码，确保输入框可交互
+                # find input and populate
                 input_box = self.wait.until(EC.presence_of_element_located((By.NAME, 'visaApplicationNumber')))
                 if not (input_box.is_displayed() and input_box.is_enabled()):
-                    # 尝试刷新一次再查
                     self.driver.refresh()
                     time.sleep(1)
                     input_box = self.wait.until(EC.presence_of_element_located((By.NAME, 'visaApplicationNumber')))
@@ -60,38 +89,52 @@ class VisaStatusQuerier:
                 input_box.clear()
                 input_box.send_keys(code)
 
-                # 提交：优先查找更宽松的submit按钮匹配
+                # submit (try multiple fallbacks)
+                submit_btn = None
                 try:
                     submit_btn = self.driver.find_element(By.XPATH, "//button[@type='submit']")
                 except Exception:
-                    submit_btn = self.driver.find_element(By.XPATH, "//button[contains(., 'validate') or contains(., 'Validate') or contains(., 'ověřit')]")
-                submit_btn.click()
+                    try:
+                        submit_btn = self.driver.find_element(By.XPATH, "//button[contains(., 'validate') or contains(., 'Validate') or contains(., 'ověřit')]")
+                    except Exception:
+                        submit_btn = None
 
-                # 等待页面内alert块出现（短超时），若失败则重试
+                if submit_btn is not None:
+                    try:
+                        submit_btn.click()
+                    except (ElementNotInteractableException, ElementClickInterceptedException):
+                        try:
+                            self.driver.execute_script("arguments[0].scrollIntoView(true);", submit_btn)
+                            time.sleep(0.2)
+                            submit_btn.click()
+                        except Exception:
+                            try:
+                                self.driver.execute_script("arguments[0].click();", submit_btn)
+                            except Exception:
+                                pass
+
+                # wait for result alert
                 try:
                     alert_div = WebDriverWait(self.driver, 8).until(
                         EC.visibility_of_element_located((By.CSS_SELECTOR, '.alert__content'))
                     )
                     status_text = alert_div.text.strip().lower()
-                    # 关键字匹配
-                    if 'not found' in status_text or 'not found' in status_text:
+                    if 'not found' in status_text:
                         return 'Not Found / 未找到'
-                    elif 'still being processed' in status_text or 'proceedings' in status_text:
+                    if 'still being processed' in status_text or 'proceedings' in status_text:
                         return 'Proceedings / 审理中'
-                    elif 'was granted' in status_text or 'granted' in status_text:
+                    if 'was granted' in status_text or 'granted' in status_text:
                         return 'Granted / 已通过'
-                    elif 'was rejected' in status_text or 'rejected' in status_text or 'closed' in status_text:
+                    if 'was rejected' in status_text or 'rejected' in status_text or 'closed' in status_text:
                         return 'Rejected/Closed / 被拒绝/已关闭'
-                    else:
-                        return 'Unknown / 未知'
+                    return 'Unknown / 未知'
                 except Exception:
-                    # 视为一次网络/渲染问题，准备重试
+                    # treat as transient and retry
                     raise
             except Exception as e:
-                # 若未到达最大重试次数，短等待后重试；否则返回标准失败状态
                 if attempt < max_attempts:
                     print(f"  Attempt {attempt} failed, retrying... ({e}) / 尝试 {attempt} 失败，正在重试... ({e})")
-                    time.sleep(1 + attempt)
+                    time.sleep(1 + attempt + random.uniform(0, 0.5))
                     continue
                 else:
                     print(f"  Final attempt failed: {e} / 最终尝试失败: {e}")
@@ -100,7 +143,7 @@ class VisaStatusQuerier:
     def close(self):
         self.driver.quit()
 
-def update_csv_with_status(csv_path, code_col='查询码', status_col='签证状态', driver_path=None, headless=False, retries=None, log_dir='logs'):
+def update_csv_with_status(csv_path, code_col='查询码', status_col='签证状态', driver_path=None, headless=False, retries=None, log_dir='logs', per_query_delay=0.5, jitter=0.5):
     import os
     if not os.path.exists(csv_path):
         print(f"[Error] CSV not found: {csv_path}\nPlease generate it with generate-codes or provide the correct path (e.g. --i query_codes.csv). / [错误] 未找到CSV文件: {csv_path}\n请先用 generate-codes 生成或指定正确的文件路径（例如 --i query_codes.csv）。")
@@ -149,6 +192,14 @@ def update_csv_with_status(csv_path, code_col='查询码', status_col='签证状
                     if write_header:
                         fw.writerow(['日期', '查询码', '状态', '备注'])
                     fw.writerow([datetime.date.today().isoformat(), code, status, err_msg])
+                # pacing: small delay + jitter to avoid hammering the remote server
+                try:
+                    delay = float(per_query_delay) if per_query_delay is not None else 0.5
+                    j = float(jitter) if jitter is not None else 0.5
+                    sleep_for = max(0.0, delay + random.uniform(0, j))
+                    time.sleep(sleep_for)
+                except Exception:
+                    pass
         else:
             print(f"Skipped (exists): {code} -> {row[status_idx]} / 已存在: {code} -> {row[status_idx]}")
     querier.close()
@@ -161,5 +212,7 @@ if __name__ == '__main__':
     parser.add_argument('--headless', action='store_true', help='Run browser headless / 以无头模式运行浏览器')
     parser.add_argument('--retries', type=int, default=3, help='Retries per query (default 3) / 每条查询的重试次数（默认 3）')
     parser.add_argument('--log-dir', default='logs', help='Logs directory (default: logs) / 日志目录（默认: logs）')
+    parser.add_argument('--delay', type=float, default=0.5, help='Base per-query delay seconds (helps avoid rate-limits) / 每条查询基础延迟（秒），可避免短时间内高并发')
+    parser.add_argument('--jitter', type=float, default=0.5, help='Max jitter seconds to add to delay / 随机抖动最大值（秒），用于在基础延迟上增加随机性')
     args = parser.parse_args()
-    update_csv_with_status(args.csv, driver_path=args.driver_path, headless=args.headless, retries=args.retries, log_dir=args.log_dir)
+    update_csv_with_status(args.csv, driver_path=args.driver_path, headless=args.headless, retries=args.retries, log_dir=args.log_dir, per_query_delay=args.delay, jitter=args.jitter)
