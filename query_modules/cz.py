@@ -78,6 +78,36 @@ class VisaStatusQuerier:
                         self.driver.execute_script("document.querySelectorAll('.cookies__wrapper, .cookies__button, [data-cookies-edit], .cookie-consent, .gdpr-banner').forEach(e=>e.style.display='none');")
                     except Exception:
                         pass
+                # Targeted attempts to close common cookie/modal buttons (Refuse all / close)
+                try:
+                    targeted_selectors = [
+                        'button.button.button__outline',
+                        'button.button__outline',
+                        'button.button__close',
+                        '.modal__window .button.button__close',
+                        '.modal__window .close'
+                    ]
+                    for sel in targeted_selectors:
+                        try:
+                            els = self.driver.find_elements(By.CSS_SELECTOR, sel)
+                            for el in els:
+                                try:
+                                    el.click()
+                                    time.sleep(0.05)
+                                except (ElementNotInteractableException, ElementClickInterceptedException):
+                                    try:
+                                        self.driver.execute_script("arguments[0].click();", el)
+                                        time.sleep(0.05)
+                                    except Exception:
+                                        try:
+                                            self.driver.execute_script("arguments[0].style.display='none';", el)
+                                        except Exception:
+                                            pass
+                        except Exception:
+                            # ignore selector lookup errors and continue
+                            pass
+                except Exception:
+                    pass
 
                 # find input and populate
                 input_box = self.wait.until(EC.presence_of_element_located((By.NAME, 'visaApplicationNumber')))
