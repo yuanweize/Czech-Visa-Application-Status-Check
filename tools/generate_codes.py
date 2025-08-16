@@ -35,7 +35,7 @@ def generate_codes(start_date: date = None, end_date: date = None, per_day: int 
 def save_to_csv(rows, out_path="query_codes.csv"):
     with open(out_path, "w", newline='', encoding="utf-8") as f:
         writer = csv.writer(f)
-        writer.writerow(["日期", "查询码"])
+        writer.writerow(["日期/Date", "查询码/Code"])
         for d, code in rows:
             writer.writerow([d, code])
 

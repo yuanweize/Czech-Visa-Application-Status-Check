@@ -6,7 +6,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.service import Service
-from selenium.common.exceptions import ElementNotInteractableException, ElementClickInterceptedException, NoSuchElementException
+from selenium.common.exceptions import ElementNotInteractableException, ElementClickInterceptedException, NoSuchElementException, TimeoutException, WebDriverException, NoSuchWindowException
 
 try:
     # webdriver-manager optional fallback
@@ -16,8 +16,11 @@ except Exception:
 
 class VisaStatusQuerier:
     def __init__(self, driver_path=None, headless=False):
+        # keep config for possible re-creation
+        self._driver_path = driver_path
+        self._headless = headless
         options = webdriver.ChromeOptions()
-        if headless:
+        if self._headless:
             options.add_argument('--headless')
             options.add_argument('--disable-gpu')
         # performance tweaks: disable images and extensions, reduce shared memory use
@@ -32,7 +35,21 @@ class VisaStatusQuerier:
         except Exception:
             # older selenium may ignore
             pass
-        # Prefer explicit driver_path; otherwise try webdriver-manager to install a matching driver
+        # create the driver using a helper so we can recreate if needed
+        self._create_driver(driver_path, options)
+
+    def _create_driver(self, driver_path, options):
+        """Create a Chrome WebDriver and attach a WebDriverWait helper."""
+        # close existing if present
+        try:
+            if hasattr(self, 'driver') and self.driver:
+                try:
+                    self.driver.quit()
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
         if driver_path:
             service = Service(driver_path)
             self.driver = webdriver.Chrome(service=service, options=options)
@@ -46,6 +63,126 @@ class VisaStatusQuerier:
                 self.driver = webdriver.Chrome(options=options)
         self.wait = WebDriverWait(self.driver, 15)
 
+    def _ensure_driver(self):
+        """Ensure driver is alive; recreate if remote/closed unexpectedly."""
+        try:
+            # a lightweight call to detect dead driver
+            self.driver.execute_script('return 1')
+        except Exception:
+            # attempt to recreate
+            opts = webdriver.ChromeOptions()
+            if self._headless:
+                opts.add_argument('--headless')
+                opts.add_argument('--disable-gpu')
+            opts.add_experimental_option('prefs', {"profile.managed_default_content_settings.images": 2})
+            opts.add_argument('--disable-extensions')
+            opts.add_argument('--disable-dev-shm-usage')
+            opts.add_argument('--no-sandbox')
+            opts.add_argument('--window-size=1200,800')
+            try:
+                opts.set_capability('pageLoadStrategy', 'eager')
+            except Exception:
+                pass
+            self._create_driver(self._driver_path, opts)
+
+    def _dismiss_overlays(self, timeout=8):
+        """Attempt to close cookie banners and modal windows using targeted selectors and JS clicks.
+
+        Returns True if overlays appear cleared, False otherwise.
+        """
+        try:
+            # quick targeted attempts for known buttons (Refuse all / close)
+            js_click_by_text = r'''
+            (function(){
+              var texts = ['refuse all','refuse','decline','do not accept','odmítnout','odmítnout vše','nepřijmout','zamítnout','reject','close','zavřít'];
+              function norm(s){return (s||'').trim().toLowerCase();}
+              function tryClick(el){ try{ el.click(); return true;}catch(e){ try{ var ev=new MouseEvent('click',{bubbles:true,cancelable:true,view:window}); el.dispatchEvent(ev); return true;}catch(e2){ try{ el.remove(); return true;}catch(e3){} } return false; }
+              var sels = ['.cookies__wrapper button.button__outline','.cookies__wrapper button','.cookies__container button.button__outline','button.button__outline','button.button__close','.modal__window button.button__close','button.button'];
+              sels.forEach(function(sel){ document.querySelectorAll(sel).forEach(function(b){ try{ var t=norm(b.innerText||b.value||''); for(var i=0;i<texts.length;i++){ if(t.indexOf(texts[i])>=0){ tryClick(b); break; } } }catch(e){} }); });
+              var hide = ['.cookies__wrapper','.cookie-consent','.gdpr-banner','[data-cookie]','[data-cookies-edit]','.modal__window','.modal-backdrop'];
+              hide.forEach(function(s){ document.querySelectorAll(s).forEach(function(w){ try{ w.style.display='none'; w.style.pointerEvents='none'; w.style.zIndex='-9999'; }catch(e){} }); });
+            })();
+            '''
+
+            end = time.time() + timeout
+            checks = ['.cookies__wrapper', '.cookie-consent', '.gdpr-banner', '[data-cookie]', '[data-cookies-edit]', '.modal__window', '.modal-backdrop']
+            while time.time() < end:
+                try:
+                    # run targeted JS click/hide
+                    self.driver.execute_script(js_click_by_text)
+                except Exception:
+                    pass
+                # also try Selenium-level clicks for visible refuse/close buttons
+                try:
+                    for sel in ('.cookies__wrapper button.button__outline', 'button.button__outline', '.modal__window button.button__close', 'button.button__close'):
+                        try:
+                            els = self.driver.find_elements(By.CSS_SELECTOR, sel)
+                        except Exception:
+                            els = []
+                        for el in els:
+                            try:
+                                if el.is_displayed() and el.is_enabled():
+                                    try:
+                                        # use JS dispatch first
+                                        self.driver.execute_script("var ev = new MouseEvent('click', {bubbles:true,cancelable:true,view:window}); arguments[0].dispatchEvent(ev);", el)
+                                    except Exception:
+                                        try:
+                                            el.click()
+                                        except Exception:
+                                            try:
+                                                self.driver.execute_script("arguments[0].click();", el)
+                                            except Exception:
+                                                pass
+                            except Exception:
+                                pass
+                except Exception:
+                    pass
+
+                # check if wrappers still present and visible
+                still = False
+                try:
+                    for sel in checks:
+                        try:
+                            elems = self.driver.find_elements(By.CSS_SELECTOR, sel)
+                        except Exception:
+                            elems = []
+                        for el in elems:
+                            try:
+                                if el.is_displayed():
+                                    still = True
+                                    break
+                            except Exception:
+                                still = True
+                                break
+                        if still:
+                            break
+                except Exception:
+                    still = True
+
+                if not still:
+                    return True
+                time.sleep(0.35)
+        except Exception:
+            pass
+        # do not save debug here; caller will decide when to persist a dump
+        return False
+
+    def _save_overlay_debug(self, tag='debug'):
+        """Save current page HTML to logs/fails for later diagnosis; tag is short descriptor."""
+        try:
+            import os, datetime
+            fails_dir = os.path.join(os.getcwd(), 'logs', 'fails')
+            os.makedirs(fails_dir, exist_ok=True)
+            fn = os.path.join(fails_dir, f"overlay_debug_{tag}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.html")
+            try:
+                src = self.driver.page_source
+                with open(fn, 'w', encoding='utf-8') as fh:
+                    fh.write(src)
+            except Exception:
+                pass
+        except Exception:
+            pass
+
     def query_status(self, code, max_attempts=3):
         """Query a single code and return a bilingual normalized status string.
 
@@ -54,164 +191,59 @@ class VisaStatusQuerier:
         url = 'https://ipc.gov.cz/en/status-of-your-application/'
         for attempt in range(1, max_attempts + 1):
             try:
-                self.driver.get(url)
-
-                # Aggressive cookie/modal dismissal:
-                # 1) try to find wrappers and click 'refuse/decline' buttons by text (multi-language)
-                # 2) try any visible button inside the wrapper
-                # 3) JS-click fallback or remove the wrapper entirely
+                # ensure driver is healthy before navigation
                 try:
-                    wrappers = self.driver.find_elements(By.CSS_SELECTOR, '.cookies__wrapper, .cookie-consent, .gdpr-banner, [data-cookie], [data-cookies-edit]')
-                    for wrap in wrappers:
-                        try:
-                            buttons = wrap.find_elements(By.TAG_NAME, 'button')
-                            clicked = False
-                            for b in buttons:
-                                try:
-                                    txt = (b.text or '').strip().lower()
-                                    if any(k in txt for k in ('refuse', 'refuse all', 'decline', 'odmítnout', 'nepřijmout', 'odmít', 'reject', 'ne')):
-                                        try:
-                                            b.click()
-                                            clicked = True
-                                            break
-                                        except (ElementNotInteractableException, ElementClickInterceptedException):
-                                            try:
-                                                self.driver.execute_script("arguments[0].click();", b)
-                                                clicked = True
-                                                break
-                                            except Exception:
-                                                pass
-                                except Exception:
-                                    # safe-guard if reading text or clicking throws unexpected error
-                                    pass
-                            if not clicked:
-                                for b in buttons:
-                                    try:
-                                        if b.is_displayed() and b.is_enabled():
-                                            try:
-                                                b.click()
-                                                clicked = True
-                                                break
-                                            except Exception:
-                                                try:
-                                                    self.driver.execute_script("arguments[0].click();", b)
-                                                    clicked = True
-                                                    break
-                                                except Exception:
-                                                    pass
-                                    except Exception:
-                                        pass
-                        except Exception:
-                            pass
-                    # last resort: remove wrappers from DOM if still present
-                    try:
-                        self.driver.execute_script("document.querySelectorAll('.cookies__wrapper, .cookie-consent, .gdpr-banner, [data-cookie], [data-cookies-edit]').forEach(e=>e.remove());")
-                    except Exception:
-                        try:
-                            self.driver.execute_script("document.querySelectorAll('.cookies__wrapper, .cookie-consent, .gdpr-banner, [data-cookie], [data-cookies-edit]').forEach(e=>e.style.display='none');")
-                        except Exception:
-                            pass
+                    self._ensure_driver()
                 except Exception:
-                    # fallback best-effort hide
+                    pass
+                # navigate; wrap to handle first-run transient failures
+                try:
+                    self.driver.get(url)
+                except Exception:
+                    # short pause and recreate then retry navigation once
+                    time.sleep(0.5)
+                    try:
+                        self._ensure_driver()
+                        self.driver.get(url)
+                    except Exception:
+                        # re-raise to be handled by outer retry logic
+                        raise
+
+                # centralize overlay dismissal
+                try:
+                    self._dismiss_overlays(timeout=8)
+                except Exception:
                     try:
                         self.driver.execute_script("document.querySelectorAll('.cookies__wrapper, .cookie-consent, .gdpr-banner').forEach(e=>e.style.display='none');")
                     except Exception:
                         pass
 
-                # new: more persistent overlay clearance helper
-                def _clear_overlays(timeout=6, debug=False):
-                    end = time.time() + timeout
-                    overlay_selectors = ['.cookies__wrapper', '.cookie-consent', '.gdpr-banner', '[data-cookie]', '[data-cookies-edit]', '.modal__window', '.modal-backdrop']
-                    while time.time() < end:
-                        found = False
-                        for sel in overlay_selectors:
-                            try:
-                                elems = self.driver.find_elements(By.CSS_SELECTOR, sel)
-                            except Exception:
-                                elems = []
-                            for el in elems:
-                                try:
-                                    # if not visible skip
-                                    if not el.is_displayed():
-                                        continue
-                                except Exception:
-                                    pass
-                                found = True
-                                if debug:
-                                    print(f"[overlay] found {sel}")
-                                # attempt targeted button clicks inside overlay
-                                try:
-                                    btns = el.find_elements(By.TAG_NAME, 'button')
-                                    for b in btns:
-                                        try:
-                                            t = (b.text or '').strip().lower()
-                                            if any(k in t for k in ('refuse', 'decline', 'odmítnout', 'nepřijmout', 'reject', 'cancel', 'close', 'close')):
-                                                try:
-                                                    b.click()
-                                                except Exception:
-                                                    try:
-                                                        self.driver.execute_script("arguments[0].click();", b)
-                                                    except Exception:
-                                                        pass
-                                        except Exception:
-                                            pass
-                                except Exception:
-                                    pass
-                                # try to neutralize via css
-                                try:
-                                    self.driver.execute_script("arguments[0].style.display='none'; arguments[0].style.pointerEvents='none'; arguments[0].style.zIndex='-9999';", el)
-                                except Exception:
-                                    try:
-                                        self.driver.execute_script("arguments[0].remove();", el)
-                                    except Exception:
-                                        pass
-                        if not found:
-                            return True
-                        time.sleep(0.3)
-                    return False
-
-                # run overlay clearance with short timeout; debug enabled when needed
-                try:
-                    _clear_overlays(timeout=6, debug=False)
-                except Exception:
-                    pass
-                # Targeted attempts to close common cookie/modal buttons (Refuse all / close)
-                try:
-                    targeted_selectors = [
-                        'button.button.button__outline',
-                        'button.button__outline',
-                        'button.button__close',
-                        '.modal__window .button.button__close',
-                        '.modal__window .close'
-                    ]
-                    for sel in targeted_selectors:
-                        try:
-                            els = self.driver.find_elements(By.CSS_SELECTOR, sel)
-                            for el in els:
-                                try:
-                                    el.click()
-                                    time.sleep(0.05)
-                                except (ElementNotInteractableException, ElementClickInterceptedException):
-                                    try:
-                                        self.driver.execute_script("arguments[0].click();", el)
-                                        time.sleep(0.05)
-                                    except Exception:
-                                        try:
-                                            self.driver.execute_script("arguments[0].style.display='none';", el)
-                                        except Exception:
-                                            pass
-                        except Exception:
-                            # ignore selector lookup errors and continue
-                            pass
-                except Exception:
-                    pass
-
                 # find input and populate
-                input_box = self.wait.until(EC.presence_of_element_located((By.NAME, 'visaApplicationNumber')))
-                if not (input_box.is_displayed() and input_box.is_enabled()):
-                    self.driver.refresh()
-                    time.sleep(1)
+                try:
                     input_box = self.wait.until(EC.presence_of_element_located((By.NAME, 'visaApplicationNumber')))
+                    if not (input_box.is_displayed() and input_box.is_enabled()):
+                        self.driver.refresh()
+                        time.sleep(1)
+                        input_box = self.wait.until(EC.presence_of_element_located((By.NAME, 'visaApplicationNumber')))
+                except (NoSuchWindowException, WebDriverException):
+                    # driver window closed or session lost: recreate and reload page, then retry once
+                    try:
+                        print('  Detected closed window/session; recreating browser and retrying... / 检测到浏览器窗口关闭/会话丢失，正在重建并重试...')
+                        self._ensure_driver()
+                        try:
+                            self.driver.get(url)
+                        except Exception:
+                            time.sleep(0.5)
+                            self.driver.get(url)
+                        # re-dismiss overlays after recreation
+                        try:
+                            self._dismiss_overlays(timeout=6)
+                        except Exception:
+                            pass
+                        input_box = self.wait.until(EC.presence_of_element_located((By.NAME, 'visaApplicationNumber')))
+                    except Exception:
+                        # let outer retry handle it
+                        raise
 
                 input_box.clear()
                 input_box.send_keys(code)
@@ -240,95 +272,178 @@ class VisaStatusQuerier:
                             except Exception:
                                 pass
 
-                # wait for result alert
+                # wait for result alert or other visible result text using a JS poll across multiple selectors
+                status_text = ''
                 try:
-                    alert_div = WebDriverWait(self.driver, 8).until(
-                        EC.visibility_of_element_located((By.CSS_SELECTOR, '.alert__content'))
-                    )
-                    status_text = alert_div.text.strip().lower()
+                    end = time.time() + 8
+                    # include role/aria selectors which many sites use for live alerts
+                    selectors = ['.alert__content', '.alert', '.result', '.status', '.ipc-result', '.application-status', '[role=alert]', '[aria-live]']
+                    while time.time() < end:
+                        try:
+                            found_text = ''
+                            # First: try Selenium to read text from matching elements (accept text even if not displayed)
+                            for s in selectors:
+                                try:
+                                    els = self.driver.find_elements(By.CSS_SELECTOR, s)
+                                except Exception:
+                                    els = []
+                                for el in els:
+                                    try:
+                                        txt = (el.text or '').strip()
+                                        if not txt:
+                                            # fallback to innerText/textContent via JS for elements that may not report visible
+                                            try:
+                                                txt = self.driver.execute_script("return (arguments[0].innerText || arguments[0].textContent || '').trim();", el) or ''
+                                            except Exception:
+                                                txt = ''
+                                        if txt:
+                                            found_text = txt
+                                            break
+                                    except Exception:
+                                        continue
+                                if found_text:
+                                    break
+                            if found_text:
+                                status_text = found_text.strip().lower()
+                                break
+
+                            # Second: JS-wide scan over selectors to find any non-empty innerText/textContent regardless of visibility
+                            try:
+                                js_scan = "var sels=arguments[0]; for(var i=0;i<sels.length;i++){var nodes=document.querySelectorAll(sels[i]); for(var j=0;j<nodes.length;j++){ try{ var t=(nodes[j].innerText||nodes[j].textContent||'').trim(); if(t) return t;}catch(e){} } } return '';"
+                                txt = self.driver.execute_script(js_scan, selectors)
+                                if txt and str(txt).strip():
+                                    status_text = str(txt).strip().lower()
+                                    break
+                            except Exception:
+                                pass
+                        except Exception:
+                            pass
+                        time.sleep(0.35)
+                    if not status_text:
+                        raise TimeoutException('No visible result text found')
                     if 'not found' in status_text:
                         return 'Not Found / 未找到'
-                    if 'still being processed' in status_text or 'proceedings' in status_text:
+                    if 'still' in status_text and 'proceedings' in status_text:
                         return 'Proceedings / 审理中'
-                    if 'was granted' in status_text or 'granted' in status_text:
+                    if 'for information on how to proceed' in status_text or 'granted' in status_text or 'approved' in status_text:
                         return 'Granted / 已通过'
-                    if 'was rejected' in status_text or 'rejected' in status_text or 'closed' in status_text:
+                    if 'proceedings' in status_text:
                         return 'Rejected/Closed / 被拒绝/已关闭'
-                    return 'Unknown / 未知'
+                    return 'Unknown Status / 未知状态'+f"(status_text/状态文本: {status_text})"
+                except TimeoutException:
+                    # no result visible in time — treat as transient and retry
+                    raise
                 except Exception:
-                    # treat as transient and retry
+                    # treat other exceptions as transient
                     raise
             except Exception as e:
                 if attempt < max_attempts:
-                    print(f"  Attempt {attempt} failed, retrying... ({e}) / 尝试 {attempt} 失败，正在重试... ({e})")
+                    print(f"  Attempt/ 尝试  {attempt} failed, retrying.../失败，正在重试...({e})")
                     time.sleep(1 + attempt + random.uniform(0, 0.5))
                     continue
                 else:
-                    print(f"  Final attempt failed: {e} / 最终尝试失败: {e}")
-                    return 'Query Failed / 查询失败'
+                    print(f"  Final attempt failed/最终尝试失败: {e}")
+                    return 'Query Failed / 查询失败'+f"(status_text/状态文本: {status_text})"
+
 
     def close(self):
         self.driver.quit()
 
-def update_csv_with_status(csv_path, code_col='查询码', status_col='签证状态', driver_path=None, headless=False, retries=None, log_dir='logs', per_query_delay=0.5, jitter=0.5):
+def update_csv_with_status(csv_path, code_col='查询码/Code', status_col='签证状态/Status', driver_path=None, headless=False, retries=None, log_dir='logs', per_query_delay=0.5, jitter=0.5):
     import os
     if not os.path.exists(csv_path):
-        print(f"[Error] CSV not found: {csv_path}\nPlease generate it with generate-codes or provide the correct path (e.g. --i query_codes.csv). / [错误] 未找到CSV文件: {csv_path}\n请先用 generate-codes 生成或指定正确的文件路径（例如 --i query_codes.csv）。")
+        print(f"[Error] CSV not found / [错误] 未找到CSV文件: {csv_path}\nPlease generate it with generate-codes or provide the correct path (e.g. --i query_codes.csv).\n请先用 generate-codes 生成或指定正确的文件路径（例如 --i query_codes.csv）。")
+
         return
     with open(csv_path, newline='', encoding='utf-8') as f:
         rows = list(csv.reader(f))
     header = rows[0]
-    if status_col not in header:
+    # normalize header matching: find indices by exact or case-insensitive match
+    def find_col(name):
+        if name in header:
+            return header.index(name)
+        nl = name.lower()
+        for i, h in enumerate(header):
+            if h and h.lower() == nl:
+                return i
+        # try partial matches
+        for i, h in enumerate(header):
+            if h and nl in h.lower():
+                return i
+        return None
+
+    code_idx = find_col(code_col)
+    if code_idx is None:
+        raise ValueError(f'Could not find code column {code_col} in CSV header: {header}')
+    status_idx = find_col(status_col)
+    if status_idx is None:
+        # add the status column at the end
         header.append(status_col)
-    code_idx = header.index(code_col)
-    status_idx = header.index(status_col)
+        status_idx = len(header) - 1
     querier = VisaStatusQuerier(driver_path=driver_path, headless=headless)
     for i, row in enumerate(rows[1:], 1):
+        # ensure row length matches header
+        while len(row) < len(header):
+            row.append('')
         code = row[code_idx]
-        if len(row) <= status_idx or not row[status_idx]:
-            print(f"Querying: {code} / 查询: {code}")
-            try:
-                # Use provided retries if set, otherwise default inside query_status
-                max_attempts = retries if (retries is not None and retries > 0) else 3
-                status = querier.query_status(code, max_attempts=max_attempts)
-            except Exception as e:
-                status = 'Query Failed'
-                err_msg = str(e)
-            else:
-                err_msg = ''
-            if len(row) <= status_idx:
-                row += [''] * (status_idx - len(row) + 1)
-            row[status_idx] = status
-            print(f"  Status: {status} / 状态: {status}")
-            # 每条查询后立即写入文件，防止中途出错丢失
-            with open(csv_path, 'w', newline='', encoding='utf-8') as wf:
-                writer = csv.writer(wf)
-                writer.writerow(header)
-                writer.writerows(rows[1:])
-            # 如果查询失败，写入 logs/fails 当日失败文件，便于后续重试
-            # treat any variant containing 'query failed' (case-insensitive) as failure
-            if isinstance(status, str) and 'query failed' in status.lower():
-                import os
-                import datetime
-                fails_dir = os.path.join(os.getcwd(), log_dir, 'fails')
-                os.makedirs(fails_dir, exist_ok=True)
-                fail_file = os.path.join(fails_dir, f"{datetime.date.today().isoformat()}_fails.csv")
-                write_header = not os.path.exists(fail_file)
-                with open(fail_file, 'a', newline='', encoding='utf-8') as ff:
-                    fw = csv.writer(ff)
-                    if write_header:
-                        fw.writerow(['日期', '查询码', '状态', '备注'])
-                    fw.writerow([datetime.date.today().isoformat(), code, status, err_msg])
-                # pacing: small delay + jitter to avoid hammering the remote server
+        # if status column already has a non-empty value, skip
+        if row[status_idx] and str(row[status_idx]).strip():
+            print(f"Skipped(exists)/跳过(已存在):{code} -> {row[status_idx]}")
+            continue
+
+        # perform the query for empty status
+        print(f"Querying/查询： {code}")
+        try:
+            # Use provided retries if set, otherwise default inside query_status
+            max_attempts = retries if (retries is not None and retries > 0) else 3
+            status = querier.query_status(code, max_attempts=max_attempts)
+            err_msg = ''
+        except Exception as e:
+            status = 'Query Failed / 查询失败'
+            err_msg = str(e)
+
+        # ensure row long enough then write status
+        row[status_idx] = status
+        print(f"  Status/状态: {status}")
+        # save overlay debug only for Unknown or Query Failed to aid later debugging
+        try:
+            if isinstance(status, str) and (status.lower().startswith('unknown') or 'query failed' in status.lower()):
                 try:
-                    delay = float(per_query_delay) if per_query_delay is not None else 0.5
-                    j = float(jitter) if jitter is not None else 0.5
-                    sleep_for = max(0.0, delay + random.uniform(0, j))
-                    time.sleep(sleep_for)
+                    querier._save_overlay_debug(tag=status.split()[0])
                 except Exception:
                     pass
-        else:
-            print(f"Skipped (exists): {code} -> {row[status_idx]} / 已存在: {code} -> {row[status_idx]}")
+        except Exception:
+            pass
+
+        # 每条查询后立即写入文件，防止中途出错丢失
+        with open(csv_path, 'w', newline='', encoding='utf-8') as wf:
+            writer = csv.writer(wf)
+            writer.writerow(header)
+            writer.writerows(rows[1:])
+
+        # 如果查询失败，写入 logs/fails 当日失败文件，便于后续重试
+        # treat any variant containing 'query failed' (case-insensitive) as failure
+        if isinstance(status, str) and 'query failed' in status.lower():
+            import os
+            import datetime
+            fails_dir = os.path.join(os.getcwd(), log_dir, 'fails')
+            os.makedirs(fails_dir, exist_ok=True)
+            fail_file = os.path.join(fails_dir, f"{datetime.date.today().isoformat()}_fails.csv")
+            write_header = not os.path.exists(fail_file)
+            with open(fail_file, 'a', newline='', encoding='utf-8') as ff:
+                fw = csv.writer(ff)
+                if write_header:
+                    fw.writerow(['日期/Date', '查询码/Code', '状态/Status', '备注/Remark'])
+                fw.writerow([datetime.date.today().isoformat(), code, status, err_msg])
+
+            # pacing: small delay + jitter to avoid hammering the remote server
+            try:
+                delay = float(per_query_delay) if per_query_delay is not None else 0.5
+                j = float(jitter) if jitter is not None else 0.5
+                sleep_for = max(0.0, delay + random.uniform(0, j))
+                time.sleep(sleep_for)
+            except Exception:
+                pass
     querier.close()
 
 if __name__ == '__main__':
