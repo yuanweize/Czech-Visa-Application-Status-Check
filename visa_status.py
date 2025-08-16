@@ -25,26 +25,26 @@ def main():
     )
     subparsers = parser.add_subparsers(dest='command', required=True, help='可用子命令')
 
-    # 全局选项
-    parser.add_argument('--retries', type=int, default=3, help='每条查询的重试次数（默认: 3）')
-    parser.add_argument('--no-auto-install', action='store_true', help='禁用启动时自动安装缺失的依赖')
-    parser.add_argument('--log-dir', default='logs', help='日志目录（默认: logs）')
-    parser.add_argument('--headless', action='store_true', help='全局启用无头模式（可被子命令上的 --headless 覆盖）')
+    # 全局选项 / Global options
+    parser.add_argument('--retries', type=int, default=3, help='Retries per query (default: 3) / 每条查询的重试次数（默认: 3）')
+    parser.add_argument('--no-auto-install', action='store_true', help='Disable auto-install of missing deps at startup / 启动时禁用自动安装缺失依赖')
+    parser.add_argument('--log-dir', default='logs', help='Logs directory (default: logs) / 日志目录（默认: logs）')
+    parser.add_argument('--headless', action='store_true', help='Enable headless mode globally / 全局启用无头模式（子命令可覆盖）')
 
     # 生成器子命令
-    gen_parser = subparsers.add_parser('generate-codes', help='批量生成查询码（支持自定义日期、数量等）')
-    gen_parser.add_argument('-o', '--out', default='query_codes.csv', help='输出csv路径')
-    gen_parser.add_argument('--start', help='起始日期 YYYY-MM-DD')
-    gen_parser.add_argument('--end', help='结束日期 YYYY-MM-DD')
-    gen_parser.add_argument('--per-day', type=int, default=5, help='每个日期的序列数')
-    gen_parser.add_argument('--include-weekends', action='store_true', help='包含周末')
+    gen_parser = subparsers.add_parser('generate-codes', help='Generate a CSV of query codes / 生成查询码CSV（支持自定义日期与数量）')
+    gen_parser.add_argument('-o', '--out', default='query_codes.csv', help='output CSV path / 输出 CSV 路径')
+    gen_parser.add_argument('--start', help='start date YYYY-MM-DD / 起始日期（YYYY-MM-DD）')
+    gen_parser.add_argument('--end', help='end date YYYY-MM-DD / 结束日期（YYYY-MM-DD）')
+    gen_parser.add_argument('--per-day', type=int, default=5, help='items per day / 每日期条目数')
+    gen_parser.add_argument('--include-weekends', action='store_true', help='include weekends / 包含周末')
 
     # 查询器子命令（以国家码命名）
     for country_code, (mod_path, _) in QUERY_MODULES.items():
-        q_parser = subparsers.add_parser(country_code, help=f'{country_code.upper()}签证状态批量查询')
-        q_parser.add_argument('--i', default='query_codes.csv', help='csv文件路径')
-        q_parser.add_argument('--driver-path', default=None, help='ChromeDriver 可执行文件路径（可选）')
-        q_parser.add_argument('--headless', action='store_true', help='以无头模式运行浏览器')
+        q_parser = subparsers.add_parser(country_code, help=f'{country_code.upper()} visa-status checker / {country_code.upper()}签证状态批量查询')
+        q_parser.add_argument('--i', default='query_codes.csv', help='CSV input path (default: query_codes.csv) / CSV 文件路径（默认: query_codes.csv）')
+        q_parser.add_argument('--driver-path', default=None, help='ChromeDriver executable path (optional) / ChromeDriver 可执行文件路径（可选）')
+        q_parser.add_argument('--headless', action='store_true', help='Run browser headless / 以无头模式运行浏览器')
         # 可扩展更多参数
 
     # 在运行前进行依赖检查：selenium、webdriver_manager
@@ -59,6 +59,7 @@ def main():
         log_path = os.path.join(logs_dir, f"install_{datetime.date.today().isoformat()}.log")
 
         def log(msg: str):
+            # msg should be bilingual where possible (EN / 中文)
             ts = datetime.datetime.now().isoformat(sep=' ', timespec='seconds')
             with open(log_path, 'a', encoding='utf-8') as lf:
                 lf.write(f"[{ts}] {msg}\n")
@@ -66,58 +67,58 @@ def main():
         missing = []
         try:
             import selenium  # noqa: F401
-            log('selenium: present')
+            log('selenium: present / selenium: 已安装')
         except Exception:
             missing.append('selenium')
-            log('selenium: missing')
+            log('selenium: missing / selenium: 未安装')
         try:
             import webdriver_manager  # noqa: F401
-            log('webdriver-manager: present')
+            log('webdriver-manager: present / webdriver-manager: 已安装')
         except Exception:
             missing.append('webdriver-manager')
-            log('webdriver-manager: missing')
+            log('webdriver-manager: missing / webdriver-manager: 未安装')
         try:
             import openpyxl  # noqa: F401
-            log('openpyxl: present')
+            log('openpyxl: present / openpyxl: 已安装')
         except Exception:
             missing.append('openpyxl')
-            log('openpyxl: missing')
+            log('openpyxl: missing / openpyxl: 未安装')
 
         chromedriver_found = False
         # check PATH for chromedriver
         if shutil.which('chromedriver') or shutil.which('chromedriver.exe'):
             chromedriver_found = True
-            log('chromedriver: found in PATH')
+            log('chromedriver: found in PATH / chromedriver: 在 PATH 中找到')
         else:
-            log('chromedriver: not found in PATH')
+            log('chromedriver: not found in PATH / chromedriver: 未在 PATH 中找到')
 
         if missing:
-            log('Missing packages: ' + ', '.join(missing))
+            log('Missing packages: ' + ', '.join(missing) + ' / 缺失的包: ' + ', '.join(missing))
             if auto_install:
-                log('Auto-install enabled; attempting pip install')
+                log('Auto-install enabled; attempting pip install / 自动安装已启用，尝试通过 pip 安装')
                 try:
                     subprocess.check_call([sys.executable, '-m', 'pip', 'install'] + missing)
-                    log('pip install succeeded for: ' + ', '.join(missing))
+                    log('pip install succeeded for: ' + ', '.join(missing) + ' / pip 安装成功: ' + ', '.join(missing))
                 except Exception as e:
-                    log('pip install failed: ' + str(e))
+                    log('pip install failed: ' + str(e) + ' / pip 安装失败: ' + str(e))
             else:
-                log('Auto-install disabled; skipping pip install')
+                log('Auto-install disabled; skipping pip install / 未启用自动安装，跳过 pip 安装')
 
         # After install attempt, check for webdriver-manager availability
         try:
             import webdriver_manager  # noqa: F401
             has_wdm = True
-            log('webdriver-manager: available after install check')
+            log('webdriver-manager: available after install check / webdriver-manager: 安装检查后可用')
         except Exception:
             has_wdm = False
-            log('webdriver-manager: still not available')
+            log('webdriver-manager: still not available / webdriver-manager: 仍然不可用')
 
         if not chromedriver_found:
             if has_wdm:
-                log('Will use webdriver-manager to download chromedriver at runtime')
+                log('Will use webdriver-manager to download chromedriver at runtime / 将使用 webdriver-manager 在运行时下载 chromedriver')
             else:
                 # no chromedriver and no webdriver-manager: log warning
-                log('Warning: chromedriver not found and webdriver-manager not available. User must install chromedriver or provide --driver-path')
+                log('Warning: chromedriver not found and webdriver-manager not available. User must install chromedriver or provide --driver-path / 警告：未找到 chromedriver 且 webdriver-manager 不可用。请安装 chromedriver 或使用 --driver-path 指定驱动路径')
 
     # run dependency check with chosen behavior (use parse_known_args to read global opts before full parse)
     known_args, _ = parser.parse_known_args()

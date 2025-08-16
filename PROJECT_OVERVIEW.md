@@ -11,7 +11,7 @@ Czech Visa Application Status Check — a bilingual (EN/中文) tool to generate
 
 - Code generator: `tools/generate_codes.py` — generate PEKI-style codes and save to CSV. / 查询码生成器，生成 PEKIYYYYMMDDssss 格式并导出CSV。
 - Czech query module: `query_modules/cz.py` — Selenium-based automation with retry and normalized status mapping. / 捷克查询模块，基于 Selenium，带重试和标准化状态映射。
-- Main CLI: `Visa_Status.py` — dispatches `generate-codes` and country-code subcommands (e.g., `cz`). / 主程序用于调度生成器和按国家码调用查询模块。
+- Main CLI: `visa_status.py` — dispatches `generate-codes` and country-code subcommands (e.g., `cz`). / 主程序用于调度生成器和按国家码调用查询模块。
 - Tests: `test_generate_codes.py` (pytest). / 单元测试覆盖生成逻辑。
 
 ## Usage Examples / 使用示例
@@ -19,8 +19,8 @@ Czech Visa Application Status Check — a bilingual (EN/中文) tool to generate
 Generate codes and query statuses (example):
 
 ```bash
-python Visa_Status.py generate-codes -o my_codes.csv --start 2025-06-01 --end 2025-08-15 --per-day 5
-python Visa_Status.py cz --i my_codes.csv
+python visa_status.py generate-codes -o my_codes.csv --start 2025-06-01 --end 2025-08-15 --per-day 5
+python visa_status.py cz --i my_codes.csv
 ```
 
 ## Behavior and failure handling / 行为与故障处理
@@ -30,11 +30,13 @@ python Visa_Status.py cz --i my_codes.csv
 
 ## Extensibility / 可扩展性
 
-- Add other country modules under `query_modules/` named by ISO-2 code, and register them in `Visa_Status.py`. / 在 `query_modules/` 下以国家码命名新模块并在主程序注册。
+- Add other country modules under `query_modules/` named by ISO-2 code, and register them in `visa_status.py`. / 在 `query_modules/` 下以国家码命名新模块并在主程序注册。
 
 ## Notes / 注意事项
 
 - Ensure ChromeDriver and Chrome are installed and compatible. / 请确保安装并匹配 Chrome/ChromeDriver。
+
+- Note: the previous small `utils/i18n.py` helper has been removed; bilingual messages are now written inline in each module. / 注意：项目中早先使用的 `utils/i18n.py` 已被移除；双语消息现已直接写入各模块。
 
 ---
 

@@ -44,12 +44,12 @@ def parse_date(s: str):
 
 def main(argv=None):
     import argparse
-    p = argparse.ArgumentParser(description="生成查询码并保存为 csv")
-    p.add_argument("-o", "--out", help="输出 csv 路径", default="query_codes.csv")
-    p.add_argument("--start", help="起始日期 YYYY-MM-DD", default=None)
-    p.add_argument("--end", help="结束日期 YYYY-MM-DD", default=None)
-    p.add_argument("--per-day", type=int, help="每个日期的序列数", default=5)
-    p.add_argument("--include-weekends", action="store_true", help="包含周末")
+    p = argparse.ArgumentParser(description="Generate query codes and save as CSV / 生成查询码并保存为 CSV")
+    p.add_argument("-o", "--out", help="output CSV path (default: query_codes.csv) / 输出 CSV 路径（默认: query_codes.csv）", default="query_codes.csv")
+    p.add_argument("--start", help="start date YYYY-MM-DD / 起始日期（YYYY-MM-DD）", default=None)
+    p.add_argument("--end", help="end date YYYY-MM-DD / 结束日期（YYYY-MM-DD）", default=None)
+    p.add_argument("--per-day", type=int, help="items per day (int) / 每日生成条目数（整数）", default=5)
+    p.add_argument("--include-weekends", action="store_true", help="include weekends / 是否包含周末")
     args = p.parse_args(argv)
 
     start = parse_date(args.start) if args.start else None
@@ -57,7 +57,7 @@ def main(argv=None):
 
     rows = generate_codes(start_date=start, end_date=end, per_day=args.per_day, include_weekends=args.include_weekends)
     save_to_csv(rows, args.out)
-    print(f"生成 {len(rows)} 条查询码，已保存到 {args.out}")
+    print(f"Generated {len(rows)} query codes, saved to {args.out} / 生成 {len(rows)} 条查询码，已保存到 {args.out}")
 
 if __name__ == "__main__":
     main()

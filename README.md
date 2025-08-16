@@ -5,7 +5,7 @@
 Bulk generator and checker for Czech visa application status — generate Czech visa/resident query codes and check statuses on the official IPC portal. 本项目用于批量生成捷克签证/居留查询码并在捷克内政部公开页面批量查询签证申请状态，导出 CSV。
 
 
-Repository: https://github.com/yuanweize/Czech-Visa-Application-Status-Check
+Repository / 仓库: https://github.com/yuanweize/Czech-Visa-Application-Status-Check
 
 ## Quick start / 快速开始
 
@@ -18,16 +18,16 @@ python -m pip install -r requirements.txt
 2. Generate query codes / 生成查询码
 
 ```bash
-python Visa_Status.py generate-codes -o my_codes.csv --start 2025-06-01 --end 2025-08-15 --per-day 5
+python visa_status.py generate-codes -o my_codes.csv --start 2025-06-01 --end 2025-08-15 --per-day 5
 ```
 
 3. Query statuses (Czech example) / 查询签证状态（捷克示例）
 
 ```bash
-python Visa_Status.py cz --i my_codes.csv
+python visa_status.py cz --i my_codes.csv
 ```
 
-Use `python Visa_Status.py -h` to list available commands. / 使用 `python Visa_Status.py -h` 查看可用命令。
+Use `python visa_status.py -h` to list available commands. / 使用 `python visa_status.py -h` 查看可用命令。
 
 ## Key behaviors / 主要行为
 
@@ -49,25 +49,27 @@ Use `python Visa_Status.py -h` to list available commands. / 使用 `python Visa
 
 ## Internationalization / 国际化支持
 
-- This repository is bilingual: README/PROJECT_OVERVIEW contain both English and Chinese descriptions. All runtime messages logged to files are UTF-8 encoded and contain timestamps; CLI messages are presented in Chinese by default, with English snippets in documentation. If you'd like full runtime language switching, I can add a `--lang en|zh` flag and localized resource files. / 仓库为中英双语，文档包含 EN/中文；运行日志为 UTF-8，默认 CLI 信息为中文。如需运行时语言切换，可添加 `--lang`。
+- This project uses bilingual prompts and documentation (English + 中文) by design: all commands, help text and user-facing prompts include both English and Chinese versions. There is no runtime language-switch flag; the CLI and logs are presented bilingually and encoded as UTF-8. / 本项目采用中英双语提示和文档：所有命令、帮助与提示均包含中英文说明，无需运行时切换语言，日志与输出均为 UTF-8 编码。
+
+- Note: a small `utils/i18n.py` helper was previously used during development but has been removed per project preference; all prompts and messages are now inlined bilingual strings directly in code. / 注意：开发过程中曾使用小型 `utils/i18n.py` 帮助器，现已移除；所有提示与消息现已直接嵌入代码为中英双语字符串。
 
 ## Commands / 命令说明
 
-- `generate-codes` — generate a CSV of query codes. Options:
-	- `-o, --out`  output CSV path (default: query_codes.csv)
-	- `--start`    start date (YYYY-MM-DD)
-	- `--end`      end date (YYYY-MM-DD)
-	- `--per-day`  items per day (int)
-	- `--include-weekends` include weekends
+- `generate-codes` — generate a CSV of query codes. / 生成查询码的CSV。Options / 选项：
+	- `-o, --out`  output CSV path (default: query_codes.csv) / 输出CSV路径（默认: query_codes.csv）
+	- `--start`    start date (YYYY-MM-DD) / 起始日期（YYYY-MM-DD）
+	- `--end`      end date (YYYY-MM-DD) / 结束日期（YYYY-MM-DD）
+	- `--per-day`  items per day (int) / 每日期的条目数量（整数）
+	- `--include-weekends` include weekends / 是否包含周末
 
-- `cz` — Czech status checker. Options:
-	- `--i` CSV input path (default: query_codes.csv)
+- `cz` — Czech status checker. / 捷克批量查询器。Options / 选项：
+	- `--i` CSV input path (default: query_codes.csv) / CSV 输入路径（默认: query_codes.csv）
 
-Example:
+Example / 示例:
 
 ```bash
-python Visa_Status.py generate-codes -o codes.csv --start 2025-07-01 --end 2025-07-10 --per-day 3
-python Visa_Status.py cz --i codes.csv
+python visa_status.py generate-codes -o codes.csv --start 2025-07-01 --end 2025-07-10 --per-day 3
+python visa_status.py cz --i codes.csv
 ```
 
 ## Troubleshooting / 故障排查
@@ -87,4 +89,4 @@ See the project overview for architecture and design notes:
 
 ---
 
-If you want the README further shortened, expanded with badges, or to include a sample CSV, tell me which format you prefer and I'll update it.
+If you want the README further shortened, expanded with badges, or to include a sample CSV, tell me which format you prefer and I'll update it. / 如果您希望 README 进一步精简、增加徽章，或包含示例 CSV，请告诉我偏好格式，我会帮您更新。

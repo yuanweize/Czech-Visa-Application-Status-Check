@@ -1,0 +1,56 @@
+# Python
+__pycache__/
+*.py[cod]
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Virtual environments
+.venv/
+env/
+venv/
+
+# IDEs and editors
+.vscode/
+.idea/
+*.sublime-workspace
+*.sublime-project
+
+# System files
+.DS_Store
+Thumbs.db
+
+# Python testing / type check caches
+.pytest_cache/
+.mypy_cache/
+
+# Logs (optional: if you don't want to commit runtime logs)
+# Keep logs in repo by default; uncomment the next line to ignore them locally
+# logs/
+
+# Selenium downloaded files / temporary artifacts
+selenium-screenshots/
+
+# Personal data / credentials
+*.env
+*.secrets
+credentials.json
+
+# Large or generated outputs (binaries, databases)
+*.xlsx
+*.xls
+*.sqlite
+*.csv
+.output/
+# Node / packaging
+node_modules/
+
+# Ignore saved web pages or other large crawled assets
+.cz_ipc_web_ref/
+logs/
+
+# Note: CSV files are project data and are NOT ignored by default.
+# If you want to ignore local CSV test files, add a pattern here, e.g.:
+# *.local.csv

@@ -75,27 +75,27 @@ class VisaStatusQuerier:
                     status_text = alert_div.text.strip().lower()
                     # 关键字匹配
                     if 'not found' in status_text or 'not found' in status_text:
-                        return 'Not Found'
+                        return 'Not Found / 未找到'
                     elif 'still being processed' in status_text or 'proceedings' in status_text:
-                        return 'Proceedings'
+                        return 'Proceedings / 审理中'
                     elif 'was granted' in status_text or 'granted' in status_text:
-                        return 'Granted'
+                        return 'Granted / 已通过'
                     elif 'was rejected' in status_text or 'rejected' in status_text or 'closed' in status_text:
-                        return 'Rejected/Closed'
+                        return 'Rejected/Closed / 被拒绝/已关闭'
                     else:
-                        return 'Unknown'
+                        return 'Unknown / 未知'
                 except Exception:
                     # 视为一次网络/渲染问题，准备重试
                     raise
             except Exception as e:
                 # 若未到达最大重试次数，短等待后重试；否则返回标准失败状态
                 if attempt < max_attempts:
-                    print(f"  尝试 {attempt} 失败，正在重试... ({e})")
+                    print(f"  Attempt {attempt} failed, retrying... ({e}) / 尝试 {attempt} 失败，正在重试... ({e})")
                     time.sleep(1 + attempt)
                     continue
                 else:
-                    print(f"  最终尝试失败: {e}")
-                    return 'Query Failed'
+                    print(f"  Final attempt failed: {e} / 最终尝试失败: {e}")
+                    return 'Query Failed / 查询失败'
 
     def close(self):
         self.driver.quit()
@@ -103,7 +103,7 @@ class VisaStatusQuerier:
 def update_csv_with_status(csv_path, code_col='查询码', status_col='签证状态', driver_path=None, headless=False, retries=None, log_dir='logs'):
     import os
     if not os.path.exists(csv_path):
-        print(f"[错误] 未找到CSV文件: {csv_path}\n请先用 generate-codes 生成或指定正确的文件路径。\n或指定目标CSV文件（如 `--i query_codes.csv`）")
+        print(f"[Error] CSV not found: {csv_path}\nPlease generate it with generate-codes or provide the correct path (e.g. --i query_codes.csv). / [错误] 未找到CSV文件: {csv_path}\n请先用 generate-codes 生成或指定正确的文件路径（例如 --i query_codes.csv）。")
         return
     with open(csv_path, newline='', encoding='utf-8') as f:
         rows = list(csv.reader(f))
@@ -116,7 +116,7 @@ def update_csv_with_status(csv_path, code_col='查询码', status_col='签证状
     for i, row in enumerate(rows[1:], 1):
         code = row[code_idx]
         if len(row) <= status_idx or not row[status_idx]:
-            print(f"查询: {code}")
+            print(f"Querying: {code} / 查询: {code}")
             try:
                 # Use provided retries if set, otherwise default inside query_status
                 max_attempts = retries if (retries is not None and retries > 0) else 3
@@ -129,14 +129,15 @@ def update_csv_with_status(csv_path, code_col='查询码', status_col='签证状
             if len(row) <= status_idx:
                 row += [''] * (status_idx - len(row) + 1)
             row[status_idx] = status
-            print(f"  状态: {status}")
+            print(f"  Status: {status} / 状态: {status}")
             # 每条查询后立即写入文件，防止中途出错丢失
             with open(csv_path, 'w', newline='', encoding='utf-8') as wf:
                 writer = csv.writer(wf)
                 writer.writerow(header)
                 writer.writerows(rows[1:])
             # 如果查询失败，写入 logs/fails 当日失败文件，便于后续重试
-            if status == 'Query Failed':
+            # treat any variant containing 'query failed' (case-insensitive) as failure
+            if isinstance(status, str) and 'query failed' in status.lower():
                 import os
                 import datetime
                 fails_dir = os.path.join(os.getcwd(), log_dir, 'fails')
@@ -149,16 +150,16 @@ def update_csv_with_status(csv_path, code_col='查询码', status_col='签证状
                         fw.writerow(['日期', '查询码', '状态', '备注'])
                     fw.writerow([datetime.date.today().isoformat(), code, status, err_msg])
         else:
-            print(f"已存在: {code} -> {row[status_idx]}")
+            print(f"Skipped (exists): {code} -> {row[status_idx]} / 已存在: {code} -> {row[status_idx]}")
     querier.close()
 
 if __name__ == '__main__':
     import argparse
-    parser = argparse.ArgumentParser(description='批量查询签证状态（捷克）')
-    parser.add_argument('--csv', default='query_codes.csv', help='csv文件路径')
-    parser.add_argument('--driver-path', default=None, help='ChromeDriver 可执行文件路径（可选）')
-    parser.add_argument('--headless', action='store_true', help='以无头模式运行浏览器')
-    parser.add_argument('--retries', type=int, default=3, help='每条查询的重试次数（默认 3）')
-    parser.add_argument('--log-dir', default='logs', help='日志目录，默认 logs')
+    parser = argparse.ArgumentParser(description='Czech bulk visa-status checker / 捷克批量查询签证状态')
+    parser.add_argument('--csv', default='query_codes.csv', help='CSV file path / CSV 文件路径')
+    parser.add_argument('--driver-path', default=None, help='ChromeDriver executable path (optional) / ChromeDriver 可执行文件路径（可选）')
+    parser.add_argument('--headless', action='store_true', help='Run browser headless / 以无头模式运行浏览器')
+    parser.add_argument('--retries', type=int, default=3, help='Retries per query (default 3) / 每条查询的重试次数（默认 3）')
+    parser.add_argument('--log-dir', default='logs', help='Logs directory (default: logs) / 日志目录（默认: logs）')
     args = parser.parse_args()
     update_csv_with_status(args.csv, driver_path=args.driver_path, headless=args.headless, retries=args.retries, log_dir=args.log_dir)
