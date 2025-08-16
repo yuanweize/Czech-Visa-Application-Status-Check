@@ -56,26 +56,65 @@ class VisaStatusQuerier:
             try:
                 self.driver.get(url)
 
-                # Robustly dismiss cookie banners or overlays (click -> js click -> hide)
+                # Aggressive cookie/modal dismissal:
+                # 1) try to find wrappers and click 'refuse/decline' buttons by text (multi-language)
+                # 2) try any visible button inside the wrapper
+                # 3) JS-click fallback or remove the wrapper entirely
                 try:
-                    cookie_btn = WebDriverWait(self.driver, 5).until(
-                        EC.element_to_be_clickable((By.CSS_SELECTOR, '.cookies__wrapper button, .cookies__button, [data-cookies-edit] button, [data-cookies-edit]'))
-                    )
-                    try:
-                        cookie_btn.click()
-                    except (ElementNotInteractableException, ElementClickInterceptedException):
+                    wrappers = self.driver.find_elements(By.CSS_SELECTOR, '.cookies__wrapper, .cookie-consent, .gdpr-banner, [data-cookie], [data-cookies-edit]')
+                    for wrap in wrappers:
                         try:
-                            self.driver.execute_script("arguments[0].click();", cookie_btn)
+                            buttons = wrap.find_elements(By.TAG_NAME, 'button')
+                            clicked = False
+                            for b in buttons:
+                                try:
+                                    txt = (b.text or '').strip().lower()
+                                    if any(k in txt for k in ('refuse', 'refuse all', 'decline', 'odmítnout', 'nepřijmout', 'odmít', 'reject', 'ne')):
+                                        try:
+                                            b.click()
+                                            clicked = True
+                                            break
+                                        except (ElementNotInteractableException, ElementClickInterceptedException):
+                                            try:
+                                                self.driver.execute_script("arguments[0].click();", b)
+                                                clicked = True
+                                                break
+                                            except Exception:
+                                                pass
+                                except Exception:
+                                    # safe-guard if reading text or clicking throws unexpected error
+                                    pass
+                            if not clicked:
+                                for b in buttons:
+                                    try:
+                                        if b.is_displayed() and b.is_enabled():
+                                            try:
+                                                b.click()
+                                                clicked = True
+                                                break
+                                            except Exception:
+                                                try:
+                                                    self.driver.execute_script("arguments[0].click();", b)
+                                                    clicked = True
+                                                    break
+                                                except Exception:
+                                                    pass
+                                    except Exception:
+                                        pass
                         except Exception:
-                            # last resort: hide known overlays
-                            try:
-                                self.driver.execute_script("document.querySelectorAll('.cookies__wrapper, .cookies__button, [data-cookies-edit], .cookie-consent, .gdpr-banner').forEach(e=>e.style.display='none');")
-                            except Exception:
-                                pass
-                except Exception:
-                    # best-effort hide
+                            pass
+                    # last resort: remove wrappers from DOM if still present
                     try:
-                        self.driver.execute_script("document.querySelectorAll('.cookies__wrapper, .cookies__button, [data-cookies-edit], .cookie-consent, .gdpr-banner').forEach(e=>e.style.display='none');")
+                        self.driver.execute_script("document.querySelectorAll('.cookies__wrapper, .cookie-consent, .gdpr-banner, [data-cookie], [data-cookies-edit]').forEach(e=>e.remove());")
+                    except Exception:
+                        try:
+                            self.driver.execute_script("document.querySelectorAll('.cookies__wrapper, .cookie-consent, .gdpr-banner, [data-cookie], [data-cookies-edit]').forEach(e=>e.style.display='none');")
+                        except Exception:
+                            pass
+                except Exception:
+                    # fallback best-effort hide
+                    try:
+                        self.driver.execute_script("document.querySelectorAll('.cookies__wrapper, .cookie-consent, .gdpr-banner').forEach(e=>e.style.display='none');")
                     except Exception:
                         pass
                 # Targeted attempts to close common cookie/modal buttons (Refuse all / close)
