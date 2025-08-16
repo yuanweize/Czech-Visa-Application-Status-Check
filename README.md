@@ -2,6 +2,12 @@
 
 # Czech Visa Application Status Check / 捷克签证状态批量查询
 
+<!-- Badges -->
+[![python](https://img.shields.io/badge/python-3.8%2B-blue)](https://www.python.org/)
+[![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![hits](https://img.shields.io/badge/usage-experimental-orange)](README.md)
+
+
 Bulk generator and checker for Czech visa application status — generate Czech visa/resident query codes and check statuses on the official IPC portal. 本项目用于批量生成捷克签证/居留查询码并在捷克内政部公开页面批量查询签证申请状态，导出 CSV。
 
 
@@ -87,6 +93,23 @@ See the project overview for architecture and design notes:
 
 [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md)
 
----
+## Sample CSV / 示例 CSV
 
-If you want the README further shortened, expanded with badges, or to include a sample CSV, tell me which format you prefer and I'll update it. / 如果您希望 README 进一步精简、增加徽章，或包含示例 CSV，请告诉我偏好格式，我会帮您更新。
+- English (top) / 中文（下方）—— this shows the minimal CSV shape the tools expect: date, query code, and an optional status column. / 英文（上）/ 中文（下）—— 下例展示工具期望的最小 CSV 格式：日期、查询码，可选的状态列。
+
+English:
+
+```csv
+date,code,status
+2025-07-01,PEKI202507010001,
+2025-07-01,PEKI202507010002,
+```
+
+中文示例：
+
+```csv
+日期,查询码,签证状态
+2025-07-01,PEKI202507010001,
+2025-07-01,PEKI202507010002,
+```
+
