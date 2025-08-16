@@ -100,33 +100,82 @@ See the project overview for architecture and design notes:
 English:
 
 ```csv
-date,code,status
-2025-07-01,PEKI202507010001,
-2025-07-01,PEKI202507010002,
+# Czech Visa Application Status Check / 捷克签证状态批量查询
+
+[![python](https://img.shields.io/badge/python-3.8%2B-blue)](https://www.python.org/) [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+
+A small, bilingual (EN / 中文) CLI tool to generate Czech visa/resident query codes and bulk-check application status on the official IPC portal. Results are written back into the input CSV (per-row flush) and failures are logged for offline retry. 一个小型中英双语命令行工具，用于生成捷克签证/居留查询码并在捷克 IPC 官网批量查询申请状态，查询结果按行写回原 CSV，并对失败项做离线记录。
+
+Repository: https://github.com/yuanweize/Czech-Visa-Application-Status-Check
+
+## Quick start / 快速开始
+
+1. Install dependencies
+
+```bash
+python -m pip install -r requirements.txt
 ```
 
-中文示例：
+2. Generate query codes
+
+```bash
+python visa_status.py generate-codes -o my_codes.csv --start 2025-06-01 --end 2025-08-15 --per-day 5
+```
+
+3. Query statuses (Czech)
+
+```bash
+python visa_status.py cz --i my_codes.csv
+```
+
+Use `python visa_status.py -h` for command help. / 使用 `python visa_status.py -h` 获取命令帮助。
+
+## Minimal CSV shape / 最小 CSV 格式
+
+The tool expects a CSV with a date, query code and an optional status column. The repository uses UTF-8 and bilingual headers are accepted. 下例展示最小 CSV 结构；仓库使用 UTF-8 编码，接受中英双语列名。
 
 ```csv
-日期,查询码,签证状态
-2025-07-01,PEKI202507010001,
-2025-07-01,PEKI202507010002,
+日期/Date,查询码/Code,签证状态/Status
+2025-06-02,PEKI202506020001,Rejected/Closed / 被拒绝/已关闭
+2025-06-02,PEKI202506020002,Not Found / 未找到
+2025-06-02,PEKI202506020003,Not Found / 未找到
+2025-06-03,PEKI202506030001,Proceedings / 审理中
+2025-06-03,PEKI202506030002,Granted / 已通过
 ```
 
-You can also find a small example file in the repository: `sample_query_codes.csv` which follows the same header format (CSV encoded UTF-8). / 仓库内已包含示例文件 `sample_query_codes.csv`（UTF-8 编码），格式与上述示例一致。
+## Commands / 命令
 
-## Implemented features / 已实现功能
+- `generate-codes` — create PEKI-style codes and write a CSV. 选项： `-o/--out` 输出路径，`--start`/`--end` 日期区间，`--per-day` 每日条目数，`--include-weekends` 是否包含周末。
+- `cz` — run the Czech IPC checker against an input CSV. 选项：`--i` CSV 输入路径（默认 `query_codes.csv`）。
 
-- Modular layout: `tools/`, `query_modules/`, and a dispatcher `visa_status.py` that calls country modules by ISO-2 code (currently `cz`). / 模块化布局：包含 `tools/`、`query_modules/`，以及根据国家码调用查询器的主调度器 `visa_status.py`（当前实现：`cz`）。
-- CSV-first operation: read input CSV, write each row's status in-place and flush immediately after each query to avoid data loss. / CSV 优先：读取输入 CSV，并在每条查询完成后立即写回状态，防止中途丢失。
-- Robust cookie/modal dismissal: targets `.cookies__wrapper button.button__outline` (Refuse all) and `.modal__window button.button__close`, uses JS-dispatched clicks and multiple fallbacks. / 强健的 cookie/modal 关闭：优先点击 `.cookies__wrapper button.button__outline`（Refuse all）和 `.modal__window button.button__close`，并提供 JS 派发点击及备选策略。
-- Retries, backoff and pacing: per-query retries with configurable attempts, backoff and jitter to reduce server load. / 重试、退避与速率控制：支持每条重试、可配置延迟与抖动，降低对远端的负载。
-- Driver handling and recovery: prefers an explicit `--driver-path`, otherwise uses `webdriver-manager` if installed; includes driver/session recreation logic when sessions die. / 驱动管理与恢复：优先使用 `--driver-path` 指定驱动，若安装了 `webdriver-manager` 则自动下载；遇到会话关闭会尝试重建浏览器并重试。
-- Result detection hardening: multi-selector polling, Selenium text read, and JS innerText/textContent fallback so rendered alerts are detected even when visibility flags are inconsistent. / 结果检测增强：多选择器轮询、Selenium 文本读取与 JS innerText/textContent 回退，提升在渲染存在但可见性判断不一致时识别结果的稳定性。
-- Overlay debug policy: only save page HTML snapshots to `logs/fails/` when a row returns Unknown or final Query Failed (avoids noisy debug files). / 调试快照策略：仅在返回 Unknown 或最终 Query Failed 时保存页面快照到 `logs/fails/`，避免过多无用文件。
-- Robust CSV header matching and skip logic: case-insensitive/forgiving header detection and correct skip of already-checked rows (no mid-file resume bug). / 稳健的 CSV 头解析与跳过逻辑：支持不区分大小写的列匹配，并确保已检查的行被正确跳过，不会中途重复查询。
-- Bilingual prompts and logging: all user-facing messages include English and Chinese. / 中英双语：所有用户提示与日志包含中英文。
-- Per-day failure files: failing rows appended to `logs/fails/YYYY-MM-DD_fails.csv` for offline retry. / 按日失败归档：失败条目追加到 `logs/fails/YYYY-MM-DD_fails.csv` 以便离线重试。
+Examples:
 
-If you want a shorter README summary or additional examples (e.g., CI, docker), I can add them next. / 若您需要更短版本或额外示例（如 CI、Docker），我可以继续补充。
+```bash
+python visa_status.py generate-codes -o codes.csv --start 2025-07-01 --end 2025-07-10 --per-day 3
+python visa_status.py cz --i codes.csv
+```
+
+## Behavior highlights / 行为要点
+
+- Incremental save: each row is flushed immediately after query. / 实时保存：逐行刷新。
+- Retries & backoff: per-query retry with configurable attempts and jitter; final failures are marked `Query Failed`. / 重试与退避：每条可配置重试与抖动，最终失败标记为 `Query Failed`。
+- Overlay handling: targets cookie/modal selectors (e.g. refuse and close buttons) with JS fallbacks to avoid blocking. / 覆盖层处理：优先点击拒绝/关闭按钮并使用 JS 回退以避免阻塞表单。
+- Failure logs: failing rows after retries are appended to `logs/fails/YYYY-MM-DD_fails.csv`. / 失败记录：重试后仍失败的条目追加到 `logs/fails`。
+
+## Troubleshooting / 故障排查
+
+- Ensure Chrome and ChromeDriver are installed and compatible with the local Chrome version. / 请确保本机 Chrome 与 ChromeDriver 版本匹配。
+- If many `Query Failed` occur, try re-running the failed CSV rows or increase `--retries`. / 若大量 `Query Failed`，建议重试或增加 `--retries`。
+
+## Project notes / 其他说明
+
+- Bilingual in-code prompts: the project presents both English and Chinese messages in logs and CLI output. / 代码中嵌入中英双语提示。
+- Driver handling: you can pass `--driver-path` to specify chromedriver, otherwise `webdriver-manager` is used if installed. / 可通过 `--driver-path` 指定 chromedriver，否则如已安装 `webdriver-manager` 则会自动下载匹配驱动。
+
+See `PROJECT_OVERVIEW.md` for architecture details. / 详见 `PROJECT_OVERVIEW.md`。
+
+## License / 许可证
+
+MIT
+
 
