@@ -104,11 +104,39 @@ class VisaStatusQuerier:
             })();
             '''
 
-            end = time.time() + timeout
+            # First, do a fast one-shot JS click/hide and check immediately.
+            try:
+                self.driver.execute_script(js_click_by_text)
+            except Exception:
+                pass
+
             checks = ['.cookies__wrapper', '.cookie-consent', '.gdpr-banner', '[data-cookie]', '[data-cookies-edit]', '.modal__window', '.modal-backdrop']
+            # quick check: if no overlay-like element is visible, return immediately
+            try:
+                still_quick = False
+                for sel in checks:
+                    try:
+                        elems = self.driver.find_elements(By.CSS_SELECTOR, sel)
+                    except Exception:
+                        elems = []
+                    for el in elems:
+                        try:
+                            if el.is_displayed():
+                                still_quick = True
+                                break
+                        except Exception:
+                            still_quick = True
+                            break
+                    if still_quick:
+                        break
+            except Exception:
+                # fall through to the slower loop below if the quick check fails
+                pass
+
+            end = time.time() + timeout
             while time.time() < end:
                 try:
-                    # run targeted JS click/hide
+                    # run targeted JS click/hide again inside the slower loop
                     self.driver.execute_script(js_click_by_text)
                 except Exception:
                     pass
@@ -161,7 +189,8 @@ class VisaStatusQuerier:
 
                 if not still:
                     return True
-                time.sleep(0.35)
+                # shorter sleep to speed up loop responsiveness
+                time.sleep(0.15)
         except Exception:
             pass
         # do not save debug here; caller will decide when to persist a dump
@@ -209,22 +238,44 @@ class VisaStatusQuerier:
                         # re-raise to be handled by outer retry logic
                         raise
 
-                # centralize overlay dismissal
+                # Fast-path: try to populate and submit immediately when the input is available.
+                fast_attempted = False
                 try:
-                    self._dismiss_overlays(timeout=8)
-                except Exception:
                     try:
-                        self.driver.execute_script("document.querySelectorAll('.cookies__wrapper, .cookie-consent, .gdpr-banner').forEach(e=>e.style.display='none');")
+                        short_wait = WebDriverWait(self.driver, 4)
+                        input_box = short_wait.until(EC.presence_of_element_located((By.NAME, 'visaApplicationNumber')))
                     except Exception:
-                        pass
-
-                # find input and populate
-                try:
-                    input_box = self.wait.until(EC.presence_of_element_located((By.NAME, 'visaApplicationNumber')))
-                    if not (input_box.is_displayed() and input_box.is_enabled()):
-                        self.driver.refresh()
-                        time.sleep(1)
                         input_box = self.wait.until(EC.presence_of_element_located((By.NAME, 'visaApplicationNumber')))
+
+                    # try fast JS-set and immediate submit
+                    try:
+                        # JS set by name and dispatch events
+                        set_js = (
+                            "(function(name, val){"
+                            "  try { var el = document.getElementsByName(name)[0]; if(!el) return false; el.focus(); el.value = val; el.dispatchEvent(new Event('input', {bubbles:true})); el.dispatchEvent(new Event('change', {bubbles:true})); return (el.value === val); } catch(e){ return false; }"
+                            "})(arguments[0], arguments[1]);"
+                        )
+                        ok = bool(self.driver.execute_script(set_js, 'visaApplicationNumber', code))
+                    except Exception:
+                        ok = False
+
+                    submit_btn = None
+                    try:
+                        submit_btn = self.driver.find_element(By.XPATH, "//button[@type='submit']")
+                    except Exception:
+                        try:
+                            submit_btn = self.driver.find_element(By.XPATH, "//button[contains(., 'validate') or contains(., 'Validate') or contains(., 'ověřit')]")
+                        except Exception:
+                            submit_btn = None
+
+                    if ok and submit_btn is not None:
+                        try:
+                            # fast JS click attempt
+                            self.driver.execute_script("arguments[0].click();", submit_btn)
+                            fast_attempted = True
+                        except Exception:
+                            fast_attempted = False
+                    # if fast path succeeded we proceed to wait for results below
                 except (NoSuchWindowException, WebDriverException):
                     # driver window closed or session lost: recreate and reload page, then retry once
                     try:
@@ -245,8 +296,133 @@ class VisaStatusQuerier:
                         # let outer retry handle it
                         raise
 
-                input_box.clear()
-                input_box.send_keys(code)
+                # aggressive overlay dismissal: immediate hide + quick clicks without waiting
+                try:
+                    # immediate aggressive removal of all common overlay types
+                    self.driver.execute_script("""
+                        var overlays = '.cookies__wrapper, .cookie-consent, .gdpr-banner, .modal__window, .modal-backdrop, [data-cookie], [data-cookies-edit]';
+                        document.querySelectorAll(overlays).forEach(e => {
+                            e.style.display = 'none'; 
+                            e.style.visibility = 'hidden'; 
+                            e.style.pointerEvents = 'none';
+                            e.style.zIndex = '-9999';
+                            try { e.remove(); } catch(ex) {}
+                        });
+                        // also click refuse/close buttons instantly
+                        document.querySelectorAll('button.button__outline, button.button__close').forEach(b => {
+                            try { b.click(); } catch(e) {}
+                        });
+                    """)
+                except Exception:
+                    pass
+
+                # find input immediately - don't wait for overlays to fully clear
+                try:
+                    # try immediate find first
+                    try:
+                        input_box = self.driver.find_element(By.NAME, 'visaApplicationNumber')
+                    except Exception:
+                        # minimal wait if not found immediately
+                        quick_wait = WebDriverWait(self.driver, 2)
+                        input_box = quick_wait.until(EC.presence_of_element_located((By.NAME, 'visaApplicationNumber')))
+                except (NoSuchWindowException, WebDriverException):
+                    # driver window closed or session lost: recreate and reload page, then retry once
+                    try:
+                        print('  Detected closed window/session; recreating browser and retrying... / 检测到浏览器窗口关闭/会话丢失，正在重建并重试...')
+                        self._ensure_driver()
+                        try:
+                            self.driver.get(url)
+                        except Exception:
+                            time.sleep(0.5)
+                            self.driver.get(url)
+                        # re-dismiss overlays after recreation
+                        try:
+                            self.driver.execute_script("document.querySelectorAll('.cookies__wrapper, .modal__window').forEach(e=>e.style.display='none');")
+                        except Exception:
+                            pass
+                        input_box = self.wait.until(EC.presence_of_element_located((By.NAME, 'visaApplicationNumber')))
+                    except Exception:
+                        # let outer retry handle it
+                        raise
+
+                # fast input: prefer JS setter by name (safer across contexts) and verify it; fallback to send_keys
+                ok = False
+                for attempt in range(3):  # try up to 3 times to ensure value sticks
+                    try:
+                        set_js = (
+                            "(function(name, val){"
+                            "  try {"
+                            "    var el = document.getElementsByName(name)[0];"
+                            "    if(!el){ return false; }"
+                            "    el.focus();"
+                            "    el.value = val;"
+                            "    el.dispatchEvent(new Event('input', {bubbles:true}));"
+                            "    el.dispatchEvent(new Event('change', {bubbles:true}));"
+                            "    return (el.value === val);"
+                            "  } catch(e) { return false; }"
+                            "})(arguments[0], arguments[1]);"
+                        )
+                        ok = bool(self.driver.execute_script(set_js, 'visaApplicationNumber', code))
+                        if ok:
+                            # verify the value is still there after a short delay (in case page scripts clear it)
+                            time.sleep(0.1)
+                            actual = self.driver.execute_script("var el=document.getElementsByName('visaApplicationNumber')[0]; return el ? (el.value||'') : '';")
+                            if actual and str(actual).strip() == code:
+                                break
+                            else:
+                                ok = False  # value was cleared, try again
+                    except Exception:
+                        ok = False
+                    
+                    if not ok and attempt < 2:
+                        time.sleep(0.2)  # brief pause before retry
+
+                if not ok:
+                    # try to focus/click then send keys as a reliable fallback
+                    for attempt in range(2):
+                        try:
+                            try:
+                                input_box.click()
+                            except Exception:
+                                try:
+                                    self.driver.execute_script("arguments[0].scrollIntoView(true); arguments[0].focus();", input_box)
+                                except Exception:
+                                    pass
+                            input_box.clear()
+                            # small pause to ensure focus before typing
+                            time.sleep(0.1)
+                            input_box.send_keys(code)
+                            
+                            # verify send_keys worked and value persists
+                            time.sleep(0.1)
+                            actual = self.driver.execute_script("var el=document.getElementsByName('visaApplicationNumber')[0]; return el ? (el.value||'') : '';")
+                            if actual and str(actual).strip() == code:
+                                ok = True
+                                break
+                        except Exception:
+                            pass
+                        
+                        if attempt < 1:
+                            time.sleep(0.3)  # longer pause before final retry
+
+                # verify that the input now contains the code; if not, attempt a final JS read to capture value for diagnostics
+                try:
+                    actual = self.driver.execute_script("var el=document.getElementsByName('visaApplicationNumber')[0]; return el ? (el.value||'') : '';")
+                    if not actual or str(actual).strip() != code:
+                        # final attempt: re-set the value one more time before submitting
+                        try:
+                            self.driver.execute_script("var el=document.getElementsByName('visaApplicationNumber')[0]; if(el){ el.value=arguments[0]; el.dispatchEvent(new Event('input', {bubbles:true})); }", code)
+                            time.sleep(0.05)
+                            actual = self.driver.execute_script("var el=document.getElementsByName('visaApplicationNumber')[0]; return el ? (el.value||'') : '';")
+                        except Exception:
+                            pass
+                        
+                        if not actual or str(actual).strip() == '':
+                            # nothing; will likely cause a Not Found result if submit proceeds — raise to trigger retry
+                            raise Exception('Input population failed - value keeps getting cleared')
+                except Exception:
+                    # ensure outer logic treats this as a transient failure and retries
+                    raise
 
                 # submit (try multiple fallbacks)
                 submit_btn = None
@@ -264,7 +440,7 @@ class VisaStatusQuerier:
                     except (ElementNotInteractableException, ElementClickInterceptedException):
                         try:
                             self.driver.execute_script("arguments[0].scrollIntoView(true);", submit_btn)
-                            time.sleep(0.2)
+                            time.sleep(0.1)
                             submit_btn.click()
                         except Exception:
                             try:
@@ -275,7 +451,7 @@ class VisaStatusQuerier:
                 # wait for result alert or other visible result text using a JS poll across multiple selectors
                 status_text = ''
                 try:
-                    end = time.time() + 8
+                    end = time.time() + 6  # reduced from 8 to 6 seconds
                     # include role/aria selectors which many sites use for live alerts
                     selectors = ['.alert__content', '.alert', '.result', '.status', '.ipc-result', '.application-status', '[role=alert]', '[aria-live]']
                     while time.time() < end:
@@ -318,7 +494,7 @@ class VisaStatusQuerier:
                                 pass
                         except Exception:
                             pass
-                        time.sleep(0.35)
+                        time.sleep(0.2)  # reduced from 0.35 to 0.2 for faster polling
                     if not status_text:
                         raise TimeoutException('No visible result text found')
                     if 'not found' in status_text:
