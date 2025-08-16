@@ -56,6 +56,14 @@ Generate a CSV of visa application query codes.
 Simple example:
 简单示例：
 ```bash
+python visa_status.py generate-codes
+```
+
+Advanced examples:
+高级用法示例：
+- 从2025年6月1日到2025年6月30日之间，以每天5个查询码的量生成查询码。
+- Generate query codes from 2025-06-01 through 2025-06-30 in bulk, at 5 codes per day.
+```bash
 python visa_status.py generate-codes -o my_codes.csv --start 2025-06-01 --end 2025-06-30 --per-day 5
 ```
 
@@ -71,11 +79,15 @@ Run the Czech checker against an input CSV.
 Simple example (recommended):
 简单示例（推荐）：
 ```bash
-python visa_status.py cz --i my_codes.csv
+python visa_status.py cz
 ```
 
 Advanced example (when you need explicit driver control):
 高级示例（需要显式驱动控制时使用）：
+- Use `--driver-path` to explicitly point to a Chrome binary; if you have multiple Chrome installations and want to explicitly use `chromium-browser` for example. Otherwise the system default Chrome is used.
+- 使用 `--driver-path` 显示指定 Chrome 可执行文件位置；若有多个 Chrome 可执行文件存在，使用 `chromium-browser` 时可用此参数指明。否则使用系统默认 Chrome。
+- Use `--headless` to run in a headless mode (optional).
+- 使用 `--headless` 以无头模式运行浏览器（可选）。
 ```bash
 python visa_status.py cz --i my_codes.csv --driver-path /path/to/chromedriver --retries 3 --headless
 ```
@@ -170,10 +182,9 @@ Add a country module in `query_modules/` following the module API in `PROJECT_OV
 - 项目概览（开发者指南）：[PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md)
 
 ## License / 许可证
-MIT
+[MIT](LICENSE)
 
 ## Contact / 联系
 - Issues: https://github.com/yuanweize/Czech-Visa-Application-Status-Check/issues
-- 问题反馈：https://github.com/yuanweize/Czech-Visa-Application-Status-Check/issues
 
 
