@@ -59,18 +59,24 @@ Simple example:
 python visa_status.py generate-codes
 ```
 
-Advanced examples:
-高级用法示例：
-- 从2025年6月1日到2025年6月30日之间，以每天5个查询码的量生成查询码。
-- Generate query codes from 2025-06-01 through 2025-06-30 in bulk, at 5 codes per day.
+Advanced examples / 高级用法示例：
+1) 从2025年6月1日到2025年6月30日之间，以每天5个查询码的量生成查询码 / Generate 5 per day for June:
 ```bash
 python visa_status.py generate-codes -o my_codes.csv --start 2025-06-01 --end 2025-06-30 --per-day 5
 ```
-
-Advanced options (examples):
-高级用法示例：
-- Use `--include-weekends` to include weekends when generating codes.
-- 使用 `--include-weekends` 在生成时包含周末。
+2) 排除周三与周五(3,5) / Exclude Wed & Fri while keeping only weekdays (default already excludes weekends):
+```bash
+python visa_status.py generate-codes --start 2025-06-01 --end 2025-06-14 --exclude-weekdays 35 -o no_wed_fri.csv
+```
+	可等价使用 `--exclude 3,5` 或 `--排除 35`。
+3) 包含周末但排除周日，且使用自定义前缀 SHAN / Include weekends, exclude Sunday, custom prefix:
+```bash
+python visa_status.py generate-codes --start 2025-06-01 --end 2025-06-07 --include-weekends --exclude 7 --prefix SHAN -o shan_codes.csv
+```
+4) 使用中文参数别名 / Using Chinese aliases:
+```bash
+python visa_status.py generate-codes --前缀 ABC --日期排除 24 --start 2025-06-01 --end 2025-06-10
+```
 
 3) Query statuses (Czech) / 查询状态（捷克）
 Run the Czech checker against an input CSV.
@@ -109,6 +115,8 @@ Explanation: `--driver-path` lets you point to a specific chromedriver binary wh
 - `--per-day N` — 每日生成数量（整数）。
 - `--include-weekends` — include weekends when generating.
 - `--include-weekends` — 是否包含周末。
+- `--exclude-weekdays / --exclude / --排除 / --日期排除 DIGITS` — exclude specific weekdays (1=Mon..7=Sun). Supports formats: `35`, `3 5`, `3,5`. Applied after weekend inclusion logic. / 排除指定星期（1=周一..7=周日），格式支持 `35`、`3 5`、`3,5`，在周末过滤之后应用。
+- `--prefix / --前缀 TEXT` — code prefix (default PEKI). / 自定义代码前缀（默认 PEKI）。
 
 `cz` — run the Czech checker (example module).
 `cz` — 运行捷克查询器（示例模块）。
@@ -133,6 +141,11 @@ The checker will skip rows where the status column is non-empty — this enables
 
 Results are standardized into a small set of normalized statuses (e.g. `Granted`, `Rejected/Closed`, `Proceedings`, `Not Found`, `Unknown`, `Query Failed`).
 结果会被标准化为一组状态（例如：`Granted`、`Rejected/Closed`、`Proceedings`、`Not Found`、`Unknown`、`Query Failed`）。
+
+Code generation semantics / 生成语义:
+- 默认仅工作日 (Mon-Fri)。`--include-weekends` 加入周六周日。
+- 排除列表在最终集合上生效；例如包含周末同时 `--exclude 7` 会移除周日。
+- 前缀可通过 `--prefix` 设置；保留大小写；若为空回退为 PEKI。
 
 ## Minimal CSV example / 最小 CSV 示例
 The tool accepts bilingual headers and expects these columns: date, code, optional status column.

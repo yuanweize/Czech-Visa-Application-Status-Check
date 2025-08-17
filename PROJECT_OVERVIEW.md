@@ -117,4 +117,14 @@ python visa_status.py report -i query_codes.csv [--charts]
 - README (user guide): [README.md](README.md)
 - README（用户指南）：[README.md](README.md)
 
+## Code generator extensions / 代码生成器扩展
+- New options:
+	- `--exclude-weekdays` (aliases: `--exclude`, `--排除`, `--日期排除`) accept digits 1..7 for Mon..Sun, forms: `35`, `3 5`, `3,5`.
+	- `--prefix` (alias: `--前缀`) sets code prefix (default `PEKI`).
+- Order of filtering:
+	1. Start with weekdays (Mon-Fri) unless `--include-weekends`.
+	2. Remove any weekday codes present in exclude set.
+	3. Generate `<PREFIX>YYYYMMDD####` sequences.
+- Prefix normalization: trimmed; fallback to PEKI if empty after trim.
+
 *** End of overview / 概览结束 ***
