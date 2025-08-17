@@ -15,7 +15,7 @@ except Exception:
     ChromeDriverManager = None
 
 class VisaStatusQuerier:
-    def __init__(self, driver_path=None, headless=False):
+    def __init__(self, driver_path=None, headless=True):
         # keep config for possible re-creation
         self._driver_path = driver_path
         self._headless = headless
