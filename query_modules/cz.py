@@ -556,63 +556,74 @@ def update_csv_with_status(csv_path, code_col='查询码/Code', status_col='签�
         # add the status column at the end
         header.append(status_col)
         status_idx = len(header) - 1
-    querier = VisaStatusQuerier(driver_path=driver_path, headless=headless)
-    for i, row in enumerate(rows[1:], 1):
-        # ensure row length matches header
-        while len(row) < len(header):
-            row.append('')
-        code = row[code_idx]
-        # if status column already has a non-empty value, skip
-        if row[status_idx] and str(row[status_idx]).strip():
-            print(f"Skipped(exists)/跳过(已存在):{code} -> {row[status_idx]}")
-            continue
+    # For backward compatibility keep single-threaded behavior when workers not provided.
+    # We'll support a simple threaded worker pool with a driver pool to reuse webdriver instances.
+    import argparse
+    # attempt to read workers from environment-like argument if passed via CLI (visa_status passes --workers)
+    # default to 1 (serial)
+    try:
+        import sys
+        # naive scan for --workers in sys.argv
+        if '--workers' in sys.argv:
+            w_idx = sys.argv.index('--workers')
+            workers = int(sys.argv[w_idx+1]) if w_idx+1 < len(sys.argv) else 1
+        else:
+            workers = 1
+    except Exception:
+        workers = 1
 
-        # perform the query for empty status
-        print(f"Querying/查询： {code}")
+    def query_single(driver_instance, code, max_attempts_local):
+        """Helper wrapper that runs a query against a given VisaStatusQuerier instance."""
         try:
-            # Use provided retries if set, otherwise default inside query_status
-            max_attempts = retries if (retries is not None and retries > 0) else 3
-            status = querier.query_status(code, max_attempts=max_attempts)
-            err_msg = ''
+            return driver_instance.query_status(code, max_attempts=max_attempts_local), ''
         except Exception as e:
-            status = 'Query Failed / 查询失败'
-            err_msg = str(e)
+            return 'Query Failed / 查询失败', str(e)
 
-        # ensure row long enough then write status
-        row[status_idx] = status
-        print(f"  Status/状态: {status}")
-        # save overlay debug only for Unknown or Query Failed to aid later debugging
-        try:
-            if isinstance(status, str) and (status.lower().startswith('unknown') or 'query failed' in status.lower()):
-                try:
-                    querier._save_overlay_debug(tag=status.split()[0])
-                except Exception:
-                    pass
-        except Exception:
-            pass
+    # serial path
+    if workers <= 1:
+        querier = VisaStatusQuerier(driver_path=driver_path, headless=headless)
+        for i, row in enumerate(rows[1:], 1):
+            # ensure row length matches header
+            while len(row) < len(header):
+                row.append('')
+            code = row[code_idx]
+            # if status column already has a non-empty value, skip
+            if row[status_idx] and str(row[status_idx]).strip():
+                print(f"Skipped(exists)/跳过(已存在):{code} -> {row[status_idx]}")
+                continue
 
-        # 每条查询后立即写入文件，防止中途出错丢失
-        with open(csv_path, 'w', newline='', encoding='utf-8') as wf:
-            writer = csv.writer(wf)
-            writer.writerow(header)
-            writer.writerows(rows[1:])
+            print(f"Querying/查询： {code}")
+            max_attempts = retries if (retries is not None and retries > 0) else 3
+            status, err_msg = query_single(querier, code, max_attempts)
 
-        # 如果查询失败，写入 logs/fails 当日失败文件，便于后续重试
-        # treat any variant containing 'query failed' (case-insensitive) as failure
-        if isinstance(status, str) and 'query failed' in status.lower():
-            import os
-            import datetime
-            fails_dir = os.path.join(os.getcwd(), log_dir, 'fails')
-            os.makedirs(fails_dir, exist_ok=True)
-            fail_file = os.path.join(fails_dir, f"{datetime.date.today().isoformat()}_fails.csv")
-            write_header = not os.path.exists(fail_file)
-            with open(fail_file, 'a', newline='', encoding='utf-8') as ff:
-                fw = csv.writer(ff)
-                if write_header:
-                    fw.writerow(['日期/Date', '查询码/Code', '状态/Status', '备注/Remark'])
-                fw.writerow([datetime.date.today().isoformat(), code, status, err_msg])
+            row[status_idx] = status
+            print(f"  Status/状态: {status}")
+            try:
+                if isinstance(status, str) and (status.lower().startswith('unknown') or 'query failed' in status.lower()):
+                    try:
+                        querier._save_overlay_debug(tag=status.split()[0])
+                    except Exception:
+                        pass
+            except Exception:
+                pass
 
-            # pacing: small delay + jitter to avoid hammering the remote server
+            with open(csv_path, 'w', newline='', encoding='utf-8') as wf:
+                writer = csv.writer(wf)
+                writer.writerow(header)
+                writer.writerows(rows[1:])
+
+            if isinstance(status, str) and 'query failed' in status.lower():
+                import os, datetime
+                fails_dir = os.path.join(os.getcwd(), log_dir, 'fails')
+                os.makedirs(fails_dir, exist_ok=True)
+                fail_file = os.path.join(fails_dir, f"{datetime.date.today().isoformat()}_fails.csv")
+                write_header = not os.path.exists(fail_file)
+                with open(fail_file, 'a', newline='', encoding='utf-8') as ff:
+                    fw = csv.writer(ff)
+                    if write_header:
+                        fw.writerow(['日期/Date', '查询码/Code', '状态/Status', '备注/Remark'])
+                    fw.writerow([datetime.date.today().isoformat(), code, status, err_msg])
+
             try:
                 delay = float(per_query_delay) if per_query_delay is not None else 0.5
                 j = float(jitter) if jitter is not None else 0.5
@@ -620,7 +631,197 @@ def update_csv_with_status(csv_path, code_col='查询码/Code', status_col='签�
                 time.sleep(sleep_for)
             except Exception:
                 pass
-    querier.close()
+        querier.close()
+        return
+
+    # concurrent path: simple driver pool + ThreadPoolExecutor
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    import threading
+    import sys
+
+    workers = max(1, int(workers))
+    # create a pool of VisaStatusQuerier instances (size = workers)
+    driver_pool = []
+    all_drivers = []
+    pool_lock = threading.Lock()
+    for _ in range(workers):
+        d = VisaStatusQuerier(driver_path=driver_path, headless=headless)
+        driver_pool.append(d)
+        all_drivers.append(d)
+
+    def borrow_driver():
+        with pool_lock:
+            if driver_pool:
+                return driver_pool.pop()
+            # create-on-demand and track
+            nd = VisaStatusQuerier(driver_path=driver_path, headless=headless)
+            all_drivers.append(nd)
+            return nd
+
+    def return_driver(d):
+        with pool_lock:
+            driver_pool.append(d)
+
+    max_attempts = retries if (retries is not None and retries > 0) else 3
+    codes_to_process = []
+    row_map = {}
+    for i, row in enumerate(rows[1:], 1):
+        while len(row) < len(header):
+            row.append('')
+        code = row[code_idx]
+        if row[status_idx] and str(row[status_idx]).strip():
+            continue
+        codes_to_process.append((i, code))
+        row_map[code] = i
+
+    # Prepare file paths and locks for immediate writes
+    rows_lock = threading.Lock()
+    import os, datetime
+    fails_dir = os.path.join(os.getcwd(), log_dir, 'fails')
+    os.makedirs(fails_dir, exist_ok=True)
+    fail_file = os.path.join(fails_dir, f"{datetime.date.today().isoformat()}_fails.csv")
+    fail_header_needed = not os.path.exists(fail_file)
+
+    results = {}
+    futures = []
+    future_to_code = {}
+
+    def make_work(c):
+        def work():
+            d = borrow_driver()
+            try:
+                s, err = query_single(d, c, max_attempts)
+                # save overlay debug on failure/unknown
+                try:
+                    if isinstance(s, str) and (s.lower().startswith('unknown') or 'query failed' in s.lower()):
+                        try:
+                            d._save_overlay_debug(tag=s.split()[0])
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+                return (c, s, err)
+            finally:
+                return_driver(d)
+        return work
+
+    # Use signal handling to catch KeyboardInterrupt properly in multi-threaded context
+    import signal
+    import os
+    
+    interrupt_flag = threading.Event()
+    
+    def signal_handler(signum, frame):
+        print('\nReceived KeyboardInterrupt, forcefully terminating...')
+        # Immediately force exit without any cleanup to avoid worker threads continuing
+        os._exit(1)
+    
+    # Install signal handler
+    original_sigint_handler = signal.signal(signal.SIGINT, signal_handler)
+    
+    ex = ThreadPoolExecutor(max_workers=workers)
+    try:
+        for (i, code) in codes_to_process:
+            fut = ex.submit(make_work(code))
+            future_to_code[fut] = code
+            futures.append(fut)
+
+        # process results as they complete and flush per-row
+        # Use timeout to allow checking interrupt_flag periodically
+        remaining_futures = set(futures)
+        while remaining_futures and not interrupt_flag.is_set():
+            # Wait for completion with timeout to allow interrupt checking
+            try:
+                completed = as_completed(remaining_futures, timeout=1.0)
+                for fut in completed:
+                    if interrupt_flag.is_set():
+                        break
+                    remaining_futures.discard(fut)
+                    code = future_to_code[fut]
+                    try:
+                        c, status, err = fut.result()
+                    except Exception as e:
+                        status = 'Query Failed / 查询失败'
+                        err = str(e)
+
+                    idx = row_map.get(code)
+                    if idx is not None:
+                        # update in-memory row and flush CSV immediately
+                        with rows_lock:
+                            rows[idx][status_idx] = status
+                            # write CSV immediately
+                            try:
+                                with open(csv_path, 'w', newline='', encoding='utf-8') as wf:
+                                    writer = csv.writer(wf)
+                                    writer.writerow(header)
+                                    writer.writerows(rows[1:])
+                            except Exception:
+                                pass
+
+                            # append to fails file immediately if needed
+                            try:
+                                if isinstance(status, str) and 'query failed' in status.lower():
+                                    with open(fail_file, 'a', newline='', encoding='utf-8') as ff:
+                                        fw = csv.writer(ff)
+                                        if fail_header_needed:
+                                            fw.writerow(['日期/Date', '查询码/Code', '状态/Status', '备注/Remark'])
+                                            fail_header_needed = False
+                                        fw.writerow([datetime.date.today().isoformat(), code, status, err])
+                            except Exception:
+                                pass
+
+                        results[code] = (status, err)
+                        print(f"{code} -> {status}")
+                    break  # Only process one future per iteration to check interrupt more frequently
+            except:
+                # Timeout occurred, continue to check interrupt_flag
+                continue
+        
+        # Handle interrupt if it was set
+        if interrupt_flag.is_set():
+            # try to cancel pending futures
+            for fut in remaining_futures:
+                try:
+                    fut.cancel()
+                except Exception:
+                    pass
+            # shutdown executor without waiting
+            try:
+                ex.shutdown(wait=False)
+            except Exception:
+                pass
+            # final flush of CSV
+            try:
+                with rows_lock:
+                    with open(csv_path, 'w', newline='', encoding='utf-8') as wf:
+                        writer = csv.writer(wf)
+                        writer.writerow(header)
+                        writer.writerows(rows[1:])
+            except Exception:
+                pass
+            # close all drivers
+            for d in all_drivers:
+                try:
+                    d.close()
+                except Exception:
+                    pass
+            # forcefully exit the process
+            if os.environ.get('CZ_TEST_MODE') != '1':
+                os._exit(1)
+    finally:
+        # Restore original signal handler
+        signal.signal(signal.SIGINT, original_sigint_handler)
+        try:
+            ex.shutdown(wait=True)
+        except Exception:
+            pass
+
+    # close all drivers in pool/created
+    for d in all_drivers:
+        try:
+            d.close()
+        except Exception:
+            pass
 
 if __name__ == '__main__':
     import argparse
