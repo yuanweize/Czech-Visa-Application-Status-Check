@@ -49,7 +49,8 @@ def main():
 
     # 报告子命令 / report subcommand
     rep_parser = subparsers.add_parser('report', help='Generate detailed Markdown report / 生成详细 Markdown 报告')
-    rep_parser.add_argument('-i', '--input', required=True, help='Input CSV path / 输入 CSV 路径')
+    rep_parser.add_argument('-i', '--input', required=False, default='query_codes.csv',
+                            help='Input CSV path (default: query_codes.csv) / 输入 CSV 路径（默认: query_codes.csv）')
     rep_parser.add_argument('-o', '--out', help='Output Markdown path (default: reports/summary_TIMESTAMP.md) / 输出 Markdown 路径（默认 reports/summary_时间戳.md）')
     rep_parser.add_argument('--charts', action='store_true', help='Generate charts (requires matplotlib) / 生成图表（需要 matplotlib）')
     # 查询器子命令（以国家码命名）
