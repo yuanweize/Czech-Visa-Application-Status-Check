@@ -39,6 +39,12 @@ def main():
     gen_parser.add_argument('--end', help='end date YYYY-MM-DD / 结束日期（YYYY-MM-DD）')
     gen_parser.add_argument('--per-day', type=int, default=5, help='items per day / 每日期条目数')
     gen_parser.add_argument('--include-weekends', action='store_true', help='include weekends / 包含周末')
+    gen_parser.add_argument('--exclude-weekdays', '--exclude', '--排除', '--日期排除',
+                            help='Exclude weekdays digits (1=Mon..7=Sun), e.g. 35 or "3 5" / 排除指定星期(1=周一..7=周日)，如 35 或 "3 5"',
+                            default=None)
+    gen_parser.add_argument('--prefix', '--前缀',
+                            help='Code prefix (default: PEKI) / 代码前缀（默认: PEKI）',
+                            default='PEKI')
 
     # 报告子命令 / report subcommand
     rep_parser = subparsers.add_parser('report', help='Generate detailed Markdown report / 生成详细 Markdown 报告')
