@@ -173,6 +173,8 @@ def main():
         import tools.report as report_mod
         import datetime, os
         input_csv = args.input
+        if input_csv == 'query_codes.csv':
+            print('Using default input CSV: query_codes.csv (override with -i) / 使用默认输入文件 query_codes.csv（可用 -i 指定）')
         out_md = args.out
         generate_charts = args.charts
         # 若需要图表且未安装 matplotlib，尝试自动安装一次
@@ -225,6 +227,10 @@ def main():
             return True if default_true else False
 
         headless_val = _parse_bool(q_args.headless, default_true=True)
+        if q_args.headless is None and headless_val:
+            print('Headless mode: ON (default). Use --headless False to show browser. / 无头模式：开启（默认）。使用 --headless False 显示浏览器。')
+        elif q_args.headless is not None and not headless_val:
+            print('Headless mode: OFF (UI visible). / 无头模式：关闭（显示浏览器）。')
         retries_val = q_args.retries if (q_args.retries is not None) else args.retries
         try:
             kwargs = dict(driver_path=q_args.driver_path, headless=headless_val, retries=retries_val, log_dir=args.log_dir)
