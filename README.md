@@ -92,8 +92,8 @@ Advanced example (when you need explicit driver control):
 高级示例（需要显式驱动控制时使用）：
 - Use `--driver-path` to explicitly point to a Chrome binary; if you have multiple Chrome installations and want to explicitly use `chromium-browser` for example. Otherwise the system default Chrome is used.
 - 使用 `--driver-path` 显示指定 Chrome 可执行文件位置；若有多个 Chrome 可执行文件存在，使用 `chromium-browser` 时可用此参数指明。否则使用系统默认 Chrome。
-- Use `--headless` to run in a headless mode (optional).
-- 使用 `--headless` 以无头模式运行浏览器（可选）。
+- Headless is now the default; omit to stay headless. Use `--headless False` to show browser windows.
+- 现在默认无头运行；不加参数即为无头。使用 `--headless False` 显示浏览器窗口。
 ```bash
 python visa_status.py cz --i my_codes.csv --driver-path /path/to/chromedriver --retries 3 --headless
 ```
@@ -127,8 +127,8 @@ Explanation: `--driver-path` lets you point to a specific chromedriver binary wh
 - `--driver-path PATH` — 指定 chromedriver 可执行文件路径（可选）。
 - `--retries N` — per-row retries (default: 3).
 - `--retries N` — 每条重试次数（默认：3）。
-- `--headless` — run browser in headless mode (optional).
-- `--headless` — 以无头模式运行浏览器（可选）。
+- `--headless [True|False]` — default True. Pass `--headless False` to show UI.
+- `--headless [True|False]` — 默认 True。使用 `--headless False` 显示界面。
 - `--log-dir PATH` — change log directory (default: `logs`).
 - `--log-dir PATH` — 指定日志目录（默认：`logs`）。
 
@@ -190,7 +190,7 @@ Failing rows after retries are appended to `logs/fails/YYYY-MM-DD_fails.csv` for
 
 - Ctrl+C behavior: concurrent runs attempt a graceful shutdown on Ctrl+C — pending tasks are cancelled, progress flushed, and browser instances closed. / Ctrl+C 行为：并发运行在 Ctrl+C 时尝试优雅关闭 — 取消挂起任务、刷新进度并关闭浏览器实例。
 
-- Resource guidance: Chrome instances use memory; on low-memory machines limit `--workers` appropriately. Start with N around (available_memory_in_MB / 300). Consider `--headless` to reduce UI overhead. / 资源建议：Chrome 实例占用内存；在低内存机器上请相应限制 `--workers`。可从 N ≈（可用内存(MB) ÷ 300）开始。使用 `--headless` 可降低 UI 开销。
+- Resource guidance: Chrome instances use memory; on low-memory machines limit `--workers`. Start with N around (available_memory_in_MB / 300). Headless (default) reduces UI overhead; if you need to debug, use `--headless False`. / 资源建议：Chrome 实例占用内存；在低内存机器上请限制 `--workers`。可从 N ≈（可用内存(MB) ÷ 300）开始。默认无头可降低开销；调试时使用 `--headless False`。
 
 - When to use alternative designs: if you need stronger isolation or many concurrent sessions, consider a multi-process approach or an external Selenium Grid. / 何时考虑替代设计：如需更强隔离或大量并发会话，请考虑多进程方案或外部 Selenium Grid。
 

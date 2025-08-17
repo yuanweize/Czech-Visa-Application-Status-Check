@@ -30,7 +30,8 @@ def main():
     parser.add_argument('--retries', type=int, default=3, help='Retries per query (default: 3) / 每条查询的重试次数（默认: 3）')
     parser.add_argument('--no-auto-install', action='store_true', help='Disable auto-install of missing deps at startup / 启动时禁用自动安装缺失依赖')
     parser.add_argument('--log-dir', default='logs', help='Logs directory (default: logs) / 日志目录（默认: logs）')
-    parser.add_argument('--headless', action='store_true', help='Enable headless mode globally / 全局启用无头模式（子命令可覆盖）')
+    # Deprecated global --headless flag kept for backward compatibility; headless now defaults to True for queries.
+    parser.add_argument('--headless', action='store_true', help='(Deprecated) Global headless enable flag; query subcommands now default headless=True. / （兼容保留）全局无头启用标志；查询子命令现默认 headless=True。')
 
     # 生成器子命令
     gen_parser = subparsers.add_parser('generate-codes', help='Generate a CSV of query codes / 生成查询码CSV（支持自定义日期与数量）')
@@ -56,7 +57,9 @@ def main():
         q_parser = subparsers.add_parser(country_code, help=f'{country_code.upper()} visa-status checker / {country_code.upper()}签证状态批量查询')
         q_parser.add_argument('--i', default='query_codes.csv', help='CSV input path (default: query_codes.csv) / CSV 文件路径（默认: query_codes.csv）')
         q_parser.add_argument('--driver-path', default=None, help='ChromeDriver executable path (optional) / ChromeDriver 可执行文件路径（可选）')
-        q_parser.add_argument('--headless', action='store_true', help='Run browser headless / 以无头模式运行浏览器')
+        # Headless now defaults to True. Provide optional value so legacy "--headless" (no value) still works.
+        q_parser.add_argument('--headless', nargs='?', const='true', default=None, metavar='[BOOL]',
+                              help='Headless mode (default True). Use "--headless False" to SHOW browser. Accepts true/false/on/off/yes/no/0/1 / 无头模式(默认 True)。使用 "--headless False" 显示浏览器。接受 true/false/on/off/yes/no/0/1')
         q_parser.add_argument('--workers', type=int, default=1, help='Number of concurrent workers / 并发 worker 数 (default: 1)')
         # 可扩展更多参数
 
@@ -204,10 +207,23 @@ def main():
         q_parser = ap.ArgumentParser()
         q_parser.add_argument('--i', default='query_codes.csv')
         q_parser.add_argument('--driver-path', default=None)
-        q_parser.add_argument('--headless', action='store_true')
+        q_parser.add_argument('--headless', nargs='?', const='true', default=None)
         q_parser.add_argument('--retries', type=int, default=None, help='针对该子命令的重试次数，覆盖全局 --retries')
         q_args, _ = q_parser.parse_known_args(cmd_args)
-        headless_val = bool(q_args.headless) or bool(args.headless)
+
+        def _parse_bool(val, default_true=True):
+            if val is None:
+                return True if default_true else False
+            if isinstance(val, bool):
+                return val
+            s = str(val).strip().lower()
+            if s in ('1', 'true', 't', 'yes', 'y', 'on'):
+                return True
+            if s in ('0', 'false', 'f', 'no', 'n', 'off'):
+                return False
+            return True if default_true else False
+
+        headless_val = _parse_bool(q_args.headless, default_true=True)
         retries_val = q_args.retries if (q_args.retries is not None) else args.retries
         try:
             kwargs = dict(driver_path=q_args.driver_path, headless=headless_val, retries=retries_val, log_dir=args.log_dir)
