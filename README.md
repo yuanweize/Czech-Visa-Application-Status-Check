@@ -202,6 +202,8 @@ Failing rows after retries are appended to `logs/fails/YYYY-MM-DD_fails.csv` for
 ```bash
 python visa_status.py report [ -i custom.csv ] [--charts] [-o reports/custom.md]
 ```
+Default input CSV when -i is omitted: `query_codes.csv`.
+若未指定 -i/--input，则默认读取 `query_codes.csv`。
 - 默认输出目录结构：`reports/<YYYY-MM-DD>/<HH-MM-SS>/summary.md`（精确到秒，多次快照分层隔离；图表 PNG 同目录保存）。顶层按日期分组，避免同日多次覆盖。
 - 选项 / Options:
  	- `--charts` 生成 PNG 图（每日成功率 vs 积压、周成功率、状态分布饼图）并在 Markdown 中引用；若缺失 `matplotlib` 且允许自动安装会尝试安装。
