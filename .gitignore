@@ -37,7 +37,7 @@ selenium-screenshots/
 *.env
 *.secrets
 credentials.json
-
+task.md
 # Large or generated outputs (binaries, databases)
 *.xlsx
 *.xls
@@ -50,6 +50,7 @@ node_modules/
 # Ignore saved web pages or other large crawled assets
 .cz_ipc_web_ref/
 logs/
+reports/
 
 # Note: CSV files are project data and are NOT ignored by default.
 # If you want to ignore local CSV test files, add a pattern here, e.g.:

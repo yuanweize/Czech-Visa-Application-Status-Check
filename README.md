@@ -1,4 +1,4 @@
-# Czech Visa Application Status Check / 捷克签证状态批量查询
+ # Czech Visa Application Status Check / 捷克签证状态批量查询
 
 A small CLI to generate visa application query codes and bulk-check application status on the Czech Immigration Office website.
 一个用于生成签证申请查询码并在捷克移民局网站批量查询申请状态的小型命令行工具。
@@ -168,6 +168,66 @@ Failing rows after retries are appended to `logs/fails/YYYY-MM-DD_fails.csv` for
 - 头匹配：对 `code` 与 `status` 列名使用不区分大小写且宽松的匹配，以兼容不同 CSV 格式。
 - Failure diagnostics: only save page HTML snapshots for Unknown/Query Failed rows to avoid noisy debug files; failing rows get per-day failure CSVs.
 - 失败诊断：仅为 Unknown/Query Failed 行保存页面 HTML 快照，以减少噪声文件；失败条目按日保存为 CSV。
+
+## Concurrency / 并发 (workers)
+
+- Use `--workers N` to run N parallel workers (default 1). Each worker borrows a browser instance from a driver pool; the module pre-creates up to N ChromeDriver instances. / 使用 `--workers N` 来运行 N 个并行 worker（默认 1）。每个 worker 从驱动池借用一个浏览器实例；模块会预创建最多 N 个 ChromeDriver 实例。
+
+- Immediate flush: completed rows are written back to the CSV immediately to preserve resume semantics; failures are appended to `logs/fails/YYYY-MM-DD_fails.csv`. / 立即刷新：完成的行会立即写回 CSV 以保留断点续跑语义；失败条目会追加到 `logs/fails/YYYY-MM-DD_fails.csv`。
+
+- Ctrl+C behavior: concurrent runs attempt a graceful shutdown on Ctrl+C — pending tasks are cancelled, progress flushed, and browser instances closed. / Ctrl+C 行为：并发运行在 Ctrl+C 时尝试优雅关闭 — 取消挂起任务、刷新进度并关闭浏览器实例。
+
+- Resource guidance: Chrome instances use memory; on low-memory machines limit `--workers` appropriately. Start with N around (available_memory_in_MB / 300). Consider `--headless` to reduce UI overhead. / 资源建议：Chrome 实例占用内存；在低内存机器上请相应限制 `--workers`。可从 N ≈（可用内存(MB) ÷ 300）开始。使用 `--headless` 可降低 UI 开销。
+
+- When to use alternative designs: if you need stronger isolation or many concurrent sessions, consider a multi-process approach or an external Selenium Grid. / 何时考虑替代设计：如需更强隔离或大量并发会话，请考虑多进程方案或外部 Selenium Grid。
+
+## Reporting / 报告生成（详细分析 Markdown）
+
+运行聚合分析并输出一个详细的 Markdown 报告（包含：总体分布、每日趋势、周/月汇总、周同比变化、工作日分布、积压比 Backlog、SLA 超期、示例与解读）。
+
+- 命令 / Command:
+```bash
+python visa_status.py report -i query_codes.csv [--charts] [-o reports/custom.md]
+```
+- 默认输出目录结构：`reports/<YYYY-MM-DD>/<HH-MM-SS>/summary.md`（精确到秒，多次快照分层隔离；图表 PNG 同目录保存）。顶层按日期分组，避免同日多次覆盖。
+- 选项 / Options:
+ 	- `--charts` 生成 PNG 图（每日成功率 vs 积压、周成功率、状态分布饼图）并在 Markdown 中引用；若缺失 `matplotlib` 且允许自动安装会尝试安装。
+ 	- `-o` 自定义 Markdown 路径（若提供绝对 / 相对路径将直接写入该位置；否则使用分层目录）。
+
+Markdown 报告章节 / Sections:
+1. Overall Distribution / 总体分布：各标准化状态计数与占比（忽略 Not Found）。
+2. Daily Trend / 每日趋势：每日通过率、积压(Proceedings)比、累计通过率与累计积压比。
+3. Weekly Summary + Δsuccess%：每周成功率及相对上一周的变化百分比。
+4. Monthly Summary：月度总览。
+5. Weekday Distribution：按星期（0=周一）统计（仅有效行），识别高频受理日。
+6. Submission Volume Per Day：每日“有效”提交量（仅统计有结果且非 Not Found 的行；对全日期范围零填充）。
+7. Raw Example Per Status：每个状态的原始示例文本。
+7.1 SLA Overdue：Proceedings 超过 60 天估算超期统计。
+8. Interpretation / 结果解读：辅助判断下签概率与生成查询码策略的提示。
+
+关键指标 / Key Metrics:
+- Success rate: Granted / counted （全局忽略 Not Found，无开关）。
+- Failures: Rejected/Closed + Query Failed。
+- Backlog ratio: Proceedings / (每日有效统计总数)。
+- Weekly Δsuccess%: 当前周成功率 - 上一周成功率。
+- Processing rate: (Granted + Rejected)/counted。
+- Rejection rate: Rejected/Closed / counted。
+- SLA Overdue: Proceedings 中超过 60 天仍未出结果的比例与列表。
+- ISO Week: 报告标题含当前 UTC ISO 周标签（便于与周汇总对应）。
+
+用途 / Use Cases:
+- 判断当前样本期的粗略通过/拒签比例。
+- 监控 Backlog（审理中）变化，预估后续结果释放节奏。
+- 根据工作日分布优化新查询码的生成（集中在高活跃日）。
+
+语义说明 / Semantics:
+- Not Found 行永远不计入任何成功率/拒签率/提交量；无需再添加开关。
+- Submission Volume 仅统计“有效行”（非空且非 Not Found），并对日期范围内未出现有效行的日期填 0，便于直观看缺口。
+- Effective date range 只覆盖至少存在一条有效行的首尾日期；避免被大量 Not Found 日拉长分析窗口。
+- 自动安装 matplotlib：执行 `report --charts` 且缺少 matplotlib 时会尝试安装（如全局未禁用自动安装）。
+
+（旧版本 JSON 摘要已被更全面的 Markdown 报告取代；如仍需 JSON 可复用 `tools/report.py` 内部函数自行调用。）
+
 
 ## Troubleshooting / 故障排查
 Ensure Chrome and chromedriver are compatible; if in doubt use `--driver-path` to point to a matching binary.

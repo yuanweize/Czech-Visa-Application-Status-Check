@@ -69,6 +69,50 @@ query_codes_project/
 2. Implement `def query_status(code: str, driver=None, **opts) -> str:` and return a normalized status.
 3. Register the module in `visa_status.py` mapping.
 
+## Concurrency / 并发 (workers)
+
+- Purpose: support higher throughput by running multiple query workers in parallel while reusing browser instances via a driver pool. / 目的：通过并行运行多个 worker 并重用浏览器实例（驱动池）来提高吞吐量。
+
+- CLI: `--workers N` (default 1). When N>1 the Czech module uses a ThreadPoolExecutor and a simple driver pool pre-creating up to N webdriver instances. / 命令行：`--workers N`（默认 1）。当 N>1 时，捷克模块使用 ThreadPoolExecutor 及一个简单的驱动池，预创建最多 N 个 webdriver 实例。
+
+- Behavior: each completed task is flushed immediately to the input CSV and failing rows are appended to `logs/fails/YYYY-MM-DD_fails.csv`. This preserves resume/replication semantics even during concurrent runs. / 行为：每个完成的查询会立刻写回输入 CSV，失败条目会追加到 `logs/fails/YYYY-MM-DD_fails.csv`，即便并发运行也能保持可恢复/可审计语义。
+
+- Ctrl+C handling: concurrent runs catch `KeyboardInterrupt`, cancel pending tasks, flush in-memory progress to CSV, close all browser instances and then exit. / Ctrl+C 处理：并发运行会捕获 `KeyboardInterrupt`，取消挂起任务、将内存中的进度写回 CSV、关闭所有浏览器实例并退出。
+
+- Resource note: each Chrome instance consumes memory (>= ~150-300MB depending on flags and page complexity). Limit `--workers` on low-memory machines. Consider N <= available_memory / 300MB as a rough starting point. / 资源提示：每个 Chrome 实例会消耗内存（取决于参数和页面，通常 >=150-300MB）。在低内存机器上请限制 `--workers`。一个粗略估算：N 不应超过 可用内存 ÷ 300MB。
+
+- Alternatives: for stronger isolation or to avoid GIL/driver thread contention, consider a multi-process model (ProcessPool) or using a remote Selenium Grid. / 备选方案：如需更强隔离或避免线程/驱动争用，可考虑多进程模型（ProcessPool）或外部 Selenium Grid。
+
+## Reporting module / 报告模块（详细分析）
+
+- Location / 位置: `tools/report.py` （通过 `python visa_status.py report` 调用）。
+- Purpose / 目的: 生成面向申请者与维护者的可读性强的 Markdown 报告，帮助评估：
+	- 当前通过率 (Granted 占比)
+	- 拒签/关闭与查询失败情况
+	- 审理中(Proceedings) 积压量与比例 (Backlog ratio)
+	- 日/周/月的趋势与波动 (含周成功率环比 Δ)
+	- 工作日活跃度（用于优化查询码生成：聚焦周一/周二等高处理日）
+	- SLA 超期（Proceedings 超过 60 天）
+- Ignore strategy / 忽略策略: 全局忽略 `Not Found` 行（无开启开关）。
+- Command / 命令:
+```bash
+python visa_status.py report -i query_codes.csv [--charts]
+```
+- Output / 输出: `reports/<YYYY-MM-DD>/<HH-MM-SS>/summary.md` 分层目录（日期/时间）精确到秒；图表 PNG 与报告同目录。
+- Key metrics / 关键指标:
+	- success_rate = Granted / counted
+	- processing_rate = (Granted + Rejected)/counted
+	- rejection_rate = Rejected/Closed / counted
+	- backlog_ratio (每日与累计 Proceedings 占比)
+	- weekly Δsuccess%
+	- SLA overdue ratio (Proceedings 超过60天占当前 Proceedings 比例)
+	- weekday peak (峰值工作日)
+	- ISO Week (报告标题中显示当前 UTC ISO 周)
+- Submission volume / 提交量: 仅统计“有效”行（非空且非 Not Found），并对日历跨度零填充方便趋势对比。
+- Charts (optional with --charts & matplotlib): daily success vs backlog line, weekly success bar, distribution pie。
+- Auto-install / 自动安装: 在未禁用自动安装且指定 `--charts` 时尝试安装缺失的 `matplotlib`。
+- Extensibility / 可扩展: 未来若保留多次抓取快照，可进一步分析平均处理时长 / Proceedings→Granted 转化周期。
+
 ## Links / 链接
 - README (user guide): [README.md](README.md)
 - README（用户指南）：[README.md](README.md)

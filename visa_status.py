@@ -6,6 +6,7 @@ import importlib
 # 工具注册表：key为命令名，值为(模块路径, 主函数名)
 TOOLS = {
     'generate-codes': ('tools.generate_codes', 'main'),
+    # 'report' 从通用工具列表移除，使用专用子命令分支生成更详细的 Markdown 报告
 }
 
 # 查询器注册表，所有国家查询模块均用二字国家码命名（如cz、us、de等）
@@ -39,12 +40,18 @@ def main():
     gen_parser.add_argument('--per-day', type=int, default=5, help='items per day / 每日期条目数')
     gen_parser.add_argument('--include-weekends', action='store_true', help='include weekends / 包含周末')
 
+    # 报告子命令 / report subcommand
+    rep_parser = subparsers.add_parser('report', help='Generate detailed Markdown report / 生成详细 Markdown 报告')
+    rep_parser.add_argument('-i', '--input', required=True, help='Input CSV path / 输入 CSV 路径')
+    rep_parser.add_argument('-o', '--out', help='Output Markdown path (default: reports/summary_TIMESTAMP.md) / 输出 Markdown 路径（默认 reports/summary_时间戳.md）')
+    rep_parser.add_argument('--charts', action='store_true', help='Generate charts (requires matplotlib) / 生成图表（需要 matplotlib）')
     # 查询器子命令（以国家码命名）
     for country_code, (mod_path, _) in QUERY_MODULES.items():
         q_parser = subparsers.add_parser(country_code, help=f'{country_code.upper()} visa-status checker / {country_code.upper()}签证状态批量查询')
         q_parser.add_argument('--i', default='query_codes.csv', help='CSV input path (default: query_codes.csv) / CSV 文件路径（默认: query_codes.csv）')
         q_parser.add_argument('--driver-path', default=None, help='ChromeDriver executable path (optional) / ChromeDriver 可执行文件路径（可选）')
         q_parser.add_argument('--headless', action='store_true', help='Run browser headless / 以无头模式运行浏览器')
+        q_parser.add_argument('--workers', type=int, default=1, help='Number of concurrent workers / 并发 worker 数 (default: 1)')
         # 可扩展更多参数
 
     # 在运行前进行依赖检查：selenium、webdriver_manager
@@ -65,6 +72,7 @@ def main():
                 lf.write(f"[{ts}] {msg}\n")
 
         missing = []
+        optional_missing = []  # e.g. matplotlib only needed for --charts
         try:
             import selenium  # noqa: F401
             log('selenium: present / selenium: 已安装')
@@ -79,10 +87,24 @@ def main():
             log('webdriver-manager: missing / webdriver-manager: 未安装')
         try:
             import openpyxl  # noqa: F401
-            log('openpyxl: present / openpyxl: 已安装')
+            log('openpyxl: present / openpyxl: 已安装 (optional)')
         except Exception:
-            missing.append('openpyxl')
-            log('openpyxl: missing / openpyxl: 未安装')
+            # treat openpyxl as optional; no longer auto-installed by default
+            optional_missing.append('openpyxl')
+            log('openpyxl: missing (optional) / openpyxl: 未安装（可选）')
+
+        # matplotlib only needed when user requests charts in report subcommand
+        want_matplotlib = '--charts' in sys.argv and 'report' in sys.argv
+        try:
+            import matplotlib  # noqa: F401
+            log('matplotlib: present / matplotlib: 已安装 (for charts)')
+        except Exception:
+            if want_matplotlib:
+                missing.append('matplotlib')
+                log('matplotlib: missing (will install, charts requested) / matplotlib: 未安装（已请求图表，将尝试安装）')
+            else:
+                optional_missing.append('matplotlib')
+                log('matplotlib: missing (optional, install for --charts) / matplotlib: 未安装（可选，生成图表需安装）')
 
         chromedriver_found = False
         # check PATH for chromedriver
@@ -103,6 +125,9 @@ def main():
                     log('pip install failed: ' + str(e) + ' / pip 安装失败: ' + str(e))
             else:
                 log('Auto-install disabled; skipping pip install / 未启用自动安装，跳过 pip 安装')
+
+        if optional_missing:
+            log('Optional packages missing (install if needed): ' + ', '.join(optional_missing) + ' / 缺失的可选包（按需安装）: ' + ', '.join(optional_missing))
 
         # After install attempt, check for webdriver-manager availability
         try:
@@ -133,11 +158,42 @@ def main():
         mod = importlib.import_module(mod_name)
         func = getattr(mod, func_name)
         func(cmd_args)
+    elif args.command == 'report':
+        # 专门处理报告：只生成 Markdown
+        import tools.report as report_mod
+        import datetime, os
+        input_csv = args.input
+        out_md = args.out
+        generate_charts = args.charts
+        # 若需要图表且未安装 matplotlib，尝试自动安装一次
+        if generate_charts:
+            # At this point dependency check may already have installed matplotlib if --charts was present.
+            # Re-verify and attempt a one-shot install if still missing (user might have disabled auto-install earlier).
+            try:
+                import matplotlib  # noqa: F401
+            except Exception:
+                try:
+                    import subprocess
+                    subprocess.check_call([sys.executable, '-m', 'pip', 'install', 'matplotlib'])
+                except Exception:
+                    print('Warning: auto-install matplotlib failed; charts may not be generated / 警告：自动安装 matplotlib 失败，图表可能无法生成')
+        if not out_md:
+            now = datetime.datetime.now()
+            date_part = now.strftime('%Y-%m-%d')
+            time_part = now.strftime('%H-%M-%S')
+            base_dir = os.path.join('reports', date_part, time_part)
+            os.makedirs(base_dir, exist_ok=True)
+            out_md = os.path.join(base_dir, 'summary.md')
+        else:
+            os.makedirs(os.path.dirname(out_md) or '.', exist_ok=True)
+        header, rows = report_mod.load_csv(input_csv)
+        summary = report_mod.generate_detailed_summary(header, rows, charts=generate_charts, out_markdown_path=out_md)
+        report_mod.write_detailed_markdown(summary, out_md, include_charts=generate_charts)
+        print(f"Markdown report written: {out_md} / 详细报告已生成")
     elif args.command in QUERY_MODULES:
         mod_name, func_name = QUERY_MODULES[args.command]
         mod = importlib.import_module(mod_name)
         func = getattr(mod, func_name)
-        # 只传递 --i、--driver-path、--headless 参数到查询模块
         import argparse as ap
         q_parser = ap.ArgumentParser()
         q_parser.add_argument('--i', default='query_codes.csv')
@@ -145,15 +201,15 @@ def main():
         q_parser.add_argument('--headless', action='store_true')
         q_parser.add_argument('--retries', type=int, default=None, help='针对该子命令的重试次数，覆盖全局 --retries')
         q_args, _ = q_parser.parse_known_args(cmd_args)
-        # 决定最终参数：优先子命令本身的设置，其次全局设置
         headless_val = bool(q_args.headless) or bool(args.headless)
         retries_val = q_args.retries if (q_args.retries is not None) else args.retries
         try:
-            func(q_args.i, driver_path=q_args.driver_path, headless=headless_val, retries=retries_val, log_dir=args.log_dir)
+            kwargs = dict(driver_path=q_args.driver_path, headless=headless_val, retries=retries_val, log_dir=args.log_dir)
+            if hasattr(q_args, 'workers'):
+                kwargs['workers'] = q_args.workers
+            func(q_args.i, **kwargs)
         except TypeError:
-            # 兼容旧模块签名，仅传入csv路径
             func(q_args.i)
-    # no separate setup command anymore; dependency handled at startup
     else:
         parser.print_help()
         sys.exit(1)
