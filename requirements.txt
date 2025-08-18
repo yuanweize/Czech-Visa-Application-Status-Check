@@ -2,4 +2,7 @@ selenium>=4.0.0
 webdriver-manager>=3.8.0
 # Optional for report charts
 matplotlib>=3.7.0
+\n+# Experimental browser-use / Playwright implementation (feature/browser-use branch)
+# Note: browser-use currently requires Python 3.11+ and will pull in Playwright.
+browser-use>=0.1.0
 
