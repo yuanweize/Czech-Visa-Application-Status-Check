@@ -12,6 +12,8 @@ TOOLS = {
 # 查询器注册表，所有国家查询模块均用二字国家码命名（如cz、us、de等）
 QUERY_MODULES = {
     'cz': ('query_modules.cz', 'update_csv_with_status'),
+    # Experimental browser-use (Playwright) backend variant (feature branch only) simplified name
+    'cz-bu': ('query_modules.cz_browser_use', 'update_csv_with_status'),
     # 未来可扩展更多国家，如 'us': ('query_modules.us', 'update_csv_with_status')
 }
 
