@@ -88,6 +88,23 @@ Simple example (recommended):
 python visa_status.py cz
 ```
 
+Experimental Playwright backend (browser-use) / 实验性 Playwright 后端：
+You can try the Playwright implementation either via the separate subcommand or backend flag.
+可以通过独立子命令或 backend 参数尝试 Playwright 实现。
+
+Two ways / 两种方式:
+1) Short experimental subcommand / 简写实验子命令:
+```bash
+python visa_status.py cz-bu
+```
+2) Backend flag on cz / 在 cz 上通过 backend 参数:
+```bash
+python visa_status.py cz --backend playwright
+```
+Fallback will occur to Selenium if Playwright deps missing. / 若缺少 Playwright 依赖会自动回退到 Selenium。
+NOTE: browser-use / Playwright path currently requires Python 3.11+ and installation of package + browsers.
+注意：browser-use / Playwright 需要 Python 3.11+，并需要安装相应包与浏览器二进制。
+
 Advanced example (when you need explicit driver control):
 高级示例（需要显式驱动控制时使用）：
 - Use `--driver-path` to explicitly point to a Chrome binary; if you have multiple Chrome installations and want to explicitly use `chromium-browser` for example. Otherwise the system default Chrome is used.
@@ -118,8 +135,10 @@ Explanation: `--driver-path` lets you point to a specific chromedriver binary wh
 - `--exclude-weekdays / --exclude / --排除 / --日期排除 DIGITS` — exclude specific weekdays (1=Mon..7=Sun). Supports formats: `35`, `3 5`, `3,5`. Applied after weekend inclusion logic. / 排除指定星期（1=周一..7=周日），格式支持 `35`、`3 5`、`3,5`，在周末过滤之后应用。
 - `--prefix / --前缀 TEXT` — code prefix (default PEKI). / 自定义代码前缀（默认 PEKI）。
 
-`cz` — run the Czech checker (example module).
-`cz` — 运行捷克查询器（示例模块）。
+`cz` — run the Czech checker (Selenium by default, can switch to Playwright with `--backend playwright`).
+`cz` — 运行捷克查询器（默认 Selenium，可通过 `--backend playwright` 使用 Playwright）。
+`cz-bu` — experimental Playwright/browser-use short subcommand (same semantics as `cz --backend playwright`).
+`cz-bu` — 实验性 Playwright/browser-use 简写子命令（等价于 `cz --backend playwright`）。
 
 - `--i PATH` — input CSV path (default: `query_codes.csv`).
 - `--i PATH` — 输入 CSV 路径（默认：`query_codes.csv`）。
@@ -129,6 +148,7 @@ Explanation: `--driver-path` lets you point to a specific chromedriver binary wh
 - `--retries N` — 每条重试次数（默认：3）。
 - `--headless [True|False]` — default True. Pass `--headless False` to show UI.
 - `--headless [True|False]` — 默认 True。使用 `--headless False` 显示界面。
+- `--backend [selenium|playwright]` (cz only) — choose backend (default selenium). / 仅 cz：选择后端（默认 selenium）。
 - `--log-dir PATH` — change log directory (default: `logs`).
 - `--log-dir PATH` — 指定日志目录（默认：`logs`）。
 
@@ -177,6 +197,7 @@ Failing rows after retries are appended to `logs/fails/YYYY-MM-DD_fails.csv` for
 - 重试与退避：可配置重试次数，采用带抖动的指数退避以降低对服务的瞬时压力。
 - Driver management: prefer an explicit `--driver-path`; otherwise use `webdriver-manager` if installed; includes lightweight driver/session recreation on recoverable errors.
 - 驱动管理：优先使用 `--driver-path` 指定驱动，若安装了 `webdriver-manager` 则自动下载；在可恢复的错误时包含轻量级的驱动/会话重建。
+- Playwright experimental backend: optional alternative using browser-use + Playwright for potentially faster, lighter sessions (sequential only for now). / Playwright 实验后端：可选的 browser-use + Playwright 方案（当前仅顺序执行）。
 - Header matching: case-insensitive and forgiving column matching for `code` and `status` to be tolerant to CSV variants.
 - 头匹配：对 `code` 与 `status` 列名使用不区分大小写且宽松的匹配，以兼容不同 CSV 格式。
 - Failure diagnostics: only save page HTML snapshots for Unknown/Query Failed rows to avoid noisy debug files; failing rows get per-day failure CSVs.

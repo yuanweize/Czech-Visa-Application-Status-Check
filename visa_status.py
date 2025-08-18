@@ -64,6 +64,9 @@ def main():
         q_parser.add_argument('--headless', nargs='?', const='true', default=None, metavar='[BOOL]',
                               help='Headless mode (default True). Use "--headless False" to SHOW browser. Accepts true/false/on/off/yes/no/0/1 / 无头模式(默认 True)。使用 "--headless False" 显示浏览器。接受 true/false/on/off/yes/no/0/1')
         q_parser.add_argument('--workers', type=int, default=1, help='Number of concurrent workers / 并发 worker 数 (default: 1)')
+        # Backend selection (currently only meaningful for cz). For cz you can pass --backend playwright to use experimental Playwright implementation.
+        if country_code == 'cz':
+            q_parser.add_argument('--backend', choices=['selenium', 'playwright'], default='selenium', help='Backend engine (default selenium). Use playwright for experimental browser-use implementation. / 后端引擎（默认 selenium），使用 playwright 采用实验性 browser-use 实现。')
         # 可扩展更多参数
 
     # 在运行前进行依赖检查：selenium、webdriver_manager
@@ -214,6 +217,9 @@ def main():
         q_parser.add_argument('--driver-path', default=None)
         q_parser.add_argument('--headless', nargs='?', const='true', default=None)
         q_parser.add_argument('--retries', type=int, default=None, help='针对该子命令的重试次数，覆盖全局 --retries')
+        # replicate backend arg for cz in the internal parser so we can branch at runtime
+        if args.command == 'cz':
+            q_parser.add_argument('--backend', choices=['selenium', 'playwright'], default='selenium')
         q_args, _ = q_parser.parse_known_args(cmd_args)
 
         def _parse_bool(val, default_true=True):
@@ -229,15 +235,28 @@ def main():
             return True if default_true else False
 
         headless_val = _parse_bool(q_args.headless, default_true=True)
+
+        # If cz and backend=playwright, dynamically switch module to experimental cz_browser_use
+        if args.command == 'cz' and getattr(q_args, 'backend', 'selenium') == 'playwright':
+            try:
+                mod = importlib.import_module('query_modules.cz_browser_use')
+                func = getattr(mod, 'update_csv_with_status')
+                # Ignore driver_path for playwright backend
+            except Exception as e:
+                print(f"[Error] Could not load Playwright backend: {e} / 无法加载 Playwright 后端")
+                print('Falling back to Selenium backend / 回退至 Selenium 后端')
         if q_args.headless is None and headless_val:
             print('Headless mode: ON (default). Use --headless False to show browser. / 无头模式：开启（默认）。使用 --headless False 显示浏览器。')
         elif q_args.headless is not None and not headless_val:
             print('Headless mode: OFF (UI visible). / 无头模式：关闭（显示浏览器）。')
         retries_val = q_args.retries if (q_args.retries is not None) else args.retries
         try:
-            kwargs = dict(driver_path=q_args.driver_path, headless=headless_val, retries=retries_val, log_dir=args.log_dir)
+            kwargs = dict(driver_path=getattr(q_args, 'driver_path', None), headless=headless_val, retries=retries_val, log_dir=args.log_dir)
             if hasattr(q_args, 'workers'):
                 kwargs['workers'] = q_args.workers
+            # Remove driver_path for playwright backend to avoid unexpected parameter error
+            if args.command == 'cz' and getattr(q_args, 'backend', 'selenium') == 'playwright':
+                kwargs.pop('driver_path', None)
             func(q_args.i, **kwargs)
         except TypeError:
             func(q_args.i)

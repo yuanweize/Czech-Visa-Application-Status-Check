@@ -41,6 +41,8 @@ query_codes_project/
 - 使用 Selenium ChromeDriver，优先推荐传入 `--driver-path`。
 - If `webdriver-manager` is installed the tool can auto-download a matching chromedriver at runtime.
 - 若安装了 `webdriver-manager`，程序可在运行时自动下载匹配的 chromedriver。
+ - Experimental Playwright backend (browser-use) available via subcommand `cz-bu` or `cz --backend playwright` (feature branch). Sequential queries only, may become default after evaluation.
+ - 实验性 Playwright 后端（browser-use）可通过 `cz-bu` 子命令或 `cz --backend playwright` 使用（特性分支）。当前为顺序查询，评估后可能成为默认。
 
 3) Overlay handling / 覆盖层处理
 - Strategy: targeted click on refuse/close buttons → JS-dispatched MouseEvent → hide/remove overlays → retry.
