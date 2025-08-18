@@ -121,6 +121,12 @@ def main():
                 optional_missing.append('matplotlib')
                 log('matplotlib: missing (optional, install for --charts) / matplotlib: 未安装（可选，生成图表需安装）')
 
+        # Determine if user wants playwright/browser-use (either cz-bu command or cz with --backend playwright)
+        want_playwright = False
+        argv_join = ' '.join(sys.argv).lower()
+        if 'cz-bu' in sys.argv or (' cz ' in f' {argv_join} ' and '--backend' in argv_join and 'playwright' in argv_join):
+            want_playwright = True
+
         chromedriver_found = False
         # check PATH for chromedriver
         if shutil.which('chromedriver') or shutil.which('chromedriver.exe'):
@@ -129,6 +135,21 @@ def main():
         else:
             log('chromedriver: not found in PATH / chromedriver: 未在 PATH 中找到')
 
+        # Add playwright/browser-use detection
+        if want_playwright:
+            try:
+                import playwright  # noqa: F401
+                log('playwright: present / playwright: 已安装')
+            except Exception:
+                missing.append('playwright')
+                log('playwright: missing / playwright: 未安装')
+            try:
+                import browser_use  # noqa: F401
+                log('browser-use: present / browser-use: 已安装')
+            except Exception:
+                missing.append('browser-use')
+                log('browser-use: missing / browser-use: 未安装')
+
         if missing:
             log('Missing packages: ' + ', '.join(missing) + ' / 缺失的包: ' + ', '.join(missing))
             if auto_install:
@@ -136,6 +157,13 @@ def main():
                 try:
                     subprocess.check_call([sys.executable, '-m', 'pip', 'install'] + missing)
                     log('pip install succeeded for: ' + ', '.join(missing) + ' / pip 安装成功: ' + ', '.join(missing))
+                    # If playwright was just installed and user wants it, auto-install browsers (chromium only) once
+                    if want_playwright:
+                        try:
+                            subprocess.check_call([sys.executable, '-m', 'playwright', 'install', 'chromium'])
+                            log('playwright browsers install (chromium) OK / playwright 浏览器 (chromium) 安装成功')
+                        except Exception as e:
+                            log('playwright browsers install failed: ' + str(e) + ' / playwright 浏览器安装失败')
                 except Exception as e:
                     log('pip install failed: ' + str(e) + ' / pip 安装失败: ' + str(e))
             else:
@@ -153,12 +181,13 @@ def main():
             has_wdm = False
             log('webdriver-manager: still not available / webdriver-manager: 仍然不可用')
 
-        if not chromedriver_found:
+        if not chromedriver_found and not want_playwright:
             if has_wdm:
                 log('Will use webdriver-manager to download chromedriver at runtime / 将使用 webdriver-manager 在运行时下载 chromedriver')
             else:
-                # no chromedriver and no webdriver-manager: log warning
                 log('Warning: chromedriver not found and webdriver-manager not available. User must install chromedriver or provide --driver-path / 警告：未找到 chromedriver 且 webdriver-manager 不可用。请安装 chromedriver 或使用 --driver-path 指定驱动路径')
+        if want_playwright:
+            log('Playwright mode requested (cz-bu or --backend playwright) / 需要 Playwright 模式')
 
     # run dependency check with chosen behavior (use parse_known_args to read global opts before full parse)
     known_args, _ = parser.parse_known_args()

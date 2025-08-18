@@ -5,4 +5,5 @@ matplotlib>=3.7.0
 \n+# Experimental browser-use / Playwright implementation (feature/browser-use branch)
 # Note: browser-use currently requires Python 3.11+ and will pull in Playwright.
 browser-use>=0.1.0
+playwright>=1.46.0
 
