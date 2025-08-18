@@ -286,6 +286,9 @@ def main():
             # Remove driver_path for playwright backend to avoid unexpected parameter error
             if args.command == 'cz' and getattr(q_args, 'backend', 'selenium') == 'playwright':
                 kwargs.pop('driver_path', None)
+            # Remove driver_path entirely for experimental cz-bu module (playwright)
+            if args.command == 'cz-bu':
+                kwargs.pop('driver_path', None)
             func(q_args.i, **kwargs)
         except TypeError:
             func(q_args.i)

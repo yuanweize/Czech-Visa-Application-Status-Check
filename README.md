@@ -104,6 +104,8 @@ python visa_status.py cz --backend playwright
 Fallback will occur to Selenium if Playwright deps missing. / 若缺少 Playwright 依赖会自动回退到 Selenium。
 NOTE: browser-use / Playwright path currently requires Python 3.11+ and installation of package + browsers.
 注意：browser-use / Playwright 需要 Python 3.11+，并需要安装相应包与浏览器二进制。
+Performance & size note / 体积与性能说明:
+First run will download a Chromium build (~150MB+) and many optional LLM/cloud deps pulled by browser-use. This is optional: if you only need classic Selenium keep using `cz` without `--backend playwright`. / 首次运行会下载 Chromium (~150MB+) 以及 browser-use 引入的众多可选依赖；若只需经典 Selenium，可继续使用 `cz`（不加 `--backend playwright`）。
 
 Advanced example (when you need explicit driver control):
 高级示例（需要显式驱动控制时使用）：

@@ -128,7 +128,7 @@ async def _process_codes(codes: List[str], max_attempts: int, headless: bool) ->
         await browser.close()
     return results
 
-def update_csv_with_status(csv_path: str, code_col='查询码/Code', status_col='签证状态/Status', headless=True, retries=None, log_dir='logs', workers: int = 1, per_query_delay=0.5, jitter=0.5):
+def update_csv_with_status(csv_path: str, code_col='查询码/Code', status_col='签证状态/Status', headless=True, retries=None, log_dir='logs', workers: int = 1, per_query_delay=0.5, jitter=0.5, **_ignored):
     """Public entry point mirroring Selenium signature minus driver_path.
 
     Currently executes sequentially (workers ignored) to keep implementation minimal.
@@ -178,6 +178,7 @@ def update_csv_with_status(csv_path: str, code_col='查询码/Code', status_col=
         row_refs.append(r)
     if not pending_codes:
         print('No pending codes / 没有需要查询的编码')
+        print('Hint: generate new codes or clear some status cells to re-query. / 提示：生成新代码或清空部分状态列后再试。')
         return
     max_attempts = retries if (retries and retries > 0) else 3
 
