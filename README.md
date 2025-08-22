@@ -107,6 +107,37 @@ NOTE: browser-use / Playwright path currently requires Python 3.11+ and installa
 Performance & size note / 体积与性能说明:
 First run will download a Chromium build (~150MB+) and many optional LLM/cloud deps pulled by browser-use. This is optional: if you only need classic Selenium keep using `cz` without `--backend playwright`. / 首次运行会下载 Chromium (~150MB+) 以及 browser-use 引入的众多可选依赖；若只需经典 Selenium，可继续使用 `cz`（不加 `--backend playwright`）。
 
+### Agent Mode (DeepSeek R1 via SiliconFlow) / Agent 模式（通过 SiliconFlow 使用 DeepSeek R1）
+
+The experimental Playwright path supports an optional LLM Agent to navigate & extract status more robustly.
+实验性 Playwright 路径支持可选的 LLM Agent，以在站点结构变化时更稳健地导航与提取状态。
+
+Default model / 默认模型: `deepseek-ai/DeepSeek-R1` (via SiliconFlow proxy).
+
+Environment variables (put them in `.env`):
+环境变量（写入 `.env` 文件）：
+```
+SILICONFLOW_API_KEY=sk-your-key-here
+AGENT_MODEL=deepseek-ai/DeepSeek-R1  # 可覆盖为其他 DeepSeek 模型
+# 可选：SiliconFlow 自定义基础 URL (若非默认):
+SILICONFLOW_BASE_URL=https://api.siliconflow.cn/v1
+```
+
+Usage / 用法:
+```bash
+python visa_status.py cz-bu --agent
+# 或
+python visa_status.py cz --backend playwright --agent
+```
+
+Customize steps or model / 自定义步数或模型:
+```bash
+python visa_status.py cz-bu --agent --agent-model deepseek-ai/DeepSeek-R1 --agent-max-steps 16
+```
+
+If the API key is missing or the DeepSeek class is unavailable, the tool silently falls back to deterministic mode.
+若缺少 API Key 或 DeepSeek 类不可用，将自动回退到确定性模式。
+
 Advanced example (when you need explicit driver control):
 高级示例（需要显式驱动控制时使用）：
 - Use `--driver-path` to explicitly point to a Chrome binary; if you have multiple Chrome installations and want to explicitly use `chromium-browser` for example. Otherwise the system default Chrome is used.

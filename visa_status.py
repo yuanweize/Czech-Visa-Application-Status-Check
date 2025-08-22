@@ -64,6 +64,10 @@ def main():
         q_parser.add_argument('--headless', nargs='?', const='true', default=None, metavar='[BOOL]',
                               help='Headless mode (default True). Use "--headless False" to SHOW browser. Accepts true/false/on/off/yes/no/0/1 / 无头模式(默认 True)。使用 "--headless False" 显示浏览器。接受 true/false/on/off/yes/no/0/1')
         q_parser.add_argument('--workers', type=int, default=1, help='Number of concurrent workers / 并发 worker 数 (default: 1)')
+        # Agent mode flags (playwright/browser-use backend only; ignored by selenium backend)
+        q_parser.add_argument('--agent', action='store_true', help='Enable agent (LLM) mode if backend supports it / 若后端支持则启用 Agent (LLM) 模式')
+        q_parser.add_argument('--agent-model', default='deepseek-ai/DeepSeek-R1', help='Agent LLM model name (default deepseek-ai/DeepSeek-R1) / Agent 使用的模型名（默认 deepseek-ai/DeepSeek-R1）')
+        q_parser.add_argument('--agent-max-steps', type=int, default=12, help='Max agent reasoning steps (default 12) / Agent 最大推理步数')
         # Backend selection (currently only meaningful for cz). For cz you can pass --backend playwright to use experimental Playwright implementation.
         if country_code == 'cz':
             q_parser.add_argument('--backend', choices=['selenium', 'playwright'], default='selenium', help='Backend engine (default selenium). Use playwright for experimental browser-use implementation. / 后端引擎（默认 selenium），使用 playwright 采用实验性 browser-use 实现。')
@@ -289,6 +293,14 @@ def main():
             # Remove driver_path entirely for experimental cz-bu module (playwright)
             if args.command == 'cz-bu':
                 kwargs.pop('driver_path', None)
+            # Pass agent params only to playwright paths (cz with backend=playwright or cz-bu)
+            if (args.command == 'cz' and getattr(q_args, 'backend', 'selenium') == 'playwright') or args.command == 'cz-bu':
+                if getattr(q_args, 'agent', False):
+                    kwargs['use_agent'] = True
+                    kwargs['agent_model'] = getattr(q_args, 'agent_model', 'deepseek-ai/DeepSeek-R1')
+                    kwargs['max_agent_steps'] = getattr(q_args, 'agent_max_steps', 12)
+                else:
+                    kwargs.pop('use_agent', None)
             func(q_args.i, **kwargs)
         except TypeError:
             func(q_args.i)
