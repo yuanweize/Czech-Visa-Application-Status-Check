@@ -166,7 +166,9 @@ async def _worker(name: str, browser, queue: asyncio.Queue, result_cb, retries: 
             idx, code = item
             status = 'Query Failed / 查询失败'
             err = ''
+            attempts_used = 0
             for attempt in range(1, retries + 1):
+                attempts_used = attempt
                 try:
                     # In case page was closed between attempts, recreate it
                     try:
@@ -230,7 +232,7 @@ async def _worker(name: str, browser, queue: asyncio.Queue, result_cb, retries: 
                         await asyncio.sleep(1.0 + 0.5 * attempt)
                     else:
                         status = 'Query Failed / 查询失败'
-            await result_cb(idx, code, status, err)
+            await result_cb(idx, code, status, err, attempts_used)
             queue.task_done()
     finally:
         try:
@@ -267,7 +269,11 @@ async def _run(csv_path: str, headless: bool, workers: int, retries: int, log_di
         while len(row) < len(header):
             row.append('')
         code = row[code_idx]
-        if row[status_idx] and str(row[status_idx]).strip():
+        # 逻辑调整：如果状态为空或者为 Query Failed / 查询失败，则视为“未完成”需要重新查询。
+        # 之前实现：只要非空就跳过，导致之前的失败记录无法重试。
+        status_cell = str(row[status_idx]).strip() if row[status_idx] else ''
+        if status_cell and 'query failed' not in status_cell.lower():
+            # 已有一个非失败的最终状态（如 Not Found / Proceedings / Granted 等），跳过
             continue
         row_map[code] = i
         await queue.put((i, code))
@@ -279,7 +285,39 @@ async def _run(csv_path: str, headless: bool, workers: int, retries: int, log_di
     fail_file = os.path.join(fails_dir, f"{datetime.date.today().isoformat()}_fails.csv")
     fail_header_needed = not os.path.exists(fail_file)
 
-    async def on_result(idx: int, code: str, status: str, err: str):
+    # 读取已有失败文件，构建累积失败计数 (code -> count)
+    fail_counts: dict[str, int] = {}
+    if os.path.exists(fail_file):
+        try:
+            with open(fail_file, 'r', encoding='utf-8') as rf:
+                cr = csv.reader(rf)
+                header_line = True
+                for r in cr:
+                    if header_line:
+                        header_line = False
+                        continue
+                    if not r:
+                        continue
+                    if len(r) < 2:
+                        continue
+                    c = r[1].strip()
+                    if not c or c == '查询码/Code':
+                        continue
+                    fail_counts[c] = fail_counts.get(c, 0) + 1
+        except Exception:
+            pass
+
+    # 统计信息
+    stats = {
+        'total': 0,
+        'success': 0,
+        'fail': 0,
+        'retry_needed': 0,
+        'retry_success': 0,
+        'total_attempts': 0,
+    }
+
+    async def on_result(idx: int, code: str, status: str, err: str, attempts_used: int):
         nonlocal fail_header_needed
         async with rows_lock:
             rows[idx][status_idx] = status
@@ -294,14 +332,29 @@ async def _run(csv_path: str, headless: bool, workers: int, retries: int, log_di
             # append to fails
             try:
                 if isinstance(status, str) and 'query failed' in status.lower():
+                    # 更新连续失败次数
+                    new_count = fail_counts.get(code, 0) + 1
+                    fail_counts[code] = new_count
                     with open(fail_file, 'a', newline='', encoding='utf-8') as ff:
                         fw = csv.writer(ff)
                         if fail_header_needed:
-                            fw.writerow(['日期/Date', '查询码/Code', '状态/Status', '备注/Remark'])
+                            fw.writerow(['日期/Date', '查询码/Code', '状态/Status', '备注/Remark', '连续失败次数/Consecutive_Fail_Count'])
                             fail_header_needed = False
-                        fw.writerow([datetime.date.today().isoformat(), code, status, err or ''])
+                        fw.writerow([datetime.date.today().isoformat(), code, status, err or '', new_count])
             except Exception:
                 pass
+            # 更新统计
+            stats['total'] += 1
+            stats['total_attempts'] += attempts_used
+            failed = isinstance(status, str) and 'query failed' in status.lower()
+            if failed:
+                stats['fail'] += 1
+            else:
+                stats['success'] += 1
+                if attempts_used > 1:
+                    stats['retry_success'] += 1
+            if attempts_used > 1:
+                stats['retry_needed'] += 1
         print(f"{code} -> {status}")
 
     # Launch browser and workers
@@ -311,7 +364,7 @@ async def _run(csv_path: str, headless: bool, workers: int, retries: int, log_di
         try:
             workers = max(1, int(workers or 1))
             # Limit simultaneous navigations to reduce server resets
-            max_nav = min(4, workers) if workers > 1 else 1
+            max_nav = min(6, workers) if workers > 1 else 1
             nav_sem = asyncio.Semaphore(max_nav)
             tasks = []
             for i in range(workers):
@@ -322,6 +375,28 @@ async def _run(csv_path: str, headless: bool, workers: int, retries: int, log_di
             await queue.join()
             for t in tasks:
                 await t
+            # 输出总结统计
+            try:
+                total = stats['total'] or 1  # avoid zero division
+                success = stats['success']
+                fail = stats['fail']
+                retry_needed = stats['retry_needed']
+                retry_success = stats['retry_success']
+                avg_attempts = stats['total_attempts'] / stats['total'] if stats['total'] else 0.0
+                overall_rate = success / total * 100.0
+                retry_success_rate = (retry_success / retry_needed * 100.0) if retry_needed else 0.0
+                print("\n===== Run Summary / 运行总结 =====")
+                print(f"Processed codes / 处理总数: {stats['total']}")
+                print(f"Success (final status not failed) / 成功: {success}")
+                print(f"Failed (still Query Failed) / 失败: {fail}")
+                print(f"Overall success rate / 总体成功率: {overall_rate:.2f}%")
+                print(f"Codes needing retries (>1 attempts) / 需要重试的代码数: {retry_needed}")
+                print(f"Retry success count / 重试后成功数: {retry_success}")
+                print(f"Retry success rate / 重试成功率: {retry_success_rate:.2f}%")
+                print(f"Average attempts per code / 平均尝试次数: {avg_attempts:.2f}")
+                print("================================\n")
+            except Exception:
+                pass
         finally:
             try:
                 await browser.close()

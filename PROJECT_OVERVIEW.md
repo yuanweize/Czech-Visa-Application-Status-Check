@@ -71,6 +71,7 @@ PROJECT_OVERVIEW.md
 CLI notes / CLI 说明：
 - Subcommand aliases: `generate-codes` = `gen`/`gc`, `report` = `rep`/`r`, `cz` = `c`.
 - Short flags: global `-r/--retries`, `-l/--log-dir`; `gen` supports `-s/-e/-n/-w/-x/-p/-o`; `report` supports `-i/-o/-c`; `cz` supports `-i/-H/-w` (retries via global `-r`).
+ - Aliases are normalized before dispatch to avoid ambiguous parsing; e.g., `gc` behaves identically to `generate-codes` even when global flags precede it (e.g., `-r 2 gc -n 5`).
 
 3) Overlay handling / 覆盖层处理
 - Targeted refuse/close clicks → JS-dispatched events → hide/remove overlays → proceed.
@@ -85,8 +86,12 @@ CLI notes / CLI 说明：
 - 每条带小退避的重试；在交互前尽力清理覆盖层。
 
 6) Logging & diagnostics / 日志与诊断
-- Logs under `logs/`; failing rows appended to `logs/fails/YYYY-MM-DD_fails.csv`.
-- 日志写入 `logs/`；失败条目追加到 `logs/fails/YYYY-MM-DD_fails.csv`。
+- Logs under `logs/`; failing rows appended to `logs/fails/YYYY-MM-DD_fails.csv` with an extra column `连续失败次数/Consecutive_Fail_Count` accumulating per-day consecutive failures.
+- 日志写入 `logs/`；失败条目会追加到 `logs/fails/YYYY-MM-DD_fails.csv`，并包含列 `连续失败次数/Consecutive_Fail_Count`，用于记录当日连续失败次数累计。
+
+7) Run summary / 运行总结
+- At the end of a run, the CLI prints: total processed, success/failed, overall success rate, retry-needed count, retry-success count and rate, and average attempts per code.
+- 运行结束会输出：处理总数、成功/失败、总体成功率、需要重试数量、重试成功数与成功率、每条平均尝试次数。
 
 ## Concurrency / 并发
 - Use `--workers N` to run N parallel workers (pages). Each worker reuses the same browser instance.
@@ -95,6 +100,10 @@ CLI notes / CLI 说明：
 - Ctrl+C 尝试优雅退出：取消未完成任务、刷新进度并关闭浏览器。
 - Resource note: Each worker uses memory; on low-memory machines limit workers.
 - 资源提示：每个 worker 会占用内存；低内存环境请降低 worker 数。
+
+Retry semantics / 重试语义：
+- Queue building treats rows with empty status or `Query Failed / 查询失败` as pending; rows with a non-failed status (e.g., Not Found/Proceedings/Granted/Rejected) are skipped.
+- 构建任务队列时：状态为空或为 `Query Failed / 查询失败` 的行会被视为“待处理”；已存在非失败最终状态（如 Not Found/Proceedings/Granted/Rejected）的行会被跳过。
 
 ## How to extend / 如何扩展
 1. Create `query_modules/xy.py` (xy = ISO-2 code).

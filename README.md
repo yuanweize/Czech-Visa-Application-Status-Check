@@ -128,8 +128,8 @@ Parameters（cz）/ 参数（cz）：
  全局：-r/--retries，-l/--log-dir
 
 Behavior notes:
-The checker will skip rows where the status column is non-empty — this enables resume/retry workflows.
-若状态列已有值则会跳过该行，从而支持断点续跑与离线重试工作流。
+- The checker will skip rows whose status is already a non-failed final value; rows with `Query Failed / 查询失败` are treated as pending and will be retried on the next run.
+- 若某行状态已是非失败的最终值则跳过；若为 `Query Failed / 查询失败` 则视为未完成，下次运行会重查。
 
 Results are standardized into a small set of normalized statuses (e.g. `Granted`, `Rejected/Closed`, `Proceedings`, `Not Found`, `Unknown`, `Query Failed`).
 结果会被标准化为一组状态（例如：`Granted`、`Rejected/Closed`、`Proceedings`、`Not Found`、`Unknown`、`Query Failed`）。
@@ -155,8 +155,11 @@ The tool accepts bilingual headers and expects these columns: date, code, option
 Each queried row is updated in-place in the CSV and flushed immediately to disk.
 每条查询结果会原地写回 CSV 并立即刷新到磁盘。
 
-Failing rows after retries are appended to `logs/fails/YYYY-MM-DD_fails.csv` for offline retry.
-重试后仍失败的条目会追加到 `logs/fails/YYYY-MM-DD_fails.csv` 以便离线重试。
+Failing rows after retries are appended to `logs/fails/YYYY-MM-DD_fails.csv` with an extra column `连续失败次数/Consecutive_Fail_Count` to accumulate consecutive failures across runs (per day).
+重试后仍失败的条目会追加到 `logs/fails/YYYY-MM-DD_fails.csv`，并新增列 `连续失败次数/Consecutive_Fail_Count` 用于跨多次运行（当日）累积连续失败次数。
+
+At the end of each run, a summary is printed, including total processed, success/failed counts, overall success rate, retry-needed count, retry-success count and rate, and average attempts.
+每次运行结束会在控制台输出总结：处理总数、成功/失败数、总体成功率、需要重试的数量、重试成功数与成功率、以及平均尝试次数。
 
 ## Technical highlights (implementation) / 技术亮点（实现）
 - CSV-first design: keeps all state in the CSV so the tool can resume and is friendly to auditing.
@@ -171,8 +174,7 @@ Failing rows after retries are appended to `logs/fails/YYYY-MM-DD_fails.csv` for
 - Playwright：单浏览器、多页面并发；默认无头。
 - Header matching: case-insensitive and forgiving column matching for `code` and `status` to be tolerant to CSV variants.
 - 头匹配：对 `code` 与 `status` 列名使用不区分大小写且宽松的匹配，以兼容不同 CSV 格式。
-- Failure diagnostics: only save page HTML snapshots for Unknown/Query Failed rows to avoid noisy debug files; failing rows get per-day failure CSVs.
-- 失败诊断：仅为 Unknown/Query Failed 行保存页面 HTML 快照，以减少噪声文件；失败条目按日保存为 CSV。
+  
 
 ## Concurrency / 并发 (workers)
 

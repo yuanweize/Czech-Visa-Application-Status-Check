@@ -89,9 +89,40 @@ def main():
     _known_args, _ = parser.parse_known_args()
     check_notes(logs_dir_name=_known_args.log_dir)
 
-    # 只将本子命令后的参数传递给对应工具
-    cmd_args = sys.argv[2:]
+    # 记录原始子命令 token（用于后续更可靠地切分参数）
+    original_subcmd = None
+    if len(sys.argv) > 1:
+        # 找到第一个既不是全局选项（-r/-l 等）又不是其值的 token，作为子命令初步猜测
+        # 简化：如果 token 不以 '-' 开头，则认为是子命令
+        for tok in sys.argv[1:]:
+            if not tok.startswith('-'):
+                original_subcmd = tok
+                break
+
     args = parser.parse_args()
+
+    # 统一别名映射，防止 argparse 在特定 Python 版本/实现下返回别名值导致匹配失败
+    alias_map = {
+        'gc': 'generate-codes',
+        'gen': 'generate-codes',
+        'rep': 'report',
+        'r': 'report',
+        'c': 'cz',
+    }
+    if args.command in alias_map:
+        args.command = alias_map[args.command]
+
+    # 动态切分子命令后续参数（支持全局参数位于子命令之前，例如: -r 2 gc -n 5）
+    cmd_args = []
+    if original_subcmd:
+        try:
+            # 定位原始出现位置，再取其后的所有参数
+            idx = sys.argv.index(original_subcmd)
+            cmd_args = sys.argv[idx + 1:]
+        except ValueError:
+            cmd_args = sys.argv[2:]
+    else:
+        cmd_args = sys.argv[2:]
 
     if args.command in TOOLS:
         mod_name, func_name = TOOLS[args.command]
