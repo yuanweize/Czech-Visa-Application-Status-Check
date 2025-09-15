@@ -90,8 +90,8 @@ CLI notes / CLI 说明：
 - 日志写入 `logs/`；失败条目会追加到 `logs/fails/YYYY-MM-DD_fails.csv`，并包含列 `连续失败次数/Consecutive_Fail_Count`，用于记录当日连续失败次数累计。
 
 7) Run summary / 运行总结
-- At the end of a run, the CLI prints: total processed, success/failed, overall success rate, retry-needed count, retry-success count and rate, and average attempts per code.
-- 运行结束会输出：处理总数、成功/失败、总体成功率、需要重试数量、重试成功数与成功率、每条平均尝试次数。
+- At the end of a run, the CLI prints: total processed, success/failed, overall success rate, retry-needed count, retry-success count and rate, average attempts per code, elapsed time, throughput, and phase timings (navigation/fill/read).
+- 运行结束会输出：处理总数、成功/失败、总体成功率、需要重试数量、重试成功数与成功率、每条平均尝试次数、运行用时、吞吐量、分阶段耗时（导航/填表/读结果）。
 
 ## Concurrency / 并发
 - Use `--workers N` to run N parallel workers (pages). Each worker reuses the same browser instance.
@@ -102,6 +102,11 @@ CLI notes / CLI 说明：
 - 资源提示：每个 worker 会占用内存；低内存环境请降低 worker 数。
 
 Retry semantics / 重试语义：
+Performance notes / 性能说明：
+- Navigation concurrency is limited via a semaphore (cap=6 by default) that only throttles goto events; fill/submit/read aren’t throttled and can run fully in parallel.
+- 导航并发通过信号量限制（默认上限 6），仅节流 goto；填表与读取结果不受限以充分并发。
+- A small per-item jitter (≈30–120ms) is applied before filling to avoid synchronized bursts that may overload the target site.
+- 在填表前加入轻微抖动（约 30–120ms），降低同步突发请求对目标站点的压力。
 - Queue building treats rows with empty status or `Query Failed / 查询失败` as pending; rows with a non-failed status (e.g., Not Found/Proceedings/Granted/Rejected) are skipped.
 - 构建任务队列时：状态为空或为 `Query Failed / 查询失败` 的行会被视为“待处理”；已存在非失败最终状态（如 Not Found/Proceedings/Granted/Rejected）的行会被跳过。
 

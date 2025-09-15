@@ -158,9 +158,14 @@ Each queried row is updated in-place in the CSV and flushed immediately to disk.
 Failing rows after retries are appended to `logs/fails/YYYY-MM-DD_fails.csv` with an extra column `连续失败次数/Consecutive_Fail_Count` to accumulate consecutive failures across runs (per day).
 重试后仍失败的条目会追加到 `logs/fails/YYYY-MM-DD_fails.csv`，并新增列 `连续失败次数/Consecutive_Fail_Count` 用于跨多次运行（当日）累积连续失败次数。
 
-At the end of each run, a summary is printed, including total processed, success/failed counts, overall success rate, retry-needed count, retry-success count and rate, and average attempts.
-每次运行结束会在控制台输出总结：处理总数、成功/失败数、总体成功率、需要重试的数量、重试成功数与成功率、以及平均尝试次数。
-
+At the end of each run, a summary is printed, including total processed, success/failed counts, overall success rate, retry-needed count, retry-success count and rate, average attempts, elapsed time, throughput, and phase timings (navigation/fill/read).
+每次运行结束会在控制台输出总结：处理总数、成功/失败数、总体成功率、需要重试的数量、重试成功数与成功率、平均尝试次数、运行用时、吞吐量，以及分阶段耗时（导航/填表/读结果）。
+  
+Performance notes / 性能说明：
+- Navigation concurrency is capped (默认 6) to avoid thundering herd during heavy goto events; form filling and result reading proceed concurrently without this cap.
+- 导航并发会被限流（默认 6），避免大量 goto 同时触发；表单填写与读取结果不受此限制并可充分并发。
+- A light jitter (30–120ms) is applied before filling to desynchronize bursts.
+- 在填表前加入轻微抖动（30–120ms），减少瞬时峰值带来的不稳定。
 ## Technical highlights (implementation) / 技术亮点（实现）
 - CSV-first design: keeps all state in the CSV so the tool can resume and is friendly to auditing.
 - CSV 优先设计：所有状态保存在 CSV 中，便于断点续跑与审计。
