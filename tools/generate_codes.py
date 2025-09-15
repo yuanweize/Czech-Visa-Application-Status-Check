@@ -93,14 +93,14 @@ def main(argv=None):
     import argparse
     p = argparse.ArgumentParser(description="Generate query codes and save as CSV / 生成查询码并保存为 CSV")
     p.add_argument("-o", "--out", help="output CSV path (default: query_codes.csv) / 输出 CSV 路径（默认: query_codes.csv）", default="query_codes.csv")
-    p.add_argument("--start", help="start date YYYY-MM-DD / 起始日期（YYYY-MM-DD）", default=None)
-    p.add_argument("--end", help="end date YYYY-MM-DD / 结束日期（YYYY-MM-DD）", default=None)
-    p.add_argument("--per-day", type=int, help="items per day (int) / 每日生成条目数（整数）", default=5)
-    p.add_argument("--include-weekends", action="store_true", help="include weekends / 是否包含周末")
-    p.add_argument("--exclude-weekdays", "--exclude", "--排除", "--日期排除",
+    p.add_argument("-s", "--start", help="start date YYYY-MM-DD / 起始日期（YYYY-MM-DD）", default=None)
+    p.add_argument("-e", "--end", help="end date YYYY-MM-DD / 结束日期（YYYY-MM-DD）", default=None)
+    p.add_argument("-n", "--per-day", type=int, help="items per day (int) / 每日生成条目数（整数）", default=5)
+    p.add_argument("-w", "--include-weekends", action="store_true", help="include weekends / 是否包含周末")
+    p.add_argument("-x", "--exclude-weekdays", "--exclude", "--排除", "--日期排除",
                    help="Weekdays to exclude (digits 1=Mon..7=Sun, e.g. 35 or '3 5') / 需要排除的星期 (1=周一..7=周日，如 35 或 '3 5')",
                    default=None)
-    p.add_argument("--prefix", "--前缀",
+    p.add_argument("-p", "--prefix", "--前缀",
                    help="Code prefix (default: PEKI) / 代码前缀（默认: PEKI）",
                    default="PEKI")
     args = p.parse_args(argv)

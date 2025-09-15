@@ -26,20 +26,20 @@ def main():
     subparsers = parser.add_subparsers(dest='command', required=True, help='可用子命令')
 
     # 全局选项 / Global options
-    parser.add_argument('--retries', type=int, default=3, help='Retries per query (default: 3) / 每条查询的重试次数（默认: 3）')
-    parser.add_argument('--log-dir', default='logs', help='Logs directory (default: logs) / 日志目录（默认: logs）')
+    parser.add_argument('-r', '--retries', type=int, default=3, help='Retries per query (default: 3) / 每条查询的重试次数（默认: 3）')
+    parser.add_argument('-l', '--log-dir', default='logs', help='Logs directory (default: logs) / 日志目录（默认: logs）')
 
     # 生成器子命令
     gen_parser = subparsers.add_parser('generate-codes', help='Generate a CSV of query codes / 生成查询码CSV（支持自定义日期与数量）')
     gen_parser.add_argument('-o', '--out', default='query_codes.csv', help='output CSV path / 输出 CSV 路径')
-    gen_parser.add_argument('--start', help='start date YYYY-MM-DD / 起始日期（YYYY-MM-DD）')
-    gen_parser.add_argument('--end', help='end date YYYY-MM-DD / 结束日期（YYYY-MM-DD）')
-    gen_parser.add_argument('--per-day', type=int, default=5, help='items per day / 每日期条目数')
-    gen_parser.add_argument('--include-weekends', action='store_true', help='include weekends / 包含周末')
-    gen_parser.add_argument('--exclude-weekdays', '--exclude', '--排除', '--日期排除',
+    gen_parser.add_argument('-s', '--start', help='start date YYYY-MM-DD / 起始日期（YYYY-MM-DD）')
+    gen_parser.add_argument('-e', '--end', help='end date YYYY-MM-DD / 结束日期（YYYY-MM-DD）')
+    gen_parser.add_argument('-n', '--per-day', type=int, default=5, help='items per day / 每日期条目数')
+    gen_parser.add_argument('-w', '--include-weekends', action='store_true', help='include weekends / 包含周末')
+    gen_parser.add_argument('-x', '--exclude-weekdays', '--exclude', '--排除', '--日期排除',
                             help='Exclude weekdays digits (1=Mon..7=Sun), e.g. 35 or "3 5" / 排除指定星期(1=周一..7=周日)，如 35 或 "3 5"',
                             default=None)
-    gen_parser.add_argument('--prefix', '--前缀',
+    gen_parser.add_argument('-p', '--prefix', '--前缀',
                             help='Code prefix (default: PEKI) / 代码前缀（默认: PEKI）',
                             default='PEKI')
 
@@ -48,15 +48,15 @@ def main():
     rep_parser.add_argument('-i', '--input', required=False, default='query_codes.csv',
                             help='Input CSV path (default: query_codes.csv) / 输入 CSV 路径（默认: query_codes.csv）')
     rep_parser.add_argument('-o', '--out', help='Output Markdown path (default: reports/summary_TIMESTAMP.md) / 输出 Markdown 路径（默认 reports/summary_时间戳.md）')
-    rep_parser.add_argument('--charts', action='store_true', help='Generate charts (requires matplotlib) / 生成图表（需要 matplotlib）')
+    rep_parser.add_argument('-c', '--charts', action='store_true', help='Generate charts (requires matplotlib) / 生成图表（需要 matplotlib）')
     # 查询器子命令（以国家码命名，Playwright-only）
     for country_code, (mod_path, _) in QUERY_MODULES.items():
         q_parser = subparsers.add_parser(country_code, help=f'{country_code.upper()} visa-status checker (Playwright) / {country_code.upper()}签证状态批量查询（Playwright）')
-        q_parser.add_argument('--i', default='query_codes.csv', help='CSV input path (default: query_codes.csv) / CSV 文件路径（默认: query_codes.csv）')
+        q_parser.add_argument('-i', '--i', default='query_codes.csv', help='CSV input path (default: query_codes.csv) / CSV 文件路径（默认: query_codes.csv）')
         # Headless now defaults to True. Provide optional value so legacy "--headless" (no value) still works.
-        q_parser.add_argument('--headless', nargs='?', const='true', default=None, metavar='[BOOL]',
+        q_parser.add_argument('-H', '--headless', nargs='?', const='true', default=None, metavar='[BOOL]',
                               help='Headless mode (default True). Use "--headless False" to SHOW browser. Accepts true/false/on/off/yes/no/0/1 / 无头模式(默认 True)。使用 "--headless False" 显示浏览器。接受 true/false/on/off/yes/no/0/1')
-        q_parser.add_argument('--workers', type=int, default=1, help='Number of concurrent workers (pages) / 并发 worker 数 (默认: 1)')
+        q_parser.add_argument('-w', '--workers', type=int, default=1, help='Number of concurrent workers (pages) / 并发 worker 数 (默认: 1)')
 
     # 依赖提示（精简，仅记录 Playwright 与 matplotlib 提示）
     def check_notes(logs_dir_name: str):
@@ -149,10 +149,10 @@ def main():
         func = getattr(mod, func_name)
         import argparse as ap
         q_parser = ap.ArgumentParser()
-        q_parser.add_argument('--i', default='query_codes.csv')
-        q_parser.add_argument('--headless', nargs='?', const='true', default=None)
-        q_parser.add_argument('--workers', type=int, default=1)
-        q_parser.add_argument('--retries', type=int, default=None, help='针对该子命令的重试次数，覆盖全局 --retries')
+        q_parser.add_argument('-i', '--i', default='query_codes.csv')
+        q_parser.add_argument('-H', '--headless', nargs='?', const='true', default=None)
+        q_parser.add_argument('-w', '--workers', type=int, default=1)
+        q_parser.add_argument('-r', '--retries', type=int, default=None, help='针对该子命令的重试次数，覆盖全局 --retries')
         q_args, _ = q_parser.parse_known_args(cmd_args)
 
         def _parse_bool(val, default_true=True):
