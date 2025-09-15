@@ -411,6 +411,8 @@ async def _run(csv_path: str, headless: bool, workers: int, retries: int, log_di
             max_nav = min(4, workers) if workers > 1 else 1
             nav_sem = asyncio.Semaphore(max_nav)
             tasks = []
+            # Start timing for worker phase
+            start_ts = asyncio.get_event_loop().time()
             for i in range(workers):
                 tasks.append(asyncio.create_task(_worker(f"w{i+1}", browser, queue, on_result, retries, nav_sem)))
             # Add sentinels
@@ -421,6 +423,8 @@ async def _run(csv_path: str, headless: bool, workers: int, retries: int, log_di
                 await t
             # 输出总结统计
             try:
+                end_ts = asyncio.get_event_loop().time()
+                elapsed = max(0.0, end_ts - start_ts)
                 total = stats['total'] or 1  # avoid zero division
                 success = stats['success']
                 fail = stats['fail']
@@ -429,6 +433,7 @@ async def _run(csv_path: str, headless: bool, workers: int, retries: int, log_di
                 avg_attempts = stats['total_attempts'] / stats['total'] if stats['total'] else 0.0
                 overall_rate = success / total * 100.0
                 retry_success_rate = (retry_success / retry_needed * 100.0) if retry_needed else 0.0
+                tps = (stats['total'] / elapsed) if elapsed > 0 else 0.0
                 print("\n===== Run Summary / 运行总结 =====")
                 print(f"Processed codes / 处理总数: {stats['total']}")
                 print(f"Success (final status not failed) / 成功: {success}")
@@ -438,6 +443,8 @@ async def _run(csv_path: str, headless: bool, workers: int, retries: int, log_di
                 print(f"Retry success count / 重试后成功数: {retry_success}")
                 print(f"Retry success rate / 重试成功率: {retry_success_rate:.2f}%")
                 print(f"Average attempts per code / 平均尝试次数: {avg_attempts:.2f}")
+                print(f"Elapsed time / 运行用时: {elapsed:.2f}s")
+                print(f"Throughput / 吞吐量: {tps:.2f} codes/s")
                 print("================================\n")
             except Exception:
                 pass
