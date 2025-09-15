@@ -51,9 +51,13 @@ def _normalize_status(text: str) -> str:
     return 'Unknown Status / 未知状态'+f"(status_text/状态文本: {text})"
 
 
-async def _process_one(page, code: str) -> str:
+async def _process_one(page, code: str, nav_sem: asyncio.Semaphore | None = None) -> str:
     # Navigate
-    await page.goto(IPC_URL, wait_until='domcontentloaded')
+    if nav_sem is None:
+        await page.goto(IPC_URL, wait_until='domcontentloaded', timeout=20000)
+    else:
+        async with nav_sem:
+            await page.goto(IPC_URL, wait_until='domcontentloaded', timeout=20000)
 
     # Try to hide cookie/overlay elements quickly (best-effort, no exceptions)
     try:
@@ -69,14 +73,14 @@ async def _process_one(page, code: str) -> str:
 
     # Input and submit
     try:
-        input_el = await page.wait_for_selector("input[name='visaApplicationNumber']", timeout=5000)
+        input_el = await page.wait_for_selector("input[name='visaApplicationNumber']", timeout=15000)
     except Exception:
         # try once more after a quick JS overlay clear
         try:
             await page.evaluate("document.querySelectorAll('.cookies__wrapper,.modal__window').forEach(e=>{e.style.display='none'})")
         except Exception:
             pass
-        input_el = await page.wait_for_selector("input[name='visaApplicationNumber']", timeout=6000)
+        input_el = await page.wait_for_selector("input[name='visaApplicationNumber']", timeout=15000)
 
     # Set value via fill (retries minimal)
     await input_el.click()
@@ -102,7 +106,7 @@ async def _process_one(page, code: str) -> str:
         '.alert__content', '.alert', '.result', '.status', '.ipc-result', '.application-status', '[role=alert]', '[aria-live]'
     ]
     text = ''
-    end = asyncio.get_event_loop().time() + 8.0
+    end = asyncio.get_event_loop().time() + 15.0
     while asyncio.get_event_loop().time() < end and not text:
         for s in selectors:
             try:
@@ -139,9 +143,20 @@ async def _process_one(page, code: str) -> str:
     return _normalize_status(text)
 
 
-async def _worker(name: str, browser, queue: asyncio.Queue, result_cb, retries: int):
+async def _worker(name: str, browser, queue: asyncio.Queue, result_cb, retries: int, nav_sem: asyncio.Semaphore):
+    # Create context with lighter resources and sane timeouts
     context = await browser.new_context()
+    # Block heavy resources to reduce load
+    try:
+        await context.route("**/*", lambda route: route.abort() if route.request.resource_type in {"image", "font"} else route.continue_())
+    except Exception:
+        pass
     page = await context.new_page()
+    try:
+        page.set_default_timeout(15000)
+        page.set_default_navigation_timeout(20000)
+    except Exception:
+        pass
     try:
         while True:
             item = await queue.get()
@@ -153,13 +168,66 @@ async def _worker(name: str, browser, queue: asyncio.Queue, result_cb, retries: 
             err = ''
             for attempt in range(1, retries + 1):
                 try:
-                    status = await _process_one(page, code)
+                    # In case page was closed between attempts, recreate it
+                    try:
+                        if page.is_closed():
+                            try:
+                                await context.close()
+                            except Exception:
+                                pass
+                            context = await browser.new_context()
+                            try:
+                                await context.route("**/*", lambda route: route.abort() if route.request.resource_type in {"image", "font"} else route.continue_())
+                            except Exception:
+                                pass
+                            page = await context.new_page()
+                            try:
+                                page.set_default_timeout(15000)
+                                page.set_default_navigation_timeout(20000)
+                            except Exception:
+                                pass
+                    except Exception:
+                        pass
+
+                    status = await _process_one(page, code, nav_sem)
                     err = ''
                     break
                 except Exception as e:
                     err = str(e)
+                    # If page/context/browser was closed or transport disconnected, try to recreate context/page and retry
+                    closed_signals = (
+                        'has been closed',
+                        'Target page, context or browser has been closed',
+                        'Connection closed while reading from the driver',
+                        'browser has been closed',
+                    )
+                    if any(sig.lower() in err.lower() for sig in closed_signals):
+                        try:
+                            if not page.is_closed():
+                                await page.close()
+                        except Exception:
+                            pass
+                        try:
+                            await context.close()
+                        except Exception:
+                            pass
+                        try:
+                            context = await browser.new_context()
+                            try:
+                                await context.route("**/*", lambda route: route.abort() if route.request.resource_type in {"image", "font"} else route.continue_())
+                            except Exception:
+                                pass
+                            page = await context.new_page()
+                            try:
+                                page.set_default_timeout(15000)
+                                page.set_default_navigation_timeout(20000)
+                            except Exception:
+                                pass
+                        except Exception:
+                            # If even creating a new context fails, likely browser is down; propagate
+                            pass
                     if attempt < retries:
-                        await asyncio.sleep(0.8 + 0.2 * attempt)
+                        await asyncio.sleep(1.0 + 0.5 * attempt)
                     else:
                         status = 'Query Failed / 查询失败'
             await result_cb(idx, code, status, err)
@@ -242,9 +310,12 @@ async def _run(csv_path: str, headless: bool, workers: int, retries: int, log_di
         browser = await p.chromium.launch(headless=headless)
         try:
             workers = max(1, int(workers or 1))
+            # Limit simultaneous navigations to reduce server resets
+            max_nav = min(4, workers) if workers > 1 else 1
+            nav_sem = asyncio.Semaphore(max_nav)
             tasks = []
             for i in range(workers):
-                tasks.append(asyncio.create_task(_worker(f"w{i+1}", browser, queue, on_result, retries)))
+                tasks.append(asyncio.create_task(_worker(f"w{i+1}", browser, queue, on_result, retries, nav_sem)))
             # Add sentinels
             for _ in range(workers):
                 await queue.put(None)
