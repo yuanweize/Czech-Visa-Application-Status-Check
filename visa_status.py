@@ -30,7 +30,7 @@ def main():
     parser.add_argument('-l', '--log-dir', default='logs', help='Logs directory (default: logs) / 日志目录（默认: logs）')
 
     # 生成器子命令
-    gen_parser = subparsers.add_parser('generate-codes', help='Generate a CSV of query codes / 生成查询码CSV（支持自定义日期与数量）')
+    gen_parser = subparsers.add_parser('generate-codes', aliases=['gen', 'gc'], help='Generate a CSV of query codes / 生成查询码CSV（支持自定义日期与数量）')
     gen_parser.add_argument('-o', '--out', default='query_codes.csv', help='output CSV path / 输出 CSV 路径')
     gen_parser.add_argument('-s', '--start', help='start date YYYY-MM-DD / 起始日期（YYYY-MM-DD）')
     gen_parser.add_argument('-e', '--end', help='end date YYYY-MM-DD / 结束日期（YYYY-MM-DD）')
@@ -44,14 +44,15 @@ def main():
                             default='PEKI')
 
     # 报告子命令 / report subcommand
-    rep_parser = subparsers.add_parser('report', help='Generate detailed Markdown report / 生成详细 Markdown 报告')
+    rep_parser = subparsers.add_parser('report', aliases=['rep', 'r'], help='Generate detailed Markdown report / 生成详细 Markdown 报告')
     rep_parser.add_argument('-i', '--input', required=False, default='query_codes.csv',
                             help='Input CSV path (default: query_codes.csv) / 输入 CSV 路径（默认: query_codes.csv）')
     rep_parser.add_argument('-o', '--out', help='Output Markdown path (default: reports/summary_TIMESTAMP.md) / 输出 Markdown 路径（默认 reports/summary_时间戳.md）')
     rep_parser.add_argument('-c', '--charts', action='store_true', help='Generate charts (requires matplotlib) / 生成图表（需要 matplotlib）')
     # 查询器子命令（以国家码命名，Playwright-only）
     for country_code, (mod_path, _) in QUERY_MODULES.items():
-        q_parser = subparsers.add_parser(country_code, help=f'{country_code.upper()} visa-status checker (Playwright) / {country_code.upper()}签证状态批量查询（Playwright）')
+        aliases = ['c'] if country_code == 'cz' else []
+        q_parser = subparsers.add_parser(country_code, aliases=aliases, help=f'{country_code.upper()} visa-status checker (Playwright) / {country_code.upper()}签证状态批量查询（Playwright）')
         q_parser.add_argument('-i', '--i', default='query_codes.csv', help='CSV input path (default: query_codes.csv) / CSV 文件路径（默认: query_codes.csv）')
         # Headless now defaults to True. Provide optional value so legacy "--headless" (no value) still works.
         q_parser.add_argument('-H', '--headless', nargs='?', const='true', default=None, metavar='[BOOL]',

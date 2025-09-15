@@ -45,7 +45,7 @@ Refactor 2025: Playwright-only, minimal CLI, async concurrency. Selenium/agent/b
 
 ## Project layout / 项目结构
 ```
-visa_status.py                # CLI entrypoint and dispatcher
+visa_status.py                # CLI entrypoint and dispatcher (supports short flags & aliases)
 query_modules/
   └─ cz.py                    # Czech module (Playwright-only, async workers)
 tools/
@@ -67,6 +67,10 @@ PROJECT_OVERVIEW.md
 - 基于 Playwright 的 Chromium 异步 API；默认无头；传 `--headless False` 显示界面。
 - Single browser per run; N pages as workers for concurrency (`--workers N`).
 - 每次运行仅一个浏览器；使用 N 个页面作为并发 worker（`--workers N`）。
+
+CLI notes / CLI 说明：
+- Subcommand aliases: `generate-codes` = `gen`/`gc`, `report` = `rep`/`r`, `cz` = `c`.
+- Short flags: global `-r/--retries`, `-l/--log-dir`; `gen` supports `-s/-e/-n/-w/-x/-p/-o`; `report` supports `-i/-o/-c`; `cz` supports `-i/-H/-w` (retries via global `-r`).
 
 3) Overlay handling / 覆盖层处理
 - Targeted refuse/close clicks → JS-dispatched events → hide/remove overlays → proceed.

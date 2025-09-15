@@ -53,38 +53,38 @@ Generate a CSV of visa application query codes.
 Simple example:
 简单示例：
 ```bash
-python visa_status.py generate-codes
+python visa_status.py gen
 ```
 
 Advanced examples / 高级用法示例：
 1) 从2025年6月1日到2025年6月30日之间，以每天5个查询码的量生成查询码 / Generate 5 per day for June:
 ```bash
-python visa_status.py generate-codes -o my_codes.csv --start 2025-06-01 --end 2025-06-30 --per-day 5
+python visa_status.py gen -o my_codes.csv -s 2025-06-01 -e 2025-06-30 -n 5
 ```
 2) 排除周三与周五(3,5) / Exclude Wed & Fri while keeping only weekdays (default already excludes weekends):
 ```bash
-python visa_status.py generate-codes --start 2025-06-01 --end 2025-06-14 --exclude-weekdays 35 -o no_wed_fri.csv
+python visa_status.py gen -s 2025-06-01 -e 2025-06-14 -x 35 -o no_wed_fri.csv
 ```
 	可等价使用 `--exclude 3,5` 或 `--排除 35`。
 3) 包含周末但排除周日，且使用自定义前缀 SHAN / Include weekends, exclude Sunday, custom prefix:
 ```bash
-python visa_status.py generate-codes --start 2025-06-01 --end 2025-06-07 --include-weekends --exclude 7 --prefix SHAN -o shan_codes.csv
+python visa_status.py gen -s 2025-06-01 -e 2025-06-07 -w --exclude 7 -p SHAN -o shan_codes.csv
 ```
 4) 使用中文参数别名 / Using Chinese aliases:
 ```bash
-python visa_status.py generate-codes --前缀 ABC --日期排除 24 --start 2025-06-01 --end 2025-06-10
+python visa_status.py gen --前缀 ABC --日期排除 24 -s 2025-06-01 -e 2025-06-10
 ```
 
 3) Query statuses (Czech, Playwright-only) / 查询状态（捷克，Playwright）
 Simple example（默认读取 `query_codes.csv`）:
 简单示例（默认读取 `query_codes.csv`）:
 ```bash
-python visa_status.py cz
+python visa_status.py c
 ```
 
 Show UI (headless off) and 4 workers / 显示界面并开 4 个 worker：
 ```bash
-python visa_status.py cz --headless False --workers 4
+python visa_status.py c -H False -w 4
 ```
 
 Notes:
@@ -96,39 +96,36 @@ Notes:
 <!-- Agent mode and alternative backends have been removed in 2025 refactor to keep the tool minimal and deterministic. -->
 
 Parameters（cz）/ 参数（cz）：
-- `--i PATH` — input CSV path (default: `query_codes.csv`). / 输入 CSV（默认 `query_codes.csv`）
-- `--headless [True|False]` — default True; pass False to show UI. / 默认 True；传 False 显示界面
-- `--workers N` — async workers (pages) sharing one browser. / 并发 worker 数（同一浏览器的多个页面）
-- `--retries N` — per-row retries (default 3). / 每条重试次数（默认 3）
+- `-i, --i PATH` — input CSV path (default: `query_codes.csv`). / 输入 CSV（默认 `query_codes.csv`）
+- `-H, --headless [True|False]` — default True; pass False to show UI. / 默认 True；传 False 显示界面
+- `-w, --workers N` — async workers (pages) sharing one browser. / 并发 worker 数（同一浏览器的多个页面）
+- `-r, --retries N` — per-row retries (default 3, global). / 每条重试次数（默认 3，全局）
 
 ## Commands & parameters (detailed) / 命令与参数（详细）
-`generate-codes` — generate a CSV of query codes.
-`generate-codes` — 生成查询码 CSV。
+`generate-codes` (aliases: `gen`, `gc`) — generate a CSV of query codes.
+`generate-codes`（别名：`gen`、`gc`）— 生成查询码 CSV。
 
 - `-o, --out PATH` — output CSV path (default: `query_codes.csv`).
 - `-o, --out PATH` — 输出 CSV 路径（默认：`query_codes.csv`）。
-- `--start YYYY-MM-DD` — start date for codes generation.
-- `--start YYYY-MM-DD` — 生成起始日期（YYYY-MM-DD）。
-- `--end YYYY-MM-DD` — end date for codes generation.
-- `--end YYYY-MM-DD` — 生成结束日期（YYYY-MM-DD）。
-- `--per-day N` — number of codes per day (integer).
-- `--per-day N` — 每日生成数量（整数）。
-- `--include-weekends` — include weekends when generating.
-- `--include-weekends` — 是否包含周末。
-- `--exclude-weekdays / --exclude / --排除 / --日期排除 DIGITS` — exclude specific weekdays (1=Mon..7=Sun). Supports formats: `35`, `3 5`, `3,5`. Applied after weekend inclusion logic. / 排除指定星期（1=周一..7=周日），格式支持 `35`、`3 5`、`3,5`，在周末过滤之后应用。
-- `--prefix / --前缀 TEXT` — code prefix (default PEKI). / 自定义代码前缀（默认 PEKI）。
+- `-s, --start YYYY-MM-DD` — start date for codes generation. / 生成起始日期
+- `-e, --end YYYY-MM-DD` — end date for codes generation. / 生成结束日期
+- `-n, --per-day N` — number of codes per day (integer). / 每日数量
+- `-w, --include-weekends` — include weekends when generating. / 包含周末
+- `-x, --exclude-weekdays / --exclude / --排除 / --日期排除 DIGITS` — exclude specific weekdays (1=Mon..7=Sun). / 排除指定星期
+- `-p, --prefix / --前缀 TEXT` — code prefix (default PEKI). / 自定义前缀
 
-`cz` — run the Czech checker (Playwright-only).
-`cz` — 运行捷克查询器（仅 Playwright）。
+`cz` (alias: `c`) — run the Czech checker (Playwright-only).
+`cz`（别名：`c`）— 运行捷克查询器（仅 Playwright）。
 
-- `--i PATH` — input CSV path (default: `query_codes.csv`). / 输入 CSV（默认 `query_codes.csv`）
-- `--retries N` — per-row retries (default: 3). / 每条重试次数（默认 3）
-- `--headless [True|False]` — default True; pass False to show UI. / 默认 True；传 False 显示界面
-- `--workers N` — concurrent workers (pages). / 并发 worker 数（页面）
-- `--log-dir PATH` — change log directory (default: `logs`). / 指定日志目录（默认 `logs`）
+- `-i, --i PATH` — input CSV path (default: `query_codes.csv`). / 输入 CSV
+- `-r, --retries N` — per-row retries (default: 3, global). / 每条重试次数（全局）
+- `-H, --headless [True|False]` — default True; pass False to show UI. / 无头模式
+- `-w, --workers N` — concurrent workers (pages). / 并发 worker 数
+- `-l, --log-dir PATH` — change log directory (default: `logs`). / 日志目录
 
 ## Global options / 全局选项
-(none beyond each subcommand) / 除各子命令参数外无全局选项。
+ -r/--retries, -l/--log-dir
+ 全局：-r/--retries，-l/--log-dir
 
 Behavior notes:
 The checker will skip rows where the status column is non-empty — this enables resume/retry workflows.
