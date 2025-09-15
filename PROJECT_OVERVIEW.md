@@ -22,111 +22,92 @@ Czech Visa Application Status Check 是一个用于生成签证申请查询码�
 query_codes_project/
 ├─ visa_status.py        # CLI entrypoint and dispatcher
 ├─ query_modules/
-│  └─ cz.py              # Czech module (example)
-├─ tools/
-│  └─ generate_codes.py  # code generator
-├─ logs/                 # runtime logs and failures
-├─ requirements.txt      # runtime dependencies
-└─ README.md
+# Project Overview / 项目概览
+
+Czech Visa Application Status Check is a compact CLI to generate visa application query codes and bulk-check application status on the Czech Immigration Office website.
+Czech Visa Application Status Check 是一个用于生成签证申请查询码并在捷克移民局网站批量查询申请状态的小型命令行工具。
+
+Refactor 2025: Playwright-only, minimal CLI, async concurrency. Selenium/agent/backends removed.
+2025 重构：仅 Playwright、精简 CLI、异步并发；已移除 Selenium、Agent 与多后端。
+
+## Design goals / 设计目标
+- Reliable long-running batches with per-row CSV flush and retries/backoff.
+- 支持长期批量运行，通过逐行写回 CSV 与重试/退避实现鲁棒性。
+- Simple module-based extensibility to add more countries.
+- 基于模块的可扩展性，便于添加更多国家支持。
+
+## Module API / 模块 API
+- Each country module exposes `update_csv_with_status(csv_path: str, headless=True, workers=1, retries=3, log_dir='logs', **_) -> None`.
+- 每个国家模块导出 `update_csv_with_status(csv_path: str, headless=True, workers=1, retries=3, log_dir='logs', **_) -> None`。
+- Behavior 行为：读取 CSV → 使用 Playwright 查询 → 逐行回写标准化结果 → 失败行追加至 `logs/fails/YYYY-MM-DD_fails.csv`。
+- Place modules under `query_modules/<iso>.py` and register in `visa_status.py`'s `QUERY_MODULES`.
+- 模块放于 `query_modules/<iso>.py` 下，并在 `visa_status.py` 的 `QUERY_MODULES` 中注册。
+
+## Project layout / 项目结构
+```
+visa_status.py                # CLI entrypoint and dispatcher
+query_modules/
+  └─ cz.py                    # Czech module (Playwright-only, async workers)
+tools/
+  └─ generate_codes.py        # code generator
+logs/                         # runtime logs and fails (logs/fails/DATE_fails.csv)
+requirements.txt              # playwright (+ optional matplotlib)
+README.md
+PROJECT_OVERVIEW.md
 ```
 
-## Detailed technical notes / 技术细节说明
+## Technical notes / 技术说明
 
 1) CSV-first design / CSV 优先设计
-- All state is kept in the CSV and updated per-row; this enables easy resume, auditing and manual fixes.
+- State is kept in the CSV and updated per-row; supports resume, auditing, and manual edits.
 - 所有状态保存在 CSV 中并逐行更新；支持断点续跑、审计与人工修复。
 
-2) Browser automation / 浏览器自动化
-- Uses Selenium ChromeDriver and attempts to prefer an explicit `--driver-path`.
-- 使用 Selenium ChromeDriver，优先推荐传入 `--driver-path`。
-- If `webdriver-manager` is installed the tool can auto-download a matching chromedriver at runtime.
-- 若安装了 `webdriver-manager`，程序可在运行时自动下载匹配的 chromedriver。
- - Experimental Playwright backend (browser-use) available via subcommand `cz-bu` or `cz --backend playwright` (feature branch). Sequential queries only, may become default after evaluation.
- - 实验性 Playwright 后端（browser-use）可通过 `cz-bu` 子命令或 `cz --backend playwright` 使用（特性分支）。当前为顺序查询，评估后可能成为默认。
+2) Browser automation (Playwright) / 浏览器自动化（Playwright）
+- Chromium via Playwright async API; headless by default; pass `--headless False` to show UI.
+- 基于 Playwright 的 Chromium 异步 API；默认无头；传 `--headless False` 显示界面。
+- Single browser per run; N pages as workers for concurrency (`--workers N`).
+- 每次运行仅一个浏览器；使用 N 个页面作为并发 worker（`--workers N`）。
 
 3) Overlay handling / 覆盖层处理
-- Strategy: targeted click on refuse/close buttons → JS-dispatched MouseEvent → hide/remove overlays → retry.
-- 策略：优先点击拒绝/关闭按钮 → 发送 JS MouseEvent → 隐藏/移除覆盖层 → 重试。
+- Targeted refuse/close clicks → JS-dispatched events → hide/remove overlays → proceed.
+- 策略：优先点击拒绝/关闭按钮 → 发送 JS 事件 → 隐藏/移除覆盖层 → 继续。
 
 4) Result extraction / 结果提取
-- Multi-selector polling, Selenium `.text` read and JS innerText/textContent fallbacks.
-- 多选择器轮询、Selenium `.text` 读取与 JS innerText/textContent 回退。
-- If needed, a page-level JS scan extracts candidate status fragments when elements are present but not visible.
-- 如有必要，页面级 JS 扫描会在元素存在但不可见时提取状态片段。
+- Multi-selector polling with Playwright; JS innerText/textContent fallbacks and page-scan.
+- 基于 Playwright 的多选择器轮询；必要时使用 JS innerText/textContent 回退与页面级扫描。
 
 5) Resilience & retries / 弹性与重试
-- Per-row retry count with exponential backoff and jitter.
-- 每条支持可配置的重试次数，并采用带抖动的指数退避。
-- Driver/session recreation on recoverable errors to continue long runs.
-- 在可恢复错误上进行驱动/会话重建以支持长时间运行。
+- Per-row retry with small backoff; best-effort overlay dismissal before interaction.
+- 每条带小退避的重试；在交互前尽力清理覆盖层。
 
 6) Logging & diagnostics / 日志与诊断
-- Logs written under `logs/` and failing rows appended to `logs/fails/YYYY-MM-DD_fails.csv`.
-- 日志写入 `logs/`，失败条目追加到 `logs/fails/YYYY-MM-DD_fails.csv`。
-- Page HTML snapshots saved only for Unknown/Query Failed rows to reduce noise.
-- 页面 HTML 快照仅在 Unknown/Query Failed 时保存，以减少噪声文件。
+- Logs under `logs/`; failing rows appended to `logs/fails/YYYY-MM-DD_fails.csv`.
+- 日志写入 `logs/`；失败条目追加到 `logs/fails/YYYY-MM-DD_fails.csv`。
 
-## How to extend (add a country) / 如何扩展（添加国家模块）
+## Concurrency / 并发
+- Use `--workers N` to run N parallel workers (pages). Each worker reuses the same browser instance.
+- 使用 `--workers N` 运行 N 个并发 worker（页面）。所有 worker 共享同一浏览器实例。
+- Ctrl+C attempts graceful shutdown: pending tasks cancelled, progress flushed, browser closed.
+- Ctrl+C 尝试优雅退出：取消未完成任务、刷新进度并关闭浏览器。
+- Resource note: Each worker uses memory; on low-memory machines limit workers.
+- 资源提示：每个 worker 会占用内存；低内存环境请降低 worker 数。
+
+## How to extend / 如何扩展
 1. Create `query_modules/xy.py` (xy = ISO-2 code).
-2. Implement `def query_status(code: str, driver=None, **opts) -> str:` and return a normalized status.
-3. Register the module in `visa_status.py` mapping.
+2. Implement `update_csv_with_status(csv_path: str, headless=True, workers=1, retries=3, log_dir='logs', **_)` using Playwright.
+3. Register in `visa_status.py`'s `QUERY_MODULES`.
 
-## Concurrency / 并发 (workers)
+## Reporting / 报告
+- `python visa_status.py report [-i CSV] [--charts] [-o PATH]` produces a Markdown report and archives the input CSV into the report folder.
+- 通过 `python visa_status.py report [-i CSV] [--charts] [-o PATH]` 生成 Markdown 报告，并将输入 CSV 归档到报告文件夹。
 
-- Purpose: support higher throughput by running multiple query workers in parallel while reusing browser instances via a driver pool. / 目的：通过并行运行多个 worker 并重用浏览器实例（驱动池）来提高吞吐量。
-
-- CLI: `--workers N` (default 1). When N>1 the Czech module uses a ThreadPoolExecutor and a simple driver pool pre-creating up to N webdriver instances. / 命令行：`--workers N`（默认 1）。当 N>1 时，捷克模块使用 ThreadPoolExecutor 及一个简单的驱动池，预创建最多 N 个 webdriver 实例。
-
-- Behavior: each completed task is flushed immediately to the input CSV and failing rows are appended to `logs/fails/YYYY-MM-DD_fails.csv`. This preserves resume/replication semantics even during concurrent runs. / 行为：每个完成的查询会立刻写回输入 CSV，失败条目会追加到 `logs/fails/YYYY-MM-DD_fails.csv`，即便并发运行也能保持可恢复/可审计语义。
-
-- Ctrl+C handling: concurrent runs catch `KeyboardInterrupt`, cancel pending tasks, flush in-memory progress to CSV, close all browser instances and then exit. / Ctrl+C 处理：并发运行会捕获 `KeyboardInterrupt`，取消挂起任务、将内存中的进度写回 CSV、关闭所有浏览器实例并退出。
-
-- Resource note: each Chrome instance consumes memory (>= ~150-300MB depending on flags and page complexity). Limit `--workers` on low-memory machines. Consider N <= available_memory / 300MB as a rough starting point. / 资源提示：每个 Chrome 实例会消耗内存（取决于参数和页面，通常 >=150-300MB）。在低内存机器上请限制 `--workers`。一个粗略估算：N 不应超过 可用内存 ÷ 300MB。
-
-- Alternatives: for stronger isolation or to avoid GIL/driver thread contention, consider a multi-process model (ProcessPool) or using a remote Selenium Grid. / 备选方案：如需更强隔离或避免线程/驱动争用，可考虑多进程模型（ProcessPool）或外部 Selenium Grid。
-
-## Reporting module / 报告模块（详细分析）
-
-- Location / 位置: `tools/report.py` （通过 `python visa_status.py report` 调用）。
-- Purpose / 目的: 生成面向申请者与维护者的可读性强的 Markdown 报告，帮助评估：
-	- 当前通过率 (Granted 占比)
-	- 拒签/关闭与查询失败情况
-	- 审理中(Proceedings) 积压量与比例 (Backlog ratio)
-	- 日/周/月的趋势与波动 (含周成功率环比 Δ)
-	- 工作日活跃度（用于优化查询码生成：聚焦周一/周二等高处理日）
-	- SLA 超期（Proceedings 超过 60 天）
-- Ignore strategy / 忽略策略: 全局忽略 `Not Found` 行（无开启开关）。
-- Command / 命令:
-```bash
-python visa_status.py report -i query_codes.csv [--charts]
-```
-- Output / 输出: `reports/<YYYY-MM-DD>/<HH-MM-SS>/summary.md` 分层目录（日期/时间）精确到秒；图表 PNG 与报告同目录。
-- Key metrics / 关键指标:
-	- success_rate = Granted / counted
-	- processing_rate = (Granted + Rejected)/counted
-	- rejection_rate = Rejected/Closed / counted
-	- backlog_ratio (每日与累计 Proceedings 占比)
-	- weekly Δsuccess%
-	- SLA overdue ratio (Proceedings 超过60天占当前 Proceedings 比例)
-	- weekday peak (峰值工作日)
-	- ISO Week (报告标题中显示当前 UTC ISO 周)
-- Submission volume / 提交量: 仅统计“有效”行（非空且非 Not Found），并对日历跨度零填充方便趋势对比。
-- Charts (optional with --charts & matplotlib): daily success vs backlog line, weekly success bar, distribution pie。
-- Auto-install / 自动安装: 在未禁用自动安装且指定 `--charts` 时尝试安装缺失的 `matplotlib`。
-- Extensibility / 可扩展: 未来若保留多次抓取快照，可进一步分析平均处理时长 / Proceedings→Granted 转化周期。
-
-## Links / 链接
-- README (user guide): [README.md](README.md)
-- README（用户指南）：[README.md](README.md)
-
-## Code generator extensions / 代码生成器扩展
-- New options:
-	- `--exclude-weekdays` (aliases: `--exclude`, `--排除`, `--日期排除`) accept digits 1..7 for Mon..Sun, forms: `35`, `3 5`, `3,5`.
-	- `--prefix` (alias: `--前缀`) sets code prefix (default `PEKI`).
-- Order of filtering:
-	1. Start with weekdays (Mon-Fri) unless `--include-weekends`.
-	2. Remove any weekday codes present in exclude set.
-	3. Generate `<PREFIX>YYYYMMDD####` sequences.
-- Prefix normalization: trimmed; fallback to PEKI if empty after trim.
+## Troubleshooting / 故障排查
+- Ensure Playwright & Chromium are installed:
+  - `pip install playwright`
+  - `python -m playwright install chromium`
+- 若启动报错，请先安装 Playwright 与 Chromium：
+  - `pip install playwright`
+  - `python -m playwright install chromium`
 
 *** End of overview / 概览结束 ***
+- Submission volume / 提交量: 仅统计“有效”行（非空且非 Not Found），并对日历跨度零填充方便趋势对比。

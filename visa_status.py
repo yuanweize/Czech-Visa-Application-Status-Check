@@ -6,14 +6,11 @@ import importlib
 # 工具注册表：key为命令名，值为(模块路径, 主函数名)
 TOOLS = {
     'generate-codes': ('tools.generate_codes', 'main'),
-    # 'report' 从通用工具列表移除，使用专用子命令分支生成更详细的 Markdown 报告
 }
 
-# 查询器注册表，所有国家查询模块均用二字国家码命名（如cz、us、de等）
+# 查询器注册表（Playwright-only），所有国家查询模块均用二字国家码命名（如cz、us、de等）
 QUERY_MODULES = {
     'cz': ('query_modules.cz', 'update_csv_with_status'),
-    # Experimental browser-use (Playwright) backend variant (feature branch only) simplified name
-    'cz-bu': ('query_modules.cz_browser_use', 'update_csv_with_status'),
     # 未来可扩展更多国家，如 'us': ('query_modules.us', 'update_csv_with_status')
 }
 
@@ -30,10 +27,7 @@ def main():
 
     # 全局选项 / Global options
     parser.add_argument('--retries', type=int, default=3, help='Retries per query (default: 3) / 每条查询的重试次数（默认: 3）')
-    parser.add_argument('--no-auto-install', action='store_true', help='Disable auto-install of missing deps at startup / 启动时禁用自动安装缺失依赖')
     parser.add_argument('--log-dir', default='logs', help='Logs directory (default: logs) / 日志目录（默认: logs）')
-    # Deprecated global --headless flag kept for backward compatibility; headless now defaults to True for queries.
-    parser.add_argument('--headless', action='store_true', help='(Deprecated) Global headless enable flag; query subcommands now default headless=True. / （兼容保留）全局无头启用标志；查询子命令现默认 headless=True。')
 
     # 生成器子命令
     gen_parser = subparsers.add_parser('generate-codes', help='Generate a CSV of query codes / 生成查询码CSV（支持自定义日期与数量）')
@@ -55,147 +49,44 @@ def main():
                             help='Input CSV path (default: query_codes.csv) / 输入 CSV 路径（默认: query_codes.csv）')
     rep_parser.add_argument('-o', '--out', help='Output Markdown path (default: reports/summary_TIMESTAMP.md) / 输出 Markdown 路径（默认 reports/summary_时间戳.md）')
     rep_parser.add_argument('--charts', action='store_true', help='Generate charts (requires matplotlib) / 生成图表（需要 matplotlib）')
-    # 查询器子命令（以国家码命名）
+    # 查询器子命令（以国家码命名，Playwright-only）
     for country_code, (mod_path, _) in QUERY_MODULES.items():
-        q_parser = subparsers.add_parser(country_code, help=f'{country_code.upper()} visa-status checker / {country_code.upper()}签证状态批量查询')
+        q_parser = subparsers.add_parser(country_code, help=f'{country_code.upper()} visa-status checker (Playwright) / {country_code.upper()}签证状态批量查询（Playwright）')
         q_parser.add_argument('--i', default='query_codes.csv', help='CSV input path (default: query_codes.csv) / CSV 文件路径（默认: query_codes.csv）')
-        q_parser.add_argument('--driver-path', default=None, help='ChromeDriver executable path (optional) / ChromeDriver 可执行文件路径（可选）')
         # Headless now defaults to True. Provide optional value so legacy "--headless" (no value) still works.
         q_parser.add_argument('--headless', nargs='?', const='true', default=None, metavar='[BOOL]',
                               help='Headless mode (default True). Use "--headless False" to SHOW browser. Accepts true/false/on/off/yes/no/0/1 / 无头模式(默认 True)。使用 "--headless False" 显示浏览器。接受 true/false/on/off/yes/no/0/1')
-        q_parser.add_argument('--workers', type=int, default=1, help='Number of concurrent workers / 并发 worker 数 (default: 1)')
-        # Agent mode flags (playwright/browser-use backend only; ignored by selenium backend)
-        q_parser.add_argument('--agent', action='store_true', help='Enable agent (LLM) mode if backend supports it / 若后端支持则启用 Agent (LLM) 模式')
-        q_parser.add_argument('--agent-model', default='deepseek-ai/DeepSeek-R1', help='Agent LLM model name (default deepseek-ai/DeepSeek-R1) / Agent 使用的模型名（默认 deepseek-ai/DeepSeek-R1）')
-        q_parser.add_argument('--agent-max-steps', type=int, default=12, help='Max agent reasoning steps (default 12) / Agent 最大推理步数')
-        # Backend selection (currently only meaningful for cz). For cz you can pass --backend playwright to use experimental Playwright implementation.
-        if country_code == 'cz':
-            q_parser.add_argument('--backend', choices=['selenium', 'playwright'], default='selenium', help='Backend engine (default selenium). Use playwright for experimental browser-use implementation. / 后端引擎（默认 selenium），使用 playwright 采用实验性 browser-use 实现。')
-        # 可扩展更多参数
+        q_parser.add_argument('--workers', type=int, default=1, help='Number of concurrent workers (pages) / 并发 worker 数 (默认: 1)')
 
-    # 在运行前进行依赖检查：selenium、webdriver_manager
-    def check_and_install_deps(auto_install: bool, logs_dir_name: str):
-        import shutil
-        import subprocess
-        import datetime
-        import os
-
+    # 依赖提示（精简，仅记录 Playwright 与 matplotlib 提示）
+    def check_notes(logs_dir_name: str):
+        import datetime, os
         logs_dir = os.path.join(os.getcwd(), logs_dir_name)
         os.makedirs(logs_dir, exist_ok=True)
         log_path = os.path.join(logs_dir, f"install_{datetime.date.today().isoformat()}.log")
 
         def log(msg: str):
-            # msg should be bilingual where possible (EN / 中文)
             ts = datetime.datetime.now().isoformat(sep=' ', timespec='seconds')
             with open(log_path, 'a', encoding='utf-8') as lf:
                 lf.write(f"[{ts}] {msg}\n")
 
-        missing = []
-        optional_missing = []  # e.g. matplotlib only needed for --charts
         try:
-            import selenium  # noqa: F401
-            log('selenium: present / selenium: 已安装')
+            import playwright  # noqa: F401
+            log('playwright: present / playwright: 已安装')
         except Exception:
-            missing.append('selenium')
-            log('selenium: missing / selenium: 未安装')
-        try:
-            import webdriver_manager  # noqa: F401
-            log('webdriver-manager: present / webdriver-manager: 已安装')
-        except Exception:
-            missing.append('webdriver-manager')
-            log('webdriver-manager: missing / webdriver-manager: 未安装')
-        try:
-            import openpyxl  # noqa: F401
-            log('openpyxl: present / openpyxl: 已安装 (optional)')
-        except Exception:
-            # treat openpyxl as optional; no longer auto-installed by default
-            optional_missing.append('openpyxl')
-            log('openpyxl: missing (optional) / openpyxl: 未安装（可选）')
+            log('playwright: missing (install with: pip install playwright; then python -m playwright install chromium) / playwright: 未安装（使用 pip install playwright；随后 python -m playwright install chromium）')
 
-        # matplotlib only needed when user requests charts in report subcommand
         want_matplotlib = '--charts' in sys.argv and 'report' in sys.argv
         try:
             import matplotlib  # noqa: F401
-            log('matplotlib: present / matplotlib: 已安装 (for charts)')
+            log('matplotlib: present / matplotlib: 已安装')
         except Exception:
             if want_matplotlib:
-                missing.append('matplotlib')
-                log('matplotlib: missing (will install, charts requested) / matplotlib: 未安装（已请求图表，将尝试安装）')
-            else:
-                optional_missing.append('matplotlib')
-                log('matplotlib: missing (optional, install for --charts) / matplotlib: 未安装（可选，生成图表需安装）')
+                log('matplotlib: missing (required for --charts) / matplotlib: 未安装（--charts 需要）')
 
-        # Determine if user wants playwright/browser-use (either cz-bu command or cz with --backend playwright)
-        want_playwright = False
-        argv_join = ' '.join(sys.argv).lower()
-        if 'cz-bu' in sys.argv or (' cz ' in f' {argv_join} ' and '--backend' in argv_join and 'playwright' in argv_join):
-            want_playwright = True
-
-        chromedriver_found = False
-        # check PATH for chromedriver
-        if shutil.which('chromedriver') or shutil.which('chromedriver.exe'):
-            chromedriver_found = True
-            log('chromedriver: found in PATH / chromedriver: 在 PATH 中找到')
-        else:
-            log('chromedriver: not found in PATH / chromedriver: 未在 PATH 中找到')
-
-        # Add playwright/browser-use detection
-        if want_playwright:
-            try:
-                import playwright  # noqa: F401
-                log('playwright: present / playwright: 已安装')
-            except Exception:
-                missing.append('playwright')
-                log('playwright: missing / playwright: 未安装')
-            try:
-                import browser_use  # noqa: F401
-                log('browser-use: present / browser-use: 已安装')
-            except Exception:
-                missing.append('browser-use')
-                log('browser-use: missing / browser-use: 未安装')
-
-        if missing:
-            log('Missing packages: ' + ', '.join(missing) + ' / 缺失的包: ' + ', '.join(missing))
-            if auto_install:
-                log('Auto-install enabled; attempting pip install / 自动安装已启用，尝试通过 pip 安装')
-                try:
-                    subprocess.check_call([sys.executable, '-m', 'pip', 'install'] + missing)
-                    log('pip install succeeded for: ' + ', '.join(missing) + ' / pip 安装成功: ' + ', '.join(missing))
-                    # If playwright was just installed and user wants it, auto-install browsers (chromium only) once
-                    if want_playwright:
-                        try:
-                            subprocess.check_call([sys.executable, '-m', 'playwright', 'install', 'chromium'])
-                            log('playwright browsers install (chromium) OK / playwright 浏览器 (chromium) 安装成功')
-                        except Exception as e:
-                            log('playwright browsers install failed: ' + str(e) + ' / playwright 浏览器安装失败')
-                except Exception as e:
-                    log('pip install failed: ' + str(e) + ' / pip 安装失败: ' + str(e))
-            else:
-                log('Auto-install disabled; skipping pip install / 未启用自动安装，跳过 pip 安装')
-
-        if optional_missing:
-            log('Optional packages missing (install if needed): ' + ', '.join(optional_missing) + ' / 缺失的可选包（按需安装）: ' + ', '.join(optional_missing))
-
-        # After install attempt, check for webdriver-manager availability
-        try:
-            import webdriver_manager  # noqa: F401
-            has_wdm = True
-            log('webdriver-manager: available after install check / webdriver-manager: 安装检查后可用')
-        except Exception:
-            has_wdm = False
-            log('webdriver-manager: still not available / webdriver-manager: 仍然不可用')
-
-        if not chromedriver_found and not want_playwright:
-            if has_wdm:
-                log('Will use webdriver-manager to download chromedriver at runtime / 将使用 webdriver-manager 在运行时下载 chromedriver')
-            else:
-                log('Warning: chromedriver not found and webdriver-manager not available. User must install chromedriver or provide --driver-path / 警告：未找到 chromedriver 且 webdriver-manager 不可用。请安装 chromedriver 或使用 --driver-path 指定驱动路径')
-        if want_playwright:
-            log('Playwright mode requested (cz-bu or --backend playwright) / 需要 Playwright 模式')
-
-    # run dependency check with chosen behavior (use parse_known_args to read global opts before full parse)
-    known_args, _ = parser.parse_known_args()
-    check_and_install_deps(auto_install=not known_args.no_auto_install, logs_dir_name=known_args.log_dir)
+    # run dependency notes
+    _known_args, _ = parser.parse_known_args()
+    check_notes(logs_dir_name=_known_args.log_dir)
 
     # 只将本子命令后的参数传递给对应工具
     cmd_args = sys.argv[2:]
@@ -259,12 +150,9 @@ def main():
         import argparse as ap
         q_parser = ap.ArgumentParser()
         q_parser.add_argument('--i', default='query_codes.csv')
-        q_parser.add_argument('--driver-path', default=None)
         q_parser.add_argument('--headless', nargs='?', const='true', default=None)
+        q_parser.add_argument('--workers', type=int, default=1)
         q_parser.add_argument('--retries', type=int, default=None, help='针对该子命令的重试次数，覆盖全局 --retries')
-        # replicate backend arg for cz in the internal parser so we can branch at runtime
-        if args.command == 'cz':
-            q_parser.add_argument('--backend', choices=['selenium', 'playwright'], default='selenium')
         q_args, _ = q_parser.parse_known_args(cmd_args)
 
         def _parse_bool(val, default_true=True):
@@ -281,39 +169,13 @@ def main():
 
         headless_val = _parse_bool(q_args.headless, default_true=True)
 
-        # If cz and backend=playwright, dynamically switch module to experimental cz_browser_use
-        if args.command == 'cz' and getattr(q_args, 'backend', 'selenium') == 'playwright':
-            try:
-                mod = importlib.import_module('query_modules.cz_browser_use')
-                func = getattr(mod, 'update_csv_with_status')
-                # Ignore driver_path for playwright backend
-            except Exception as e:
-                print(f"[Error] Could not load Playwright backend: {e} / 无法加载 Playwright 后端")
-                print('Falling back to Selenium backend / 回退至 Selenium 后端')
         if q_args.headless is None and headless_val:
             print('Headless mode: ON (default). Use --headless False to show browser. / 无头模式：开启（默认）。使用 --headless False 显示浏览器。')
         elif q_args.headless is not None and not headless_val:
             print('Headless mode: OFF (UI visible). / 无头模式：关闭（显示浏览器）。')
         retries_val = q_args.retries if (q_args.retries is not None) else args.retries
         try:
-            kwargs = dict(driver_path=getattr(q_args, 'driver_path', None), headless=headless_val, retries=retries_val, log_dir=args.log_dir)
-            if hasattr(q_args, 'workers'):
-                kwargs['workers'] = q_args.workers
-            # Remove driver_path for playwright backend to avoid unexpected parameter error
-            if args.command == 'cz' and getattr(q_args, 'backend', 'selenium') == 'playwright':
-                kwargs.pop('driver_path', None)
-            # Remove driver_path entirely for experimental cz-bu module (playwright)
-            if args.command == 'cz-bu':
-                kwargs.pop('driver_path', None)
-            # Pass agent params only to playwright paths (cz with backend=playwright or cz-bu)
-            if (args.command == 'cz' and getattr(q_args, 'backend', 'selenium') == 'playwright') or args.command == 'cz-bu':
-                if getattr(q_args, 'agent', False):
-                    kwargs['use_agent'] = True
-                    kwargs['agent_model'] = getattr(q_args, 'agent_model', 'deepseek-ai/DeepSeek-R1')
-                    kwargs['max_agent_steps'] = getattr(q_args, 'agent_max_steps', 12)
-                else:
-                    kwargs.pop('use_agent', None)
-            func(q_args.i, **kwargs)
+            func(q_args.i, headless=headless_val, workers=q_args.workers, retries=retries_val, log_dir=args.log_dir)
         except TypeError:
             func(q_args.i)
     else:
