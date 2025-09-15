@@ -29,6 +29,11 @@ class VisaStatusQuerier:
         options.add_argument('--disable-dev-shm-usage')
         options.add_argument('--no-sandbox')
         options.add_argument('--window-size=1200,800')
+        # Minimize Chrome console logs without requiring user flags
+        try:
+            options.add_experimental_option('excludeSwitches', ['enable-logging'])
+        except Exception:
+            pass
         # faster page load: don't wait for all resources
         try:
             options.set_capability('pageLoadStrategy', 'eager')
@@ -39,7 +44,15 @@ class VisaStatusQuerier:
         self._create_driver(driver_path, options)
 
     def _create_driver(self, driver_path, options):
-        """Create a Chrome WebDriver and attach a WebDriverWait helper."""
+        """Create a Chrome WebDriver and attach a WebDriverWait helper.
+
+        Preference order to reduce network dependency:
+        1) Explicit driver_path argument
+        2) CHROMEDRIVER / WEBDRIVER_CHROME / DRIVER_PATH env vars
+        3) chromedriver found in PATH
+        4) webdriver-manager download (network)
+        5) Fallback to webdriver.Chrome() and let Selenium resolve
+        """
         # close existing if present
         try:
             if hasattr(self, 'driver') and self.driver:
@@ -50,17 +63,66 @@ class VisaStatusQuerier:
         except Exception:
             pass
 
-        if driver_path:
-            service = Service(driver_path)
-            self.driver = webdriver.Chrome(service=service, options=options)
-        else:
-            if ChromeDriverManager is not None:
-                driver_binary = ChromeDriverManager().install()
-                service = Service(driver_binary)
+        # Resolve candidate paths without network if possible
+        resolved_path = None
+        try:
+            import os, shutil
+            # Route Chrome's own logs to a file to avoid console spam (no user flag needed)
+            try:
+                logs_dir = os.path.join(os.getcwd(), 'logs')
+                os.makedirs(logs_dir, exist_ok=True)
+                os.environ.setdefault('CHROME_LOG_FILE', os.path.join(logs_dir, 'chrome_debug.log'))
+            except Exception:
+                pass
+            env_candidates = [
+                driver_path,
+                os.environ.get('CHROMEDRIVER'),
+                os.environ.get('WEBDRIVER_CHROME'),
+                os.environ.get('DRIVER_PATH'),
+            ]
+            for p in env_candidates:
+                if p and os.path.exists(p):
+                    resolved_path = p
+                    break
+            if not resolved_path:
+                which = shutil.which('chromedriver') or shutil.which('chromedriver.exe')
+                if which:
+                    resolved_path = which
+        except Exception:
+            resolved_path = None
+
+        try:
+            import os, subprocess
+            # By default silence chromedriver logs; allow override via CHROMEDRIVER_LOG
+            log_target = subprocess.DEVNULL
+            log_path = os.environ.get('CHROMEDRIVER_LOG')
+            if log_path:
+                try:
+                    os.makedirs(os.path.dirname(log_path) or '.', exist_ok=True)
+                    log_target = open(log_path, 'a', encoding='utf-8')
+                except Exception:
+                    log_target = subprocess.DEVNULL
+
+            if resolved_path:
+                service = Service(resolved_path, log_output=log_target)
                 self.driver = webdriver.Chrome(service=service, options=options)
             else:
-                # last resort: rely on PATH / system-installed chromedriver
+                if ChromeDriverManager is not None:
+                    # Fall back to webdriver-manager (may require network)
+                    driver_binary = ChromeDriverManager().install()
+                    service = Service(driver_binary, log_output=log_target)
+                    self.driver = webdriver.Chrome(service=service, options=options)
+                else:
+                    # last resort: rely on Selenium to find a driver in PATH
+                    self.driver = webdriver.Chrome(options=options)
+        except Exception:
+            # One more attempt: try plain webdriver.Chrome() if previous steps failed
+            try:
                 self.driver = webdriver.Chrome(options=options)
+            except Exception as e:
+                # Re-raise the last error for visibility
+                raise e
+
         self.wait = WebDriverWait(self.driver, 15)
 
     def _ensure_driver(self):
@@ -79,6 +141,10 @@ class VisaStatusQuerier:
             opts.add_argument('--disable-dev-shm-usage')
             opts.add_argument('--no-sandbox')
             opts.add_argument('--window-size=1200,800')
+            try:
+                opts.add_experimental_option('excludeSwitches', ['enable-logging'])
+            except Exception:
+                pass
             try:
                 opts.set_capability('pageLoadStrategy', 'eager')
             except Exception:
@@ -644,10 +710,15 @@ def update_csv_with_status(csv_path, code_col='查询码/Code', status_col='签�
     driver_pool = []
     all_drivers = []
     pool_lock = threading.Lock()
-    for _ in range(workers):
+    for i in range(workers):
         d = VisaStatusQuerier(driver_path=driver_path, headless=headless)
         driver_pool.append(d)
         all_drivers.append(d)
+        # tiny stagger to avoid simultaneous Chrome startups hitting network together
+        try:
+            time.sleep(0.05)
+        except Exception:
+            pass
 
     def borrow_driver():
         with pool_lock:

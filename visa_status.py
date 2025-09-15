@@ -209,7 +209,7 @@ def main():
     elif args.command == 'report':
         # 专门处理报告：只生成 Markdown
         import tools.report as report_mod
-        import datetime, os
+        import datetime, os, shutil
         input_csv = args.input
         if input_csv == 'query_codes.csv':
             print('Using default input CSV: query_codes.csv (override with -i) / 使用默认输入文件 query_codes.csv（可用 -i 指定）')
@@ -236,6 +236,18 @@ def main():
             out_md = os.path.join(base_dir, 'summary.md')
         else:
             os.makedirs(os.path.dirname(out_md) or '.', exist_ok=True)
+        # 在报告目录内归档输入 CSV（保留原文件名） / Archive input CSV into the report folder
+        try:
+            if os.path.exists(input_csv):
+                dest_csv = os.path.join(os.path.dirname(out_md), os.path.basename(input_csv))
+                # Avoid self-copy if already same path
+                if os.path.abspath(input_csv) != os.path.abspath(dest_csv):
+                    shutil.copy2(input_csv, dest_csv)
+                print(f"Archived input CSV: {dest_csv} / 已归档输入CSV：{dest_csv}")
+            else:
+                print(f"Warning: input CSV not found, skip archive: {input_csv} / 警告：未找到输入CSV，跳过归档：{input_csv}")
+        except Exception as e:
+            print(f"Warning: failed to archive input CSV: {e} / 警告：归档输入CSV失败：{e}")
         header, rows = report_mod.load_csv(input_csv)
         summary = report_mod.generate_detailed_summary(header, rows, charts=generate_charts, out_markdown_path=out_md)
         report_mod.write_detailed_markdown(summary, out_md, include_charts=generate_charts)
