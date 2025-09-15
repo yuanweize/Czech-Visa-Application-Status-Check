@@ -51,25 +51,53 @@ def _normalize_status(text: str) -> str:
     return 'Unknown Status / 未知状态'+f"(status_text/状态文本: {text})"
 
 
-async def _process_one(page, code: str, nav_sem: asyncio.Semaphore | None = None) -> str:
-    # Navigate
+async def _ensure_ready(page, nav_sem: asyncio.Semaphore | None = None):
+    """Ensure the input is present; only navigate when necessary."""
+    try:
+        await page.wait_for_selector("input[name='visaApplicationNumber']", timeout=3000)
+        return
+    except Exception:
+        pass
+    # Navigate only if input not available
     if nav_sem is None:
         await page.goto(IPC_URL, wait_until='domcontentloaded', timeout=20000)
     else:
         async with nav_sem:
             await page.goto(IPC_URL, wait_until='domcontentloaded', timeout=20000)
+    # wait once more for input
+    await page.wait_for_selector("input[name='visaApplicationNumber']", timeout=15000)
 
-    # Try to hide cookie/overlay elements quickly (best-effort, no exceptions)
+
+async def _maybe_hide_overlays(page):
+    """Hide cookie/overlay elements once per page lifecycle to reduce overhead."""
+    try:
+        already = await page.evaluate("(() => window.__overlay_done === true)()")
+    except Exception:
+        already = False
+    if already:
+        return
     try:
         await page.add_script_tag(content="""
         (function(){
+          try { window.__overlay_done = true; } catch (e) {}
           var sels=['.cookies__wrapper','.cookie-consent','.gdpr-banner','.modal__window','.modal-backdrop','[data-cookie]','[data-cookies-edit]'];
           sels.forEach(function(s){ document.querySelectorAll(s).forEach(function(e){ try{ e.style.display='none'; e.style.pointerEvents='none'; e.style.zIndex='-9999'; }catch(ex){} }); });
-          document.querySelectorAll('button.button__outline,button.button__close').forEach(function(b){ try{ b.click(); }catch(e){} });
+          try { document.querySelectorAll('button.button__outline,button.button__close').forEach(function(b){ try{ b.click(); }catch(e){} }); } catch(e){}
         })();
         """)
     except Exception:
-        pass
+        try:
+            await page.evaluate("document.querySelectorAll('.cookies__wrapper,.modal__window').forEach(e=>{try{e.style.display='none';e.style.pointerEvents='none';}catch(_){}})")
+        except Exception:
+            pass
+
+
+async def _process_one(page, code: str, nav_sem: asyncio.Semaphore | None = None) -> str:
+    # Ensure page ready; avoid navigating for every single code
+    await _ensure_ready(page, nav_sem)
+
+    # Hide overlays once per page lifecycle
+    await _maybe_hide_overlays(page)
 
     # Input and submit
     try:
@@ -83,9 +111,8 @@ async def _process_one(page, code: str, nav_sem: asyncio.Semaphore | None = None
         input_el = await page.wait_for_selector("input[name='visaApplicationNumber']", timeout=15000)
 
     # Set value via fill (retries minimal)
-    await input_el.click()
-    await input_el.fill('')
-    await input_el.type(code, delay=10)
+    # Fast fill instead of per-char typing
+    await input_el.fill(code)
 
     # Submit: prefer button[type=submit]
     btn = await page.query_selector("button[type='submit']")
@@ -146,15 +173,32 @@ async def _process_one(page, code: str, nav_sem: asyncio.Semaphore | None = None
 async def _worker(name: str, browser, queue: asyncio.Queue, result_cb, retries: int, nav_sem: asyncio.Semaphore):
     # Create context with lighter resources and sane timeouts
     context = await browser.new_context()
-    # Block heavy resources to reduce load
+    # Block heavy resources to reduce load (await continue/abort correctly)
+    async def _route_handler(route):
+        try:
+            if route.request.resource_type in {"image", "font"}:
+                await route.abort()
+            else:
+                await route.continue_()
+        except Exception:
+            try:
+                await route.continue_()
+            except Exception:
+                pass
     try:
-        await context.route("**/*", lambda route: route.abort() if route.request.resource_type in {"image", "font"} else route.continue_())
+        await context.route("**/*", _route_handler)
     except Exception:
         pass
     page = await context.new_page()
     try:
         page.set_default_timeout(15000)
         page.set_default_navigation_timeout(20000)
+    except Exception:
+        pass
+    # Pre-warm: navigate and hide overlays once
+    try:
+        await _ensure_ready(page, nav_sem)
+        await _maybe_hide_overlays(page)
     except Exception:
         pass
     try:
@@ -179,7 +223,7 @@ async def _worker(name: str, browser, queue: asyncio.Queue, result_cb, retries: 
                                 pass
                             context = await browser.new_context()
                             try:
-                                await context.route("**/*", lambda route: route.abort() if route.request.resource_type in {"image", "font"} else route.continue_())
+                                await context.route("**/*", _route_handler)
                             except Exception:
                                 pass
                             page = await context.new_page()
@@ -216,7 +260,7 @@ async def _worker(name: str, browser, queue: asyncio.Queue, result_cb, retries: 
                         try:
                             context = await browser.new_context()
                             try:
-                                await context.route("**/*", lambda route: route.abort() if route.request.resource_type in {"image", "font"} else route.continue_())
+                                await context.route("**/*", _route_handler)
                             except Exception:
                                 pass
                             page = await context.new_page()
@@ -363,8 +407,8 @@ async def _run(csv_path: str, headless: bool, workers: int, retries: int, log_di
         browser = await p.chromium.launch(headless=headless)
         try:
             workers = max(1, int(workers or 1))
-            # Limit simultaneous navigations to reduce server resets
-            max_nav = min(6, workers) if workers > 1 else 1
+            # Limit simultaneous navigations to reduce server pressure
+            max_nav = min(4, workers) if workers > 1 else 1
             nav_sem = asyncio.Semaphore(max_nav)
             tasks = []
             for i in range(workers):
