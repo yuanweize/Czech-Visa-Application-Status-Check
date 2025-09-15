@@ -17,6 +17,7 @@ import csv
 import datetime
 import os
 from typing import Optional
+import random
 
 
 IPC_URL = 'https://ipc.gov.cz/en/status-of-your-application/'
@@ -51,11 +52,13 @@ def _normalize_status(text: str) -> str:
     return 'Unknown Status / 未知状态'+f"(status_text/状态文本: {text})"
 
 
-async def _ensure_ready(page, nav_sem: asyncio.Semaphore | None = None):
-    """Ensure the input is present; only navigate when necessary."""
+async def _ensure_ready(page, nav_sem: asyncio.Semaphore | None = None) -> bool:
+    """Ensure the input is present; only navigate when necessary.
+    Returns True if a navigation was performed, else False.
+    """
     try:
         await page.wait_for_selector("input[name='visaApplicationNumber']", timeout=3000)
-        return
+        return False
     except Exception:
         pass
     # Navigate only if input not available
@@ -66,6 +69,7 @@ async def _ensure_ready(page, nav_sem: asyncio.Semaphore | None = None):
             await page.goto(IPC_URL, wait_until='domcontentloaded', timeout=20000)
     # wait once more for input
     await page.wait_for_selector("input[name='visaApplicationNumber']", timeout=15000)
+    return True
 
 
 async def _maybe_hide_overlays(page):
@@ -92,82 +96,106 @@ async def _maybe_hide_overlays(page):
             pass
 
 
-async def _process_one(page, code: str, nav_sem: asyncio.Semaphore | None = None) -> str:
+async def _process_one(page, code: str, nav_sem: asyncio.Semaphore | None = None) -> tuple[str, dict]:
     # Ensure page ready; avoid navigating for every single code
-    await _ensure_ready(page, nav_sem)
+    t0 = asyncio.get_event_loop().time()
+    did_nav = await _ensure_ready(page, nav_sem)
+    t1 = asyncio.get_event_loop().time()
+    nav_ms = (t1 - t0) * 1000.0
 
     # Hide overlays once per page lifecycle
     await _maybe_hide_overlays(page)
 
-    # Input and submit
+    # Light jitter to avoid synchronized spikes
     try:
-        input_el = await page.wait_for_selector("input[name='visaApplicationNumber']", timeout=15000)
+        await asyncio.sleep(random.uniform(0.0, 0.12))
     except Exception:
-        # try once more after a quick JS overlay clear
+        pass
+
+    # Single evaluate: fill + submit + wait for result text (JS polling), return timings
+    selectors = ['.alert__content', '.alert', '.result', '.status', '.ipc-result', '.application-status', '[role=alert]', '[aria-live]']
+    try:
+        res = await page.evaluate(
+            """
+            async (code, selectors, timeoutMs) => {
+              const tStart = performance.now();
+              const input = document.querySelector("input[name='visaApplicationNumber']");
+              if (!input) throw new Error('input not found');
+              // fill
+              input.focus();
+              input.value = '';
+              input.dispatchEvent(new Event('input', { bubbles: true }));
+              input.value = code;
+              input.dispatchEvent(new Event('input', { bubbles: true }));
+              const tFill = performance.now();
+              // submit
+              let btn = document.querySelector("button[type='submit']");
+              if (!btn) {
+                const xp = document.evaluate("//button[contains(., 'Validate') or contains(., 'validate') or contains(., 'ověřit')]", document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null);
+                btn = xp.singleNodeValue;
+              }
+              if (btn) {
+                btn.click();
+              } else {
+                input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+                input.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', bubbles: true }));
+              }
+              const tSubmit = performance.now();
+              // wait for result text
+              const deadline = performance.now() + (timeoutMs || 15000);
+              let text = '';
+              function getText() {
+                for (const s of selectors) {
+                  const nodes = document.querySelectorAll(s);
+                  for (const n of nodes) {
+                    try {
+                      const t = (n.innerText || n.textContent || '').trim();
+                      if (t) return t;
+                    } catch (_) {}
+                  }
+                }
+                return '';
+              }
+              while (performance.now() < deadline) {
+                text = getText();
+                if (text) break;
+                await new Promise(r => setTimeout(r, 150));
+              }
+              const tWait = performance.now();
+              return { text, tFillMs: tFill - tStart, tSubmitMs: tSubmit - tFill, tWaitMs: tWait - tSubmit };
+            }
+            """,
+            code,
+            selectors,
+            15000,
+        )
+    except Exception:
+        res = { 'text': '' , 'tFillMs': 0, 'tSubmitMs': 0, 'tWaitMs': 0 }
+
+    text = (res.get('text') or '').strip() if isinstance(res, dict) else ''
+    if not text:
+        # Fallback to small extra wait scan once via JS, then timeout
         try:
-            await page.evaluate("document.querySelectorAll('.cookies__wrapper,.modal__window').forEach(e=>{e.style.display='none'})")
+            t_extra = await page.evaluate(
+                "(sels)=>{ for (const s of sels){ const ns=document.querySelectorAll(s); for(const n of ns){ try { const t=(n.innerText||n.textContent||'').trim(); if(t) return t; } catch(_){} } } return '' }",
+                selectors
+            )
+            if t_extra and str(t_extra).strip():
+                text = str(t_extra).strip()
         except Exception:
             pass
-        input_el = await page.wait_for_selector("input[name='visaApplicationNumber']", timeout=15000)
-
-    # Set value via fill (retries minimal)
-    # Fast fill instead of per-char typing
-    await input_el.fill(code)
-
-    # Submit: prefer button[type=submit]
-    btn = await page.query_selector("button[type='submit']")
-    if btn is None:
-        # try text contains
-        btn = await page.query_selector("xpath=//button[contains(., 'Validate') or contains(., 'validate') or contains(., 'ověřit')]")
-    if btn is not None:
-        try:
-            await btn.click()
-        except Exception:
-            try:
-                await page.evaluate("arguments[0].click();", btn)
-            except Exception:
-                pass
-
-    # Wait for a result text using several candidates; accept first non-empty
-    selectors = [
-        '.alert__content', '.alert', '.result', '.status', '.ipc-result', '.application-status', '[role=alert]', '[aria-live]'
-    ]
-    text = ''
-    end = asyncio.get_event_loop().time() + 15.0
-    while asyncio.get_event_loop().time() < end and not text:
-        for s in selectors:
-            try:
-                el = await page.query_selector(s)
-            except Exception:
-                el = None
-            if el:
-                try:
-                    t = (await el.inner_text()) or ''
-                except Exception:
-                    try:
-                        t = (await el.text_content()) or ''
-                    except Exception:
-                        t = ''
-                if t and t.strip():
-                    text = t.strip()
-                    break
-        if not text:
-            # page-wide quick scan via JS
-            try:
-                js = "var sels=arguments[0]; for (var i=0;i<sels.length;i++){var nodes=document.querySelectorAll(sels[i]); for (var j=0;j<nodes.length;j++){ try{ var t=(nodes[j].innerText||nodes[j].textContent||'').trim(); if(t) return t; }catch(e){} } } return '';"
-                t = await page.evaluate(js, selectors)
-                if t and str(t).strip():
-                    text = str(t).strip()
-                    break
-            except Exception:
-                pass
-            await asyncio.sleep(0.2)
-
     if not text:
-        # treat as transient timeout; caller will decide retries
         raise TimeoutError('No result text found')
 
-    return _normalize_status(text)
+    status = _normalize_status(text)
+    phases = {
+        'nav_ms': nav_ms,
+        'fill_ms': float(res.get('tFillMs', 0)) if isinstance(res, dict) else 0.0,
+        'submit_ms': float(res.get('tSubmitMs', 0)) if isinstance(res, dict) else 0.0,
+        'result_ms': float(res.get('tWaitMs', 0)) if isinstance(res, dict) else 0.0,
+        'navigated': bool(did_nav),
+    }
+    return status, phases
 
 
 async def _worker(name: str, browser, queue: asyncio.Queue, result_cb, retries: int, nav_sem: asyncio.Semaphore):
@@ -235,7 +263,7 @@ async def _worker(name: str, browser, queue: asyncio.Queue, result_cb, retries: 
                     except Exception:
                         pass
 
-                    status = await _process_one(page, code, nav_sem)
+                    status, phases = await _process_one(page, code, nav_sem)
                     err = ''
                     break
                 except Exception as e:
@@ -276,7 +304,12 @@ async def _worker(name: str, browser, queue: asyncio.Queue, result_cb, retries: 
                         await asyncio.sleep(1.0 + 0.5 * attempt)
                     else:
                         status = 'Query Failed / 查询失败'
-            await result_cb(idx, code, status, err, attempts_used)
+            # If phases not set due to exception path, provide zeros
+            try:
+                _ = phases
+            except NameError:
+                phases = {'nav_ms': 0.0, 'fill_ms': 0.0, 'submit_ms': 0.0, 'result_ms': 0.0, 'navigated': False}
+            await result_cb(idx, code, status, err, attempts_used, phases)
             queue.task_done()
     finally:
         try:
@@ -361,7 +394,7 @@ async def _run(csv_path: str, headless: bool, workers: int, retries: int, log_di
         'total_attempts': 0,
     }
 
-    async def on_result(idx: int, code: str, status: str, err: str, attempts_used: int):
+    async def on_result(idx: int, code: str, status: str, err: str, attempts_used: int, phases: dict):
         nonlocal fail_header_needed
         async with rows_lock:
             rows[idx][status_idx] = status
@@ -390,6 +423,18 @@ async def _run(csv_path: str, headless: bool, workers: int, retries: int, log_di
             # 更新统计
             stats['total'] += 1
             stats['total_attempts'] += attempts_used
+            # durations
+            stats.setdefault('nav_ms_total', 0.0)
+            stats.setdefault('fill_ms_total', 0.0)
+            stats.setdefault('submit_ms_total', 0.0)
+            stats.setdefault('result_ms_total', 0.0)
+            stats.setdefault('navigations', 0)
+            stats['nav_ms_total'] += float(phases.get('nav_ms', 0.0) or 0.0)
+            stats['fill_ms_total'] += float(phases.get('fill_ms', 0.0) or 0.0)
+            stats['submit_ms_total'] += float(phases.get('submit_ms', 0.0) or 0.0)
+            stats['result_ms_total'] += float(phases.get('result_ms', 0.0) or 0.0)
+            if phases.get('navigated'):
+                stats['navigations'] += 1
             failed = isinstance(status, str) and 'query failed' in status.lower()
             if failed:
                 stats['fail'] += 1
@@ -408,7 +453,7 @@ async def _run(csv_path: str, headless: bool, workers: int, retries: int, log_di
         try:
             workers = max(1, int(workers or 1))
             # Limit simultaneous navigations to reduce server pressure
-            max_nav = min(4, workers) if workers > 1 else 1
+            max_nav = min(6, workers) if workers > 1 else 1
             nav_sem = asyncio.Semaphore(max_nav)
             tasks = []
             # Start timing for worker phase
@@ -445,6 +490,14 @@ async def _run(csv_path: str, headless: bool, workers: int, retries: int, log_di
                 print(f"Average attempts per code / 平均尝试次数: {avg_attempts:.2f}")
                 print(f"Elapsed time / 运行用时: {elapsed:.2f}s")
                 print(f"Throughput / 吞吐量: {tps:.2f} codes/s")
+                # Phase averages
+                if stats['total']:
+                    nav_avg = stats.get('nav_ms_total', 0.0) / stats['total']
+                    fill_avg = stats.get('fill_ms_total', 0.0) / stats['total']
+                    submit_avg = stats.get('submit_ms_total', 0.0) / stats['total']
+                    result_avg = stats.get('result_ms_total', 0.0) / stats['total']
+                    print(f"Phase avg (ms) / 阶段平均耗时(ms): nav={nav_avg:.1f}, fill={fill_avg:.1f}, submit={submit_avg:.1f}, read={result_avg:.1f}")
+                    print(f"Navigations performed / 实际发生导航次数: {stats.get('navigations', 0)}")
                 print("================================\n")
             except Exception:
                 pass
