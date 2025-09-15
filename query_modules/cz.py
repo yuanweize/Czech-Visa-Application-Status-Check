@@ -114,62 +114,77 @@ async def _process_one(page, code: str, nav_sem: asyncio.Semaphore | None = None
 
     # Single evaluate: fill + submit + wait for result text (JS polling), return timings
     selectors = ['.alert__content', '.alert', '.result', '.status', '.ipc-result', '.application-status', '[role=alert]', '[aria-live]']
-    try:
-        res = await page.evaluate(
-            """
-            async (code, selectors, timeoutMs) => {
-              const tStart = performance.now();
-              const input = document.querySelector("input[name='visaApplicationNumber']");
-              if (!input) throw new Error('input not found');
-              // fill
-              input.focus();
-              input.value = '';
-              input.dispatchEvent(new Event('input', { bubbles: true }));
-              input.value = code;
-              input.dispatchEvent(new Event('input', { bubbles: true }));
-              const tFill = performance.now();
-              // submit
-              let btn = document.querySelector("button[type='submit']");
-              if (!btn) {
-                const xp = document.evaluate("//button[contains(., 'Validate') or contains(., 'validate') or contains(., 'ověřit')]", document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null);
-                btn = xp.singleNodeValue;
-              }
-              if (btn) {
-                btn.click();
-              } else {
-                input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
-                input.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', bubbles: true }));
-              }
-              const tSubmit = performance.now();
-              // wait for result text
-              const deadline = performance.now() + (timeoutMs || 15000);
-              let text = '';
-              function getText() {
-                for (const s of selectors) {
-                  const nodes = document.querySelectorAll(s);
-                  for (const n of nodes) {
-                    try {
-                      const t = (n.innerText || n.textContent || '').trim();
-                      if (t) return t;
-                    } catch (_) {}
-                  }
-                }
-                return '';
-              }
-              while (performance.now() < deadline) {
-                text = getText();
-                if (text) break;
-                await new Promise(r => setTimeout(r, 150));
-              }
-              const tWait = performance.now();
-              return { text, tFillMs: tFill - tStart, tSubmitMs: tSubmit - tFill, tWaitMs: tWait - tSubmit };
-            }
-            """,
-            code,
-            selectors,
-            15000,
-        )
-    except Exception:
+        try:
+                res = await page.evaluate(
+                        """
+                        async (code, selectors, timeoutMs) => {
+                            const tStart = performance.now();
+                            const input = document.querySelector("input[name='visaApplicationNumber']");
+                            if (!input) throw new Error('input not found');
+                            // fill (simulate framework-friendly events)
+                            input.focus();
+                            input.value = '';
+                            input.dispatchEvent(new Event('input', { bubbles: true }));
+                            input.value = code;
+                            input.dispatchEvent(new Event('input', { bubbles: true }));
+                            input.dispatchEvent(new Event('change', { bubbles: true }));
+                            try { input.blur(); } catch(_) {}
+                            const tFill = performance.now();
+                            // submit: prefer form submission to trigger handlers
+                            let didSubmit = false;
+                            try {
+                                const form = input.closest('form');
+                                if (form) {
+                                    if (typeof form.requestSubmit === 'function') form.requestSubmit(); else form.submit();
+                                    didSubmit = true;
+                                }
+                            } catch(_) {}
+                            if (!didSubmit) {
+                                let btn = document.querySelector("button[type='submit']");
+                                if (!btn) {
+                                    const xp = document.evaluate("//button[contains(., 'Validate') or contains(., 'validate') or contains(., 'ověřit')]", document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null);
+                                    btn = xp.singleNodeValue;
+                                }
+                                if (btn) {
+                                    btn.click();
+                                    didSubmit = true;
+                                } else {
+                                    input.focus();
+                                    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
+                                    input.dispatchEvent(new KeyboardEvent('keypress', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
+                                    input.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
+                                }
+                            }
+                            const tSubmit = performance.now();
+                            // wait for result text
+                            const deadline = performance.now() + (timeoutMs || 15000);
+                            let text = '';
+                            function getText() {
+                                for (const s of selectors) {
+                                    const nodes = document.querySelectorAll(s);
+                                    for (const n of nodes) {
+                                        try {
+                                            const t = (n.innerText || n.textContent || '').trim();
+                                            if (t) return t;
+                                        } catch (_) {}
+                                    }
+                                }
+                                return '';
+                            }
+                            while (performance.now() < deadline) {
+                                text = getText();
+                                if (text) break;
+                                await new Promise(r => setTimeout(r, 150));
+                            }
+                            const tWait = performance.now();
+                            return { text, tFillMs: tFill - tStart, tSubmitMs: tSubmit - tFill, tWaitMs: tWait - tSubmit };
+                        }
+                        """,
+                        code,
+                        selectors,
+                        15000,
+                )
+        except Exception:
         res = { 'text': '' , 'tFillMs': 0, 'tSubmitMs': 0, 'tWaitMs': 0 }
 
     text = (res.get('text') or '').strip() if isinstance(res, dict) else ''
