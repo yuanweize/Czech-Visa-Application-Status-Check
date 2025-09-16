@@ -190,10 +190,16 @@ async def run_once(config: MonitorConfig) -> Dict[str, Any]:
         task_map: Dict[str, Dict[str, Any]] = {}
         for cc in config.codes:
             chan = (cc.channel or '').lower()
+            # Check if email is properly configured
+            email_configured = (chan == 'email' and 
+                              cc.target and 
+                              config.smtp_host and 
+                              config.smtp_user and 
+                              config.smtp_pass)
             task_map[cc.code] = {
                 'code': cc.code,
                 'chan': chan,
-                'chan_label': 'Email' if chan == 'email' else '',
+                'chan_label': 'Email' if email_configured else '',
                 'target': cc.target,
                 'freq': max(1, int(cc.freq_minutes or 60)),
             }
@@ -373,17 +379,60 @@ async def run_scheduler(env_path: str, once: bool = False):
     config_lock = threading.Lock()
     
     def reload_config():
-        """Reload configuration from .env file."""
+        """Reload configuration from .env file with differential updates."""
         nonlocal cfg, codes
         with config_lock:
             try:
                 new_cfg = load_env_config(env_path)
-                old_codes_count = len(codes)
+                old_codes = {c.code: c for c in codes}
+                new_codes = {c.code: c for c in new_cfg.codes}
+                
+                # Find changes
+                added_codes = set(new_codes.keys()) - set(old_codes.keys())
+                removed_codes = set(old_codes.keys()) - set(new_codes.keys())
+                modified_codes = []
+                for code in set(old_codes.keys()) & set(new_codes.keys()):
+                    old_c, new_c = old_codes[code], new_codes[code]
+                    if (old_c.channel != new_c.channel or 
+                        old_c.target != new_c.target or 
+                        old_c.freq_minutes != new_c.freq_minutes):
+                        modified_codes.append(code)
+                
+                # Update global config and codes
                 cfg = new_cfg
                 codes = new_cfg.codes
-                log(f"[{_now_iso()}] Configuration reloaded: {old_codes_count} -> {len(codes)} codes")
-                print(f"Configuration reloaded: {old_codes_count} -> {len(codes)} codes")
-                config_reload_flag.set()
+                
+                # Handle removed codes in status.json
+                if removed_codes:
+                    try:
+                        site_json_path = os.path.join(cfg.site_dir, "status.json")
+                        if os.path.exists(site_json_path):
+                            with open(site_json_path, "r", encoding="utf-8") as f:
+                                status_data = json.load(f)
+                            for code in removed_codes:
+                                status_data["items"].pop(code, None)
+                            status_data["generated_at"] = _now_iso()
+                            with open(site_json_path, "w", encoding="utf-8") as f:
+                                json.dump(status_data, f, ensure_ascii=False, indent=2)
+                    except Exception as e:
+                        log(f"[{_now_iso()}] Error removing codes from status.json: {e}")
+                
+                # Log changes
+                change_summary = []
+                if added_codes:
+                    change_summary.append(f"added {len(added_codes)}")
+                if removed_codes:
+                    change_summary.append(f"removed {len(removed_codes)}")
+                if modified_codes:
+                    change_summary.append(f"modified {len(modified_codes)}")
+                
+                changes_str = ", ".join(change_summary) if change_summary else "no changes"
+                log(f"[{_now_iso()}] Configuration reloaded: {len(old_codes)} -> {len(new_codes)} codes ({changes_str})")
+                print(f"Configuration reloaded: {len(old_codes)} -> {len(new_codes)} codes ({changes_str})")
+                
+                if added_codes or removed_codes or modified_codes:
+                    config_reload_flag.set()
+                    
             except Exception as e:
                 log(f"[{_now_iso()}] Error reloading configuration: {e}")
                 print(f"Error reloading configuration: {e}")
@@ -482,18 +531,26 @@ async def run_scheduler(env_path: str, once: bool = False):
                 old_status = old_item.get("status")
                 first_time = (old_status is None)
                 changed = (old_status is not None and old_status != status)
+                
+                # Determine if email notification is properly configured
+                email_configured = (code_cfg.channel == "email" and 
+                                  code_cfg.target and 
+                                  current_cfg.smtp_host and 
+                                  current_cfg.smtp_user and 
+                                  current_cfg.smtp_pass)
+                
                 state["items"][code] = {
                     "code": code,
                     "status": status,
                     "last_checked": _now_iso(),
                     "last_changed": old_item.get("last_changed") if not changed else _now_iso(),
-                    "channel": "Email" if (code_cfg.channel == "email") else "",
+                    "channel": "Email" if email_configured else "",
                     "target": code_cfg.target or "",
                 }
                 log(f"[{_now_iso()}] result code={code} status={status}")
 
                 # Notify only on first-time record or when status actually changes (and not for Query Failed)
-                if (first_time or changed) and status != "Query Failed / 查询失败" and code_cfg.channel == "email" and code_cfg.target:
+                if (first_time or changed) and status != "Query Failed / 查询失败" and email_configured:
                     subject = _build_email_subject(status, code)
                     notif_label = '状态变更' if (old_status and changed) else '首次记录'
                     when = _now_iso()
@@ -552,3 +609,10 @@ async def run_scheduler(env_path: str, once: bool = False):
         stop_evt.set()
         if server_thread:
             server_thread.join()
+        
+        # Close SMTP connection pool
+        try:
+            from .notify import _smtp_pool
+            _smtp_pool.close()
+        except Exception:
+            pass
