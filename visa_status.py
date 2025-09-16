@@ -54,14 +54,15 @@ def main():
 
     # 监控子命令 / monitor subcommand
     mon_parser = sub.add_parser('monitor', aliases=['mon', 'm'], help='Run scheduled monitoring & notifications / 运行定时监控与通知')
-    mon_parser.add_argument('-e', '--env', default='.env', help='Path to env file (default: .env) / 环境变量文件路径（默认 .env）')
     mon_parser.add_argument('--once', action='store_true', help='Run one cycle and exit / 仅运行一次后退出')
-    mon_parser.add_argument("--install", action="store_true", help="Install systemd service")
-    mon_parser.add_argument("--uninstall", action="store_true", help="Uninstall systemd service")
-    mon_parser.add_argument("--start", action="store_true", help="Start systemd service")
-    mon_parser.add_argument("--stop", action="store_true", help="Stop systemd service")
-    mon_parser.add_argument("--reload", action="store_true", help="Reload/restart systemd service")
-    mon_parser.add_argument("--status", action="store_true", help="Show systemd service status")
+    mon_parser.add_argument('-e', '--env', default='.env', help='Path to env file (default: .env) / 环境变量文件路径（默认 .env）')
+    mon_parser.add_argument('--install', action='store_true', help='Install systemd service')
+    mon_parser.add_argument('--uninstall', action='store_true', help='Uninstall systemd service')
+    mon_parser.add_argument('--start', action='store_true', help='Start systemd service')
+    mon_parser.add_argument('--stop', action='store_true', help='Stop systemd service')
+    mon_parser.add_argument('--reload', action='store_true', help='Reload/restart systemd service')
+    mon_parser.add_argument('--status', action='store_true', help='Show systemd service status')
+    mon_parser.add_argument('--python-exe', help='Override python interpreter path for systemd service (defaults to .venv/bin/python if present)')
 
     # 依赖提示（精简，仅记录 Playwright 与 matplotlib 提示）
     def check_notes(logs_dir_name: str):
@@ -115,8 +116,8 @@ def main():
         'mon': 'monitor',
         'm': 'monitor',
     }
-    if args.command in alias_map:
-        args.command = alias_map[args.command]
+    if hasattr(args, 'cmd') and args.cmd in alias_map:
+        args.cmd = alias_map[args.cmd]
 
     # 动态切分子命令后续参数（支持全局参数位于子命令之前，例如: -r 2 gc -n 5）
     cmd_args = []
@@ -130,15 +131,15 @@ def main():
     else:
         cmd_args = sys.argv[2:]
 
-    if args.command in TOOLS:
-        mod_name, func_name = TOOLS[args.command]
+    if args.cmd in TOOLS:
+        mod_name, func_name = TOOLS[args.cmd]
         mod = importlib.import_module(mod_name)
         func = getattr(mod, func_name)
         func(cmd_args)
-    elif args.command == 'monitor':
+    elif args.cmd == 'monitor':
         if args.install:
             from monitor.service import install
-            install(args.env)
+            install(args.env, python_exe=args.python_exe)
             return
         if args.uninstall:
             from monitor.service import uninstall
@@ -164,7 +165,7 @@ def main():
         from monitor.scheduler import run_scheduler
         asyncio.run(run_scheduler(args.env, once=args.once))
         return
-    elif args.command == 'report':
+    elif args.cmd == 'report':
         # 专门处理报告：只生成 Markdown
         import tools.report as report_mod
         import datetime, os, shutil
@@ -210,8 +211,8 @@ def main():
         summary = report_mod.generate_detailed_summary(header, rows, charts=generate_charts, out_markdown_path=out_md)
         report_mod.write_detailed_markdown(summary, out_md, include_charts=generate_charts)
         print(f"Markdown report written: {out_md} / 详细报告已生成")
-    elif args.command in QUERY_MODULES:
-        mod_name, func_name = QUERY_MODULES[args.command]
+    elif args.cmd in QUERY_MODULES:
+        mod_name, func_name = QUERY_MODULES[args.cmd]
         mod = importlib.import_module(mod_name)
         func = getattr(mod, func_name)
         import argparse as ap

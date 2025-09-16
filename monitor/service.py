@@ -7,6 +7,19 @@ SERVICE_NAME = "cz-visa-monitor"
 def _root_dir() -> Path:
     return Path(__file__).resolve().parents[1]
 
+def _detect_python_exe() -> str:
+    proj = _root_dir()
+    # Prefer uv venv at .venv/bin/python, then $VIRTUAL_ENV/bin/python, then current interpreter
+    candidates = [
+        proj / ".venv" / "bin" / "python",
+        Path(os.environ["VIRTUAL_ENV"]) / "bin" / "python" if os.environ.get("VIRTUAL_ENV") else None,
+        Path(sys.executable),
+    ]
+    for c in candidates:
+        if c and c.exists():
+            return c.as_posix()
+    return sys.executable  # fallback
+
 def _unit_text(python_exe: str, env_path: str) -> str:
     proj = _root_dir()
     script = proj / "visa_status.py"
@@ -31,14 +44,15 @@ def _need_root():
     if hasattr(os, "geteuid") and os.geteuid() != 0:
         raise SystemExit("Require root: please run with sudo")
 
-def install(env_path: str, service_name: Optional[str] = None):
+def install(env_path: str, service_name: Optional[str] = None, python_exe: Optional[str] = None):
     _need_root()
     name = service_name or SERVICE_NAME
     unit_path = Path(f"/etc/systemd/system/{name}.service")
-    unit_path.write_text(_unit_text(sys.executable, env_path), encoding="utf-8")
+    py = python_exe or _detect_python_exe()
+    unit_path.write_text(_unit_text(py, env_path), encoding="utf-8")
     subprocess.run(["systemctl", "daemon-reload"], check=True)
     subprocess.run(["systemctl", "enable", name], check=True)
-    print(f"Installed systemd service: {unit_path}")
+    print(f"Installed systemd service: {unit_path} (python={py})")
 
 def uninstall(service_name: Optional[str] = None):
     _need_root()
