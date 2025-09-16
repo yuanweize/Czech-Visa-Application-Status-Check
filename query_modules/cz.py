@@ -453,7 +453,7 @@ async def _run(csv_path: str, headless: bool, workers: int, retries: int, log_di
         try:
             workers = max(1, int(workers or 1))
             # Limit simultaneous navigations to reduce server pressure (cap=6)
-            max_nav = min(6, workers) if workers > 1 else 1
+            max_nav = min(10, workers) if workers > 1 else 1
             nav_sem = asyncio.Semaphore(max_nav)
             tasks = []
             # Start timing for worker phase
