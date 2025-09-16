@@ -62,6 +62,7 @@ def main():
     mon_parser.add_argument('--stop', action='store_true', help='Stop systemd service')
     mon_parser.add_argument('--reload', action='store_true', help='Reload/restart systemd service')
     mon_parser.add_argument('--status', action='store_true', help='Show systemd service status')
+    mon_parser.add_argument('--restart', action='store_true', help='Restart systemd service')
     mon_parser.add_argument('--python-exe', help='Override python interpreter path for systemd service (defaults to .venv/bin/python if present)')
 
     # 依赖提示（精简，仅记录 Playwright 与 matplotlib 提示）
@@ -156,6 +157,10 @@ def main():
         if args.reload:
             from monitor.service import reload as svc_reload
             svc_reload()
+            return
+        if args.restart:
+            from monitor.service import restart as svc_restart
+            svc_restart()
             return
         if args.status:
             from monitor.service import status as svc_status

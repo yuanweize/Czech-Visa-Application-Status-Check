@@ -243,13 +243,14 @@ async def run_once(config: MonitorConfig) -> Dict[str, Any]:
                     "target": meta['target'],
                 }
                 do_notify = (first_time or changed) and (not isinstance(status, str) or 'query failed' not in status.lower())
-                if do_notify and meta['chan'] == 'email' and config.email and meta['target']:
+                if do_notify and meta['chan'] == 'email' and meta['target']:
                     notif_label = '状态变更' if changed and old_status else '首次记录'
                     subject = _build_email_subject(status, code)
                     body = _build_email_body(code, status, when, changed=changed, old_status=old_status, notif_label=notif_label)
                     sent = False
                     try:
-                        sent = send_email(config.email, meta['target'], subject=subject, body=body)
+                        ok, err = send_email(config, meta['target'], subject, body)
+                        sent = ok
                     except Exception as e:
                         try:
                             with open(log_path, 'a', encoding='utf-8') as lf:
@@ -289,6 +290,7 @@ async def run_scheduler(env_path: str, once: bool = False):
     cfg = load_env_config(env_path)
     os.makedirs(cfg.log_dir, exist_ok=True)
     log_path = os.path.join(cfg.log_dir, f"monitor_{dt.datetime.now().strftime('%Y-%m-%d')}.log")
+
     def log(msg: str):
         with open(log_path, "a", encoding="utf-8") as f:
             f.write(msg.rstrip() + "\n")
@@ -309,99 +311,117 @@ async def run_scheduler(env_path: str, once: bool = False):
     print(f"Monitor starting (sequential). SERVE={cfg.serve} SITE_DIR={cfg.site_dir} SITE_PORT={cfg.site_port}")
     log(f"[{_now_iso()}] startup mode=sequential codes={len(codes)}")
 
-    async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=cfg.headless, args=["--disable-gpu","--no-sandbox"])
-        context = await browser.new_context()
-        page = await context.new_page()
-        # pre-warm
-        await _ensure_ready(page, None)
-        await _maybe_hide_overlays(page)
+    # Persistent state across cycles
+    site_json = os.path.join(cfg.site_dir, "status.json")
+    os.makedirs(cfg.site_dir, exist_ok=True)
+    try:
+        with open(site_json, "r", encoding="utf-8") as f:
+            state = json.load(f)
+    except Exception:
+        state = {"generated_at": _now_iso(), "items": {}}
 
-        # state store
-        site_json = os.path.join(cfg.site_dir, "status.json")
-        os.makedirs(cfg.site_dir, exist_ok=True)
-        try:
-            with open(site_json, "r", encoding="utf-8") as f:
-                state = json.load(f)
-        except Exception:
-            state = {"generated_at": _now_iso(), "items": {}}
+    # Graceful stop on signals
+    stop_flag = False
+    try:
+        import signal
 
-        async def handle_one(code_cfg):
-            nonlocal context, page
-            code = code_cfg.code
-            attempts = 0
-            status = None
-            while attempts < 3:
-                attempts += 1
+        def _sig_handler(signum, frame):
+            nonlocal stop_flag
+            stop_flag = True
+
+        for sig in (getattr(signal, 'SIGINT', None), getattr(signal, 'SIGTERM', None)):
+            if sig:
                 try:
-                    s, _tim = await _process_one(page, code, None)  # sequential, no nav sem
-                    status = s or status
-                    break
-                except Exception as e:
-                    log(f"[{_now_iso()}] code={code} attempt={attempts} error={str(e)}")
-                    # soft recover then rebuild on 2nd failure
+                    signal.signal(sig, _sig_handler)
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
+    async def run_cycle():
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(headless=cfg.headless, args=["--disable-gpu", "--no-sandbox"])
+            context = await browser.new_context()
+            page = await context.new_page()
+            await _ensure_ready(page, None)
+            await _maybe_hide_overlays(page)
+
+            async def handle_one(code_cfg):
+                nonlocal context, page
+                code = code_cfg.code
+                attempts = 0
+                status = None
+                while attempts < 3:
+                    attempts += 1
                     try:
-                        await _ensure_ready(page, None)
-                        await _maybe_hide_overlays(page)
-                    except Exception:
-                        pass
-                    if attempts == 2:
+                        s, _tim = await _process_one(page, code, None)
+                        status = s or status
+                        break
+                    except Exception as e:
+                        log(f"[{_now_iso()}] code={code} attempt={attempts} error={str(e)}")
                         try:
-                            await context.close()
-                            context = await browser.new_context()
-                            page = await context.new_page()
                             await _ensure_ready(page, None)
                             await _maybe_hide_overlays(page)
                         except Exception:
                             pass
-                    await asyncio.sleep(0.5 * attempts)
-            if not status:
-                status = "Query Failed / 查询失败"
+                        if attempts == 2:
+                            try:
+                                await context.close()
+                                context = await browser.new_context()
+                                page = await context.new_page()
+                                await _ensure_ready(page, None)
+                                await _maybe_hide_overlays(page)
+                            except Exception:
+                                pass
+                        await asyncio.sleep(0.5 * attempts)
+                if not status:
+                    status = "Query Failed / 查询失败"
 
-            # persist + notify
-            old_item = state["items"].get(code, {})
-            old_status = old_item.get("status")
-            first_time = (old_status is None)
-            changed = (old_status is not None and old_status != status)
-            state["items"][code] = {
-                "code": code,
-                "status": status,
-                "last_checked": _now_iso(),
-                "last_changed": old_item.get("last_changed") if not changed else _now_iso(),
-                "channel": "Email" if (code_cfg.channel == "email") else "",
-                "target": code_cfg.target or "",
-            }
-            log(f"[{_now_iso()}] result code={code} status={status}")
+                old_item = state["items"].get(code, {})
+                old_status = old_item.get("status")
+                first_time = (old_status is None)
+                changed = (old_status is not None and old_status != status)
+                state["items"][code] = {
+                    "code": code,
+                    "status": status,
+                    "last_checked": _now_iso(),
+                    "last_changed": old_item.get("last_changed") if not changed else _now_iso(),
+                    "channel": "Email" if (code_cfg.channel == "email") else "",
+                    "target": code_cfg.target or "",
+                }
+                log(f"[{_now_iso()}] result code={code} status={status}")
 
-            if status != "Query Failed / 查询失败" and code_cfg.channel == "email" and code_cfg.target:
-                subject = _build_email_subject(status, code)
-                notif_label = '状态变更' if (old_status and changed) else '首次记录'
-                when = _now_iso()
-                body = _build_email_body(code, status, when, changed=changed, old_status=old_status, notif_label=notif_label)
-                ok, err = send_email(cfg, code_cfg.target, subject, body)
-                if ok:
-                    log(f"[{_now_iso()}] notify Email code={code} to={code_cfg.target} ok=True")
-                else:
-                    log(f"[{_now_iso()}] notify Email code={code} to={code_cfg.target} error={err}")
+                if status != "Query Failed / 查询失败" and code_cfg.channel == "email" and code_cfg.target:
+                    subject = _build_email_subject(status, code)
+                    notif_label = '状态变更' if (old_status and changed) else '首次记录'
+                    when = _now_iso()
+                    body = _build_email_body(code, status, when, changed=changed, old_status=old_status, notif_label=notif_label)
+                    ok, err = send_email(cfg, code_cfg.target, subject, body)
+                    if ok:
+                        log(f"[{_now_iso()}] notify Email code={code} to={code_cfg.target} ok=True")
+                    else:
+                        log(f"[{_now_iso()}] notify Email code={code} to={code_cfg.target} error={err}")
 
-        async def run_cycle():
             for c in codes:
                 await handle_one(c)
             state["generated_at"] = _now_iso()
             with open(site_json, "w", encoding="utf-8") as f:
                 json.dump(state, f, ensure_ascii=False, indent=2)
+            await browser.close()
 
-        # run once or loop
-        if once:
+    if once:
+        await run_cycle()
+    else:
+        while not stop_flag:
             await run_cycle()
-        else:
-            # simple scheduler: run cycle, then sleep to next minimal frequency
-            while True:
-                await run_cycle()
-                mins = min([max(1, c.freq_minutes) for c in codes])
-                await asyncio.sleep(mins * 60)
-
-        await browser.close()
+            if stop_flag:
+                break
+            mins = min([max(1, c.freq_minutes) for c in codes])
+            total = mins * 60
+            while total > 0 and not stop_flag:
+                step = min(1.0, total)
+                await asyncio.sleep(step)
+                total -= step
 
     stop_evt.set()
     if server_thread:

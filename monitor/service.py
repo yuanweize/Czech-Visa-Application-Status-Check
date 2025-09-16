@@ -82,4 +82,10 @@ def reload(service_name: Optional[str] = None):
 
 def status(service_name: Optional[str] = None):
     name = service_name or SERVICE_NAME
-    subprocess.run(["systemctl", "status", name])
+    # Avoid interactive pager to prevent blocking in TTY
+    subprocess.run(["systemctl", "--no-pager", "--full", "status", name], check=False)
+
+def restart(service_name: Optional[str] = None):
+    _need_root()
+    name = service_name or SERVICE_NAME
+    subprocess.run(["systemctl", "restart", name], check=True)
