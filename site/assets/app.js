@@ -146,7 +146,7 @@ function setHeaderIndicators() {
   const arrowStatus = document.getElementById('arrow-status');
   
   if (sortState.key === 'code') {
-    arrowCode.textContent = sortState.dir === 'asc' ? '↑' : '↓';
+    arrowCode.textContent = sortState.dir === 'asc' ? '↓' : '↑';
     arrowStatus.textContent = '';
   } else {
     arrowCode.textContent = '';
