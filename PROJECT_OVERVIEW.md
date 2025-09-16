@@ -28,7 +28,7 @@ query_modules/
 tools/
   └─ generate_codes.py        # code generator
 logs/                         # runtime logs; fails under logs/fails/DATE_fails.csv
-requirements.txt              # playwright (+ optional matplotlib)
+requirements.txt              # playwright (+ optional matplotlib + watchdog for hot reloading)
 README.md
 PROJECT_OVERVIEW.md
 ```
@@ -38,6 +38,7 @@ PROJECT_OVERVIEW.md
 - Writes `SITE_DIR/status.json`（仅字符串状态）与静态站点目录；当 `SERVE=true` 时内置 HTTP 将以 `SITE_DIR` 为根在 `SITE_PORT` 端口提供访问。
 - Sequential for stability; per-cycle browser lifecycle: create Chromium only during a cycle and close it afterward to minimize idle CPU. 复用 cz 查询逻辑，失败时软恢复并必要时重建页面/上下文。
 - Email subject: `[<Status>] <Code> - CZ Visa Status`; HTML body shows old→new when changed.
+- **Hot reloading**: Automatically detects `.env` file changes and reloads configuration without restart (requires `watchdog` package). **.env 热更新**：自动检测 `.env` 文件变化并无需重启即可重新加载配置（需要 `watchdog` 包）。
 
 ## Monitor service
 - HTTP server: `SERVE=true` + `SITE_PORT` → serves `SITE_DIR` as doc root.

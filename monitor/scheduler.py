@@ -9,8 +9,16 @@ import threading
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 from functools import partial
 from typing import Dict, Any
+from pathlib import Path
 
 from playwright.async_api import async_playwright
+
+try:
+    from watchdog.observers import Observer
+    from watchdog.events import FileSystemEventHandler
+    WATCHDOG_AVAILABLE = True
+except ImportError:
+    WATCHDOG_AVAILABLE = False
 
 from .config import load_env_config, MonitorConfig, CodeConfig
 from .notify import send_email
@@ -19,6 +27,63 @@ from query_modules.cz import _process_one, _ensure_ready, _maybe_hide_overlays
 
 def _now_iso() -> str:
     return dt.datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+
+
+class EnvFileWatcher:
+    """Watches .env file for changes and triggers configuration reload."""
+    
+    def __init__(self, env_path: str, reload_callback):
+        self.env_path = Path(env_path).resolve()
+        self.reload_callback = reload_callback
+        self.observer = None
+        self.last_reload = 0
+        self.reload_debounce = 2  # seconds
+        
+    def start(self):
+        if not WATCHDOG_AVAILABLE:
+            print("Warning: watchdog not available, .env hot reloading disabled")
+            return False
+            
+        class EnvChangeHandler(FileSystemEventHandler):
+            def __init__(self, watcher):
+                self.watcher = watcher
+                
+            def on_modified(self, event):
+                if event.is_directory:
+                    return
+                if Path(event.src_path).resolve() == self.watcher.env_path:
+                    self.watcher._trigger_reload()
+                    
+        try:
+            self.observer = Observer()
+            handler = EnvChangeHandler(self)
+            # Watch the directory containing the .env file
+            watch_dir = self.env_path.parent
+            self.observer.schedule(handler, str(watch_dir), recursive=False)
+            self.observer.start()
+            print(f"Started watching {self.env_path} for changes")
+            return True
+        except Exception as e:
+            print(f"Failed to start .env file watcher: {e}")
+            return False
+            
+    def stop(self):
+        if self.observer:
+            self.observer.stop()
+            self.observer.join()
+            print("Stopped .env file watcher")
+            
+    def _trigger_reload(self):
+        current_time = time.time()
+        if current_time - self.last_reload < self.reload_debounce:
+            return  # Debounce rapid changes
+            
+        self.last_reload = current_time
+        print(f"[{_now_iso()}] .env file changed, reloading configuration...")
+        try:
+            self.reload_callback()
+        except Exception as e:
+            print(f"[{_now_iso()}] Error reloading configuration: {e}")
 
 
 def _build_email_subject(status: str, code: str) -> str:
@@ -303,6 +368,32 @@ async def run_scheduler(env_path: str, once: bool = False):
         print("No codes configured in env. Nothing to do.")
         return
 
+    # Configuration reload flag and lock
+    config_reload_flag = threading.Event()
+    config_lock = threading.Lock()
+    
+    def reload_config():
+        """Reload configuration from .env file."""
+        nonlocal cfg, codes
+        with config_lock:
+            try:
+                new_cfg = load_env_config(env_path)
+                old_codes_count = len(codes)
+                cfg = new_cfg
+                codes = new_cfg.codes
+                log(f"[{_now_iso()}] Configuration reloaded: {old_codes_count} -> {len(codes)} codes")
+                print(f"Configuration reloaded: {old_codes_count} -> {len(codes)} codes")
+                config_reload_flag.set()
+            except Exception as e:
+                log(f"[{_now_iso()}] Error reloading configuration: {e}")
+                print(f"Error reloading configuration: {e}")
+
+    # Setup .env file watcher for hot reloading
+    env_watcher = None
+    if not once:  # Only enable hot reloading in daemon mode
+        env_watcher = EnvFileWatcher(env_path, reload_config)
+        env_watcher.start()
+
     stop_evt = threading.Event()
     server_thread = None
     if cfg.serve and not once:
@@ -313,6 +404,8 @@ async def run_scheduler(env_path: str, once: bool = False):
 
     print(f"Monitor starting (sequential). SERVE={cfg.serve} SITE_DIR={cfg.site_dir} SITE_PORT={cfg.site_port}")
     log(f"[{_now_iso()}] startup mode=sequential codes={len(codes)}")
+    if env_watcher and WATCHDOG_AVAILABLE:
+        log(f"[{_now_iso()}] .env hot reloading enabled")
 
     # Persistent state across cycles
     site_json = os.path.join(cfg.site_dir, "status.json")
@@ -342,8 +435,13 @@ async def run_scheduler(env_path: str, once: bool = False):
         pass
 
     async def run_cycle():
+        # Get current config safely
+        with config_lock:
+            current_cfg = cfg
+            current_codes = codes[:]
+            
         async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=cfg.headless, args=["--disable-gpu", "--no-sandbox"])
+            browser = await p.chromium.launch(headless=current_cfg.headless, args=["--disable-gpu", "--no-sandbox"])
             context = await browser.new_context()
             page = await context.new_page()
             await _ensure_ready(page, None)
@@ -400,33 +498,57 @@ async def run_scheduler(env_path: str, once: bool = False):
                     notif_label = '状态变更' if (old_status and changed) else '首次记录'
                     when = _now_iso()
                     body = _build_email_body(code, status, when, changed=changed, old_status=old_status, notif_label=notif_label)
-                    ok, err = send_email(cfg, code_cfg.target, subject, body)
+                    ok, err = send_email(current_cfg, code_cfg.target, subject, body)
                     if ok:
                         log(f"[{_now_iso()}] notify Email code={code} to={code_cfg.target} ok=True")
                     else:
                         log(f"[{_now_iso()}] notify Email code={code} to={code_cfg.target} error={err}")
 
-            for c in codes:
+            for c in current_codes:
                 await handle_one(c)
             state["generated_at"] = _now_iso()
             with open(site_json, "w", encoding="utf-8") as f:
                 json.dump(state, f, ensure_ascii=False, indent=2)
             await browser.close()
 
-    if once:
-        await run_cycle()
-    else:
-        while not stop_flag:
+    try:
+        if once:
             await run_cycle()
-            if stop_flag:
-                break
-            mins = min([max(1, c.freq_minutes) for c in codes])
-            total = mins * 60
-            while total > 0 and not stop_flag:
-                step = min(1.0, total)
-                await asyncio.sleep(step)
-                total -= step
-
-    stop_evt.set()
-    if server_thread:
-        server_thread.join()
+        else:
+            while not stop_flag:
+                # Check for configuration reload
+                if config_reload_flag.is_set():
+                    config_reload_flag.clear()
+                    # Update site_json path in case SITE_DIR changed
+                    with config_lock:
+                        site_json = os.path.join(cfg.site_dir, "status.json")
+                        os.makedirs(cfg.site_dir, exist_ok=True)
+                
+                await run_cycle()
+                if stop_flag:
+                    break
+                    
+                # Get current frequency settings
+                with config_lock:
+                    current_codes = codes[:]
+                    
+                if current_codes:
+                    mins = min([max(1, c.freq_minutes) for c in current_codes])
+                    total = mins * 60
+                    while total > 0 and not stop_flag:
+                        step = min(1.0, total)
+                        await asyncio.sleep(step)
+                        total -= step
+                        # Check for config reload during sleep
+                        if config_reload_flag.is_set():
+                            break
+                else:
+                    # No codes configured, wait and check for reload
+                    await asyncio.sleep(60)
+    finally:
+        # Cleanup
+        if env_watcher:
+            env_watcher.stop()
+        stop_evt.set()
+        if server_thread:
+            server_thread.join()

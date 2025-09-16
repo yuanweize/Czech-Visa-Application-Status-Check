@@ -33,7 +33,7 @@ Save failing rows after retries to daily failure files in `logs/fails/` for offl
 - `query_modules/` — directory containing one module per country (e.g. `cz.py`). Each module implements a simple querying interface.
 - `tools/generate_codes.py` — code generator utility.
 - `logs/` — run and fail logs; failing rows are appended to `logs/fails/YYYY-MM-DD_fails.csv`.
-- `requirements.txt` — Python dependencies (playwright; optional matplotlib).
+- `requirements.txt` — Python dependencies (playwright; optional matplotlib; watchdog for .env hot reloading).
 
 设计说明：查询器为模块化设计——要添加新的国家支持，请在 `query_modules/<iso>.py` 下添加文件，按照 `PROJECT_OVERVIEW.md` 中描述的模块 API 实现并在 `visa_status.py` 中注册。
 
@@ -316,6 +316,7 @@ Add a country module in `query_modules/` following the module API in `PROJECT_OV
 - Sequential queries; during each cycle a Chromium browser/context/page is created and closed after the cycle to keep idle CPU usage low. 更稳定；每一轮查询才启动 Chromium，完成后立即关闭，空闲时几乎不占用 CPU。
 - Email-only notifications. 首次记录或状态变化才通知（主题形如 `[状态] 查询码 - CZ Visa Status`，HTML 包含旧→新变更）。
 - Writes `SITE_DIR/status.json` (string-only statuses) and can serve a static site rooted at `SITE_DIR` when `SERVE=true` on `SITE_PORT`.
+- **Hot reloading**: Automatically detects changes to the `.env` file and reloads configuration without restarting the service. **.env 热更新**：自动检测 `.env` 文件变化并重新加载配置，无需重启服务。
 
 Env / 环境变量:
 - SITE_DIR: output folder for status.json and static page
@@ -328,6 +329,16 @@ Run / 运行:
 - Once / 单次: `python visa_status.py monitor --once -e .env`
 - Daemon / 常驻: `python visa_status.py monitor -e .env`
 
+**Hot Reloading / 热更新功能:**
+- Enabled automatically in daemon mode (not `--once`) when `watchdog` package is installed
+- Monitors `.env` file for changes and reloads configuration seamlessly
+- Configuration changes take effect in the next monitoring cycle
+- Supports adding/removing codes, changing frequencies, SMTP settings, etc.
+- 在守护进程模式下自动启用（非 `--once`），需要安装 `watchdog` 包
+- 监控 `.env` 文件变化并无缝重新加载配置
+- 配置更改在下一个监控周期生效
+- 支持添加/删除查询码、更改频率、SMTP设置等
+
 Service on Debian (systemd):
 - Install: `sudo python visa_status.py monitor --install -e /path/to/.env`
 - Start/Status: `sudo python visa_status.py monitor --start` / `python visa_status.py monitor --status`
@@ -339,6 +350,7 @@ Service on Debian (systemd):
  - Notes:
 	 - The service prefers using the uv-created virtualenv Python (`.venv/bin/python` on Linux) when available. You can override with `--python-exe /full/path/to/python` during `--install`.
 	 - `--status` uses `systemctl --no-pager` to avoid blocking output.
+	 - Hot reloading works with systemd services - edit `.env` file and changes will be applied automatically
 
 ## License / 许可证
 [MIT](LICENSE)

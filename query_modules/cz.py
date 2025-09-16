@@ -38,18 +38,18 @@ def _find_col(header: list[str], name: str) -> Optional[int]:
 
 def _normalize_status(text: str) -> str:
     if not text:
-        return 'Unknown / 未知'
+        return 'Unknown/未知'
     low = text.strip().lower()
     if 'not found' in low:
-        return 'Not Found / 未找到'
+        return 'Not Found/未找到'
     if 'still' in low and 'proceedings' in low:
-        return 'Proceedings / 审理中'
+        return 'Proceedings/审理中'
     if 'granted' in low or 'approved' in low or 'for information on how to proceed' in low:
-        return 'Granted / 已通过'
+        return 'Granted/已通过'
     if 'proceedings' in low:
         # some rare messages use the word but may indicate closure — keep as proceedings fallback
-        return 'Rejected/Closed / 被拒绝/已关闭'
-    return 'Unknown Status / 未知状态'+f"(status_text/状态文本: {text})"
+        return 'Rejected/被拒绝'
+    return 'Unknown Status/未知状态'+f"(status_text/状态文本: {text})"
 
 
 async def _ensure_ready(page, nav_sem: asyncio.Semaphore | None = None) -> bool:

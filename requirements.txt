@@ -1,4 +1,6 @@
 # Optional for report charts
 playwright>=1.46.0
 matplotlib>=3.7.0
+# File watching for .env hot reloading
+watchdog>=3.0.0
 
