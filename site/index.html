@@ -8,33 +8,62 @@
 </head>
 <body>
   <header>
-  <h1>Czech Republic Visa Monitor</h1>
-  <p class="subtitle">Live visa application statuses for your codes / 签证申请状态</p>
+    <div class="container">
+      <h1>Czech Republic Visa Monitor</h1>
+      <p class="subtitle">Visa application status dashboard / 签证申请状态看板</p>
+    </div>
   </header>
   <main>
+    <div class="container">
     <div class="toolbar">
       <button id="refresh">Refresh</button>
       <span id="generatedAt"></span>
+      <span id="countdown" class="muted"></span>
       <input id="filter" type="search" placeholder="Filter by code or status..." />
     </div>
-    <table id="tbl">
-      <thead>
-        <tr>
-          <th id="th-code" data-sort-key="code" class="sortable">Code <span class="sort-indicator" id="si-code"></span></th>
-          <th id="th-status" data-sort-key="status" class="sortable">Status <span class="sort-indicator" id="si-status"></span></th>
-          <th>Last Checked</th>
-          <th>Last Changed</th>
-          <th>Channel</th>
-        </tr>
-      </thead>
-      <tbody></tbody>
-    </table>
+    <div class="table-wrap">
+      <table id="tbl">
+        <thead>
+          <tr>
+            <th id="th-code" data-sort-key="code" class="sortable">Code <span class="sort-indicator" id="si-code"></span></th>
+            <th id="th-status" data-sort-key="status" class="sortable">Status <span class="sort-indicator" id="si-status"></span></th>
+            <th>Last Checked</th>
+            <th>Last Changed</th>
+            <th>Channel</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+      <div id="loadingOverlay" class="loading-overlay" aria-hidden="true">
+        <div class="spinner"></div>
+        <div class="loading-text">Refreshing…</div>
+      </div>
+    </div>
+    </div>
   </main>
   <footer>
-    <small>Updated from status.json. Auto-refreshes every 60s.</small>
-    <div class="footer-meta">
-      <div>Performance &amp; security by EURUN CDN • Operated by HKTSE s.r.o.</div>
-      <div>Holandská 49/4, 10100 Praha, Czech Republic • Contact: <a href="mailto:info@hktse.eu.org">info@hktse.eu.org</a></div>
+    <div class="container">
+      <small>Updated from status.json. Auto-refreshes every 60s.</small>
+      <div class="footer-meta">
+        <div class="footer-grid">
+          <div class="footer-col">
+            <strong>Performance &amp; Security</strong><br/>
+            EURUN CDN
+          </div>
+          <div class="footer-col">
+            <strong>Operator</strong><br/>
+            HKTSE s.r.o.
+          </div>
+          <div class="footer-col">
+            <strong>Address</strong><br/>
+            Holandská 49/4, 10100 Praha, Czech Republic
+          </div>
+          <div class="footer-col">
+            <strong>Contact</strong><br/>
+            <a href="mailto:info@hktse.eu.org">info@hktse.eu.org</a>
+          </div>
+        </div>
+      </div>
     </div>
   </footer>
   <script src="assets/app.js"></script>

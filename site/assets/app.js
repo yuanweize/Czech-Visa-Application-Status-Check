@@ -20,6 +20,7 @@ function codeKeyBigInt(code) {
 }
 
 let sortState = { key: 'code', dir: 'asc' }; // default: code asc
+let nextRefreshAt = 0; // epoch ms
 
 function statusClass(s) {
   const t = (s || '').toLowerCase();
@@ -83,8 +84,19 @@ function render(data) {
 }
 
 async function refresh() {
-  const data = await loadData();
-  render(data);
+  const btn = document.getElementById('refresh');
+  const overlay = document.getElementById('loadingOverlay');
+  try {
+    if (btn) btn.disabled = true;
+    if (overlay) overlay.classList.add('show');
+    const data = await loadData();
+    render(data);
+    // schedule next refresh timestamp for countdown
+    nextRefreshAt = Date.now() + 60000;
+  } finally {
+    if (overlay) overlay.classList.remove('show');
+    if (btn) btn.disabled = false;
+  }
 }
 
 document.getElementById('refresh').addEventListener('click', refresh);
@@ -117,8 +129,18 @@ function toggleSort(key) {
 if (thCode) thCode.addEventListener('click', () => toggleSort('code'));
 if (thStatus) thStatus.addEventListener('click', () => toggleSort('status'));
 
-// initialize indicators for default (code asc)
+// initialize indicators and countdown for default (code asc)
 setHeaderIndicators();
+
+// countdown display
+const countdownEl = document.getElementById('countdown');
+function tickCountdown() {
+  if (!countdownEl || !nextRefreshAt) return;
+  const ms = Math.max(0, nextRefreshAt - Date.now());
+  const s = Math.ceil(ms / 1000);
+  countdownEl.textContent = s ? `Next refresh in ${s}s` : '';
+}
+setInterval(tickCountdown, 250);
 
 refresh();
 setInterval(refresh, 60000);
