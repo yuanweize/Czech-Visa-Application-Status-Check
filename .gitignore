@@ -27,6 +27,8 @@ Thumbs.db
 logs/
 reports/
 monitor_site/
+.site/
+site/
 .output/
 selenium-screenshots/
 .cz_ipc_web_ref/
