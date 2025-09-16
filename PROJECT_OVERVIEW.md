@@ -43,6 +43,15 @@ PROJECT_OVERVIEW.md
 - Email subject: `[<Status>] <Code> - CZ Visa Status`; HTML body includes old→new when changed.
 - 邮件主题：`[<状态>] <查询码> - CZ Visa Status`；HTML 正文在状态变更时包含旧→新。
 
+## Monitor service
+- Design: sequential, single page; reuse cz logic; soft-recover then rebuild page on failures.
+- HTTP server: enable with SERVE=true, SITE_PORT, serves SITE_DIR as doc root.
+- Systemd service (Debian):
+  - Installs a unit to /etc/systemd/system/cz-visa-monitor.service
+  - ExecStart: python visa_status.py monitor -e /path/to/.env
+  - Restart=always; requires sudo for install/start/stop.
+- CLI helpers: `--install/--uninstall/--start/--stop/--reload/--status`.
+
 ## Technical notes / 技术说明
 1) CSV-first design / CSV 优先
 - State is kept in CSV and updated per-row; supports resume/auditing/manual fixes.

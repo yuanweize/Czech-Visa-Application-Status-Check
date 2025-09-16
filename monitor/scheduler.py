@@ -4,6 +4,10 @@ import asyncio
 import datetime as dt
 import json
 import os
+import time
+import threading
+from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
+from functools import partial
 from typing import Dict, Any
 
 from playwright.async_api import async_playwright
@@ -13,11 +17,8 @@ from .notify import send_email
 from query_modules.cz import _process_one, _ensure_ready, _maybe_hide_overlays
 
 
-STATE_FILE = "status.json"
-
-
 def _now_iso() -> str:
-    return dt.datetime.now().isoformat(timespec="seconds")
+    return dt.datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
 
 
 def _build_email_subject(status: str, code: str) -> str:
@@ -73,10 +74,22 @@ def _ensure_dir(p: str):
         pass
 
 
+def _start_http_server(site_dir: str, port: int, stop_evt: threading.Event, log):
+    handler = partial(SimpleHTTPRequestHandler, directory=site_dir)
+    server = ThreadingHTTPServer(("0.0.0.0", port), handler)
+    log(f"[{_now_iso()}] serve start dir={site_dir} port={port}")
+    t = threading.Thread(target=server.serve_forever, daemon=True)
+    t.start()
+    stop_evt.wait()
+    server.shutdown()
+    t.join()
+    log(f"[{_now_iso()}] serve stop")
+
+
 async def run_once(config: MonitorConfig) -> Dict[str, Any]:
     _ensure_dir(config.site_dir)
     _ensure_dir(config.log_dir)
-    state_path = os.path.join(config.site_dir, STATE_FILE)
+    state_path = os.path.join(config.site_dir, "status.json")
     log_path = os.path.join(config.log_dir, f"monitor_{dt.date.today().isoformat()}.log")
     # Load previous state
     prev: Dict[str, Any] = {}
@@ -274,23 +287,119 @@ async def run_once(config: MonitorConfig) -> Dict[str, Any]:
 
 async def run_scheduler(env_path: str, once: bool = False):
     cfg = load_env_config(env_path)
-    if not cfg.codes:
+    os.makedirs(cfg.log_dir, exist_ok=True)
+    log_path = os.path.join(cfg.log_dir, f"monitor_{datetime.now().strftime('%Y-%m-%d')}.log")
+    def log(msg: str):
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(msg.rstrip() + "\n")
+
+    codes = cfg.codes
+    if not codes:
         print("No codes configured in env. Nothing to do.")
         return
 
-    async def _loop():
-        # next run per-code tracking
-        next_run: Dict[str, float] = {}
-        while True:
-            start = asyncio.get_event_loop().time()
-            await run_once(cfg)
-            now = asyncio.get_event_loop().time()
-            # Determine minimal sleep based on per-code freq; simple approach: take min(freq)
-            min_freq = min(max(1, c.freq_minutes) for c in cfg.codes)
-            sleep_s = max(5.0, min_freq * 60.0 - (now - start))
-            await asyncio.sleep(sleep_s)
+    stop_evt = threading.Event()
+    server_thread = None
+    if cfg.serve and not once:
+        server_thread = threading.Thread(
+            target=_start_http_server, args=(cfg.site_dir, cfg.site_port, stop_evt, log), daemon=True
+        )
+        server_thread.start()
 
-    if once:
-        await run_once(cfg)
-    else:
-        await _loop()
+    print(f"Monitor starting (sequential). SERVE={cfg.serve} SITE_DIR={cfg.site_dir} SITE_PORT={cfg.site_port}")
+    log(f"[{_now_iso()}] startup mode=sequential codes={len(codes)}")
+
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=cfg.headless, args=["--disable-gpu","--no-sandbox"])
+        context = await browser.new_context()
+        page = await context.new_page()
+        # pre-warm
+        await _ensure_ready(page, None)
+        await _maybe_hide_overlays(page)
+
+        # state store
+        site_json = os.path.join(cfg.site_dir, "status.json")
+        os.makedirs(cfg.site_dir, exist_ok=True)
+        try:
+            with open(site_json, "r", encoding="utf-8") as f:
+                state = json.load(f)
+        except Exception:
+            state = {"generated_at": _now_iso(), "items": {}}
+
+        async def handle_one(code_cfg):
+            code = code_cfg.code
+            attempts = 0
+            status = None
+            while attempts < 3:
+                attempts += 1
+                try:
+                    status = await _process_one(page, code, None)  # sequential, no nav sem
+                    break
+                except Exception as e:
+                    log(f"[{_now_iso()}] code={code} attempt={attempts} error={str(e)}")
+                    # soft recover then rebuild on 2nd failure
+                    try:
+                        await _ensure_ready(page, None)
+                        await _maybe_hide_overlays(page)
+                    except Exception:
+                        pass
+                    if attempts == 2:
+                        try:
+                            await context.close()
+                            context = await browser.new_context()
+                            nonlocal page
+                            page = await context.new_page()
+                            await _ensure_ready(page, None)
+                            await _maybe_hide_overlays(page)
+                        except Exception:
+                            pass
+                    await asyncio.sleep(0.5 * attempts)
+            if not status:
+                status = "Query Failed / 查询失败"
+
+            # persist + notify
+            old_item = state["items"].get(code, {})
+            old_status = old_item.get("status")
+            first_time = (old_status is None)
+            changed = (old_status is not None and old_status != status)
+            state["items"][code] = {
+                "code": code,
+                "status": status,
+                "last_checked": _now_iso(),
+                "last_changed": old_item.get("last_changed") if not changed else _now_iso(),
+                "channel": "Email" if (code_cfg.channel == "email") else "",
+                "target": code_cfg.target or "",
+            }
+            log(f"[{_now_iso()}] result code={code} status={status}")
+
+            if status != "Query Failed / 查询失败" and code_cfg.channel == "email" and code_cfg.target:
+                subject = _build_email_subject(status, code)
+                body = _build_email_body(code, status, first_time, old_status, changed)
+                ok, err = send_email(cfg, code_cfg.target, subject, body)
+                if ok:
+                    log(f"[{_now_iso()}] notify Email code={code} to={code_cfg.target} ok=True")
+                else:
+                    log(f"[{_now_iso()}] notify Email code={code} to={code_cfg.target} error={err}")
+
+        async def run_cycle():
+            for c in codes:
+                await handle_one(c)
+            state["generated_at"] = _now_iso()
+            with open(site_json, "w", encoding="utf-8") as f:
+                json.dump(state, f, ensure_ascii=False, indent=2)
+
+        # run once or loop
+        if once:
+            await run_cycle()
+        else:
+            # simple scheduler: run cycle, then sleep to next minimal frequency
+            while True:
+                await run_cycle()
+                mins = min([max(1, c.freq_minutes) for c in codes])
+                await asyncio.sleep(mins * 60)
+
+        await browser.close()
+
+    stop_evt.set()
+    if server_thread:
+        server_thread.join()

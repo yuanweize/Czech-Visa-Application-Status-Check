@@ -312,46 +312,29 @@ Add a country module in `query_modules/` following the module API in `PROJECT_OV
 - Project overview (developer guide): [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md)
 - 项目概览（开发者指南）：[PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md)
 
-## Monitor (scheduled checks & Email notifications) / 定时监控与邮件通知
+## Monitor (sequential) / 监控模式（串行稳定）
+- Single browser/context/page, sequential queries. 更稳定，尽量复用 cz 查询逻辑，减少失败。
+- Email-only notifications. 首次记录或状态变化才通知。
+- Writes site/status.json under SITE_DIR and can serve a static site if SERVE=true.
 
-- Copy `.env.example` to `.env` and fill your configuration. 目前仅支持通过 SMTP 发送邮件通知；每个查询码可配置通知邮箱与频率。
-- Run one cycle / 仅运行一次：
+Env / 环境变量:
+- SITE_DIR: output folder for status.json and static page
+- SERVE: true/false, when true start an HTTP server at SITE_PORT rooted at SITE_DIR
+- SITE_PORT: default 8000
+- MONITOR_LOG_DIR: default logs/monitor
+- SMTP_*: email settings; codes via CODES_JSON or numbered CODE_1...
 
-```bash
-python visa_status.py monitor --once -e .env
-```
+Run / 运行:
+- Once / 单次: `python visa_status.py monitor --once -e .env`
+- Daemon / 常驻: `python visa_status.py monitor -e .env`
 
-- Run as a loop / 循环运行（Ctrl+C 退出）：
-
-```bash
-python visa_status.py monitor -e .env
-```
-
-Outputs a `status.json` into `SITE_DIR`（默认 `monitor_site/`），并附带一个现代化静态页面（`monitor_site/`）用于查看状态列表。
-
-Stability / 稳定性：
-- Monitor runs sequentially (single page) and reuses the same browser/page, with recovery on errors; it calls the same cz querying routine to minimize flaky failures.
-- 监控以“串行单页”方式运行，复用同一浏览器/页面并在异常时自恢复；与 cz 查询复用相同逻辑，尽量降低查询失败概率。
-
-Email content / 邮件内容：
-- Subject 主题：`[<Status>] <Code> - CZ Visa Status`
-- Body 正文：HTML 表格，包含以下信息：
-	- Notification type 通知类型：首次记录 / 状态变更
-	- Old → New 状态变化（若发生变更）
-	- Current Status 当前状态
-	- Time 发送时间（本地时间）
-
-Notes / 说明：
-- 仅保留 Email 渠道（已移除 Telegram）。
-- 监控以单页串行方式运行（无并发），并在错误时自动恢复，尽量减少查询失败。
-
-### Git ignore / 版本控制忽略
-
-本项目默认忽略以下运行时或私密内容，请不要提交：
-- `logs/`、`reports/`、`monitor_site/`（运行时产物、静态站点导出）
-- `.env`、`.env.*`、`*.secrets`、`credentials.json`（私密信息）
-
-CSV 文件是项目数据的一部分，默认不忽略。若需要忽略本地测试用 CSV，可在 `.gitignore` 里添加更窄的规则（如 `*.local.csv`）。
+Service on Debian (systemd):
+- Install: `sudo python visa_status.py monitor --install -e /path/to/.env`
+- Start/Status: `sudo python visa_status.py monitor --start` / `python visa_status.py monitor --status`
+- Stop/Reload/Uninstall:
+  - `sudo python visa_status.py monitor --stop`
+  - `sudo python visa_status.py monitor --reload`
+  - `sudo python visa_status.py monitor --uninstall`
 
 ## License / 许可证
 [MIT](LICENSE)

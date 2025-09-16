@@ -1,4 +1,3 @@
-
 import argparse
 import sys
 import importlib
@@ -15,22 +14,16 @@ QUERY_MODULES = {
 }
 
 def main():
-    parser = argparse.ArgumentParser(
-        description='Visa_Status: 一站式签证批量工具主程序\n\n'
-                    '所有查询模块均以二字国家码命名（如cz、us、de），便于扩展。\n'
-                    '用法示例：\n'
-                    '  python visa_status.py generate-codes -o my.csv --start 2025-06-01\n'
-                    '  python visa_status.py cz --i my.csv\n',
-        formatter_class=argparse.RawTextHelpFormatter
-    )
-    subparsers = parser.add_subparsers(dest='command', required=True, help='可用子命令')
+    import argparse, asyncio, sys
+    parser = argparse.ArgumentParser()
+    sub = parser.add_subparsers(dest="cmd")
 
     # 全局选项 / Global options
     parser.add_argument('-r', '--retries', type=int, default=3, help='Retries per query (default: 3) / 每条查询的重试次数（默认: 3）')
     parser.add_argument('-l', '--log-dir', default='logs', help='Logs directory (default: logs) / 日志目录（默认: logs）')
 
     # 生成器子命令
-    gen_parser = subparsers.add_parser('generate-codes', aliases=['gen', 'gc'], help='Generate a CSV of query codes / 生成查询码CSV（支持自定义日期与数量）')
+    gen_parser = sub.add_parser('generate-codes', aliases=['gen', 'gc'], help='Generate a CSV of query codes / 生成查询码CSV（支持自定义日期与数量）')
     gen_parser.add_argument('-o', '--out', default='query_codes.csv', help='output CSV path / 输出 CSV 路径')
     gen_parser.add_argument('-s', '--start', help='start date YYYY-MM-DD / 起始日期（YYYY-MM-DD）')
     gen_parser.add_argument('-e', '--end', help='end date YYYY-MM-DD / 结束日期（YYYY-MM-DD）')
@@ -44,7 +37,7 @@ def main():
                             default='PEKI')
 
     # 报告子命令 / report subcommand
-    rep_parser = subparsers.add_parser('report', aliases=['rep', 'r'], help='Generate detailed Markdown report / 生成详细 Markdown 报告')
+    rep_parser = sub.add_parser('report', aliases=['rep', 'r'], help='Generate detailed Markdown report / 生成详细 Markdown 报告')
     rep_parser.add_argument('-i', '--input', required=False, default='query_codes.csv',
                             help='Input CSV path (default: query_codes.csv) / 输入 CSV 路径（默认: query_codes.csv）')
     rep_parser.add_argument('-o', '--out', help='Output Markdown path (default: reports/summary_TIMESTAMP.md) / 输出 Markdown 路径（默认 reports/summary_时间戳.md）')
@@ -52,7 +45,7 @@ def main():
     # 查询器子命令（以国家码命名，Playwright-only）
     for country_code, (mod_path, _) in QUERY_MODULES.items():
         aliases = ['c'] if country_code == 'cz' else []
-        q_parser = subparsers.add_parser(country_code, aliases=aliases, help=f'{country_code.upper()} visa-status checker (Playwright) / {country_code.upper()}签证状态批量查询（Playwright）')
+        q_parser = sub.add_parser(country_code, aliases=aliases, help=f'{country_code.upper()} visa-status checker (Playwright) / {country_code.upper()}签证状态批量查询（Playwright）')
         q_parser.add_argument('-i', '--i', default='query_codes.csv', help='CSV input path (default: query_codes.csv) / CSV 文件路径（默认: query_codes.csv）')
         # Headless now defaults to True. Provide optional value so legacy "--headless" (no value) still works.
         q_parser.add_argument('-H', '--headless', nargs='?', const='true', default=None, metavar='[BOOL]',
@@ -60,9 +53,15 @@ def main():
         q_parser.add_argument('-w', '--workers', type=int, default=1, help='Number of concurrent workers (pages) / 并发 worker 数 (默认: 1)')
 
     # 监控子命令 / monitor subcommand
-    mon_parser = subparsers.add_parser('monitor', aliases=['mon', 'm'], help='Run scheduled monitoring & notifications / 运行定时监控与通知')
+    mon_parser = sub.add_parser('monitor', aliases=['mon', 'm'], help='Run scheduled monitoring & notifications / 运行定时监控与通知')
     mon_parser.add_argument('-e', '--env', default='.env', help='Path to env file (default: .env) / 环境变量文件路径（默认 .env）')
     mon_parser.add_argument('--once', action='store_true', help='Run one cycle and exit / 仅运行一次后退出')
+    mon_parser.add_argument("--install", action="store_true", help="Install systemd service")
+    mon_parser.add_argument("--uninstall", action="store_true", help="Uninstall systemd service")
+    mon_parser.add_argument("--start", action="store_true", help="Start systemd service")
+    mon_parser.add_argument("--stop", action="store_true", help="Stop systemd service")
+    mon_parser.add_argument("--reload", action="store_true", help="Reload/restart systemd service")
+    mon_parser.add_argument("--status", action="store_true", help="Show systemd service status")
 
     # 依赖提示（精简，仅记录 Playwright 与 matplotlib 提示）
     def check_notes(logs_dir_name: str):
@@ -137,19 +136,34 @@ def main():
         func = getattr(mod, func_name)
         func(cmd_args)
     elif args.command == 'monitor':
-        # 调用调度器
+        if args.install:
+            from monitor.service import install
+            install(args.env)
+            return
+        if args.uninstall:
+            from monitor.service import uninstall
+            uninstall()
+            return
+        if args.start:
+            from monitor.service import start as svc_start
+            svc_start()
+            return
+        if args.stop:
+            from monitor.service import stop as svc_stop
+            svc_stop()
+            return
+        if args.reload:
+            from monitor.service import reload as svc_reload
+            svc_reload()
+            return
+        if args.status:
+            from monitor.service import status as svc_status
+            svc_status()
+            return
+        # run scheduler
         from monitor.scheduler import run_scheduler
-        import argparse as ap
-        m_parser = ap.ArgumentParser()
-        m_parser.add_argument('-e', '--env', default='.env')
-        m_parser.add_argument('--once', action='store_true')
-        m_args, _ = m_parser.parse_known_args(cmd_args)
-        # Run the scheduler loop (async)
-        import asyncio as _asyncio
-        try:
-            _asyncio.run(run_scheduler(m_args.env, once=m_args.once))
-        except KeyboardInterrupt:
-            print('\nMonitor stopped by user / 监控已停止')
+        asyncio.run(run_scheduler(args.env, once=args.once))
+        return
     elif args.command == 'report':
         # 专门处理报告：只生成 Markdown
         import tools.report as report_mod
@@ -235,5 +249,5 @@ def main():
         parser.print_help()
         sys.exit(1)
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

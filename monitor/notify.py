@@ -1,34 +1,38 @@
 from __future__ import annotations
 
-import smtplib
+import smtplib, ssl
 from email.mime.text import MIMEText
 from email.utils import formataddr
-from .config import EmailConfig
 
 
-def send_email(email: EmailConfig, to_addr: str, subject: str, body: str) -> bool:
-    msg = MIMEText(body, "html", "utf-8")
-    msg["From"] = formataddr(("Visa Monitor", email.from_addr))
-    msg["To"] = to_addr
-    msg["Subject"] = subject
+def send_email(cfg, to_addr: str, subject: str, html_body: str):
     try:
-        if int(email.smtp_port) == 465:
-            # Implicit TLS
-            with smtplib.SMTP_SSL(email.smtp_host, email.smtp_port, timeout=20) as server:
-                if email.username and email.password:
-                    server.login(email.username, email.password)
-                server.sendmail(email.from_addr, [to_addr], msg.as_string())
-            return True
+        msg = MIMEText(html_body, "html", "utf-8")
+        sender = cfg.smtp_from or "CZ Visa Monitor"
+        if "@" in sender:
+            msg["From"] = formataddr(("CZ Visa Monitor", sender))
         else:
-            with smtplib.SMTP(email.smtp_host, email.smtp_port, timeout=20) as server:
+            msg["From"] = "CZ Visa Monitor <noreply@example.com>"
+        msg["To"] = to_addr
+        msg["Subject"] = subject
+
+        port = cfg.smtp_port or 465
+        if port == 465:
+            with smtplib.SMTP_SSL(cfg.smtp_host, port, context=ssl.create_default_context()) as s:
+                if cfg.smtp_user and cfg.smtp_pass:
+                    s.login(cfg.smtp_user, cfg.smtp_pass)
+                s.send_message(msg)
+        else:
+            with smtplib.SMTP(cfg.smtp_host, port) as s:
+                s.ehlo()
                 try:
-                    server.starttls()
+                    s.starttls(context=ssl.create_default_context())
+                    s.ehlo()
                 except Exception:
                     pass
-                if email.username and email.password:
-                    server.login(email.username, email.password)
-                server.sendmail(email.from_addr, [to_addr], msg.as_string())
-            return True
+                if cfg.smtp_user and cfg.smtp_pass:
+                    s.login(cfg.smtp_user, cfg.smtp_pass)
+                s.send_message(msg)
+        return True, None
     except Exception as e:
-        # Propagate failure detail via exception so caller can log specifics
-        raise
+        return False, str(e)

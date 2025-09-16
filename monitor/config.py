@@ -1,147 +1,113 @@
 from __future__ import annotations
 
-import os
-import json
 from dataclasses import dataclass
-from typing import List, Optional, Dict, Any
-
-
-@dataclass
-class EmailConfig:
-    smtp_host: str
-    smtp_port: int
-    username: str
-    password: str
-    from_addr: str
+from typing import List, Optional
+import os, json
 
 
 @dataclass
 class CodeConfig:
     code: str
-    channel: str  # 'email' or '' (other values are ignored)
-    target: Optional[str]  # email address for email channel
-    freq_minutes: int
+    channel: str = "email"  # only 'email' supported
+    target: Optional[str] = None
+    freq_minutes: int = 60
 
 
 @dataclass
 class MonitorConfig:
-    email: Optional[EmailConfig]
     headless: bool
     site_dir: str
     log_dir: str
+    serve: bool
+    site_port: int
+    smtp_host: Optional[str]
+    smtp_port: Optional[int]
+    smtp_user: Optional[str]
+    smtp_pass: Optional[str]
+    smtp_from: Optional[str]
     codes: List[CodeConfig]
 
 
-BOOL_TRUE = {"1", "true", "t", "yes", "y", "on"}
-
-
-def _bool(val: Optional[str], default: bool) -> bool:
-    if val is None:
+def _parse_bool(v: Optional[str], default: bool) -> bool:
+    if v is None:
         return default
-    s = str(val).strip().lower()
-    if s in BOOL_TRUE:
-        return True
-    if s in {"0", "false", "f", "no", "n", "off"}:
-        return False
-    return default
+    return str(v).strip().lower() in ("1", "true", "yes", "on")
 
 
 def load_env_config(env_path: str = ".env") -> MonitorConfig:
     # Lightweight .env parser (KEY=VALUE lines) with support for multi-line JSON values
-    data: Dict[str, str] = {}
+    env: dict = {}
     if os.path.exists(env_path):
         with open(env_path, "r", encoding="utf-8") as f:
             lines = f.readlines()
-        i = 0
-        n = len(lines)
-        while i < n:
-            raw = lines[i]
-            i += 1
-            line = raw.strip()
-            if not line or line.startswith("#"):
+        buf_key = None
+        buf_val: List[str] = []
+        for line in lines:
+            line = line.rstrip("\n")
+            if not line or line.strip().startswith("#"):
                 continue
-            if "=" not in line:
+            if buf_key:
+                buf_val.append(line)
+                if line.strip().endswith("]"):
+                    env[buf_key] = "\n".join(buf_val)
+                    buf_key, buf_val = None, []
                 continue
-            k, v = line.split("=", 1)
-            key = k.strip()
-            val = v.strip()
-            # Handle multi-line JSON values (e.g., CODES_JSON=[ ... ])
-            if key.upper() == "CODES_JSON":
-                # If starts with [ or { and not obviously closed on this line, accumulate
-                if (val.startswith("[") and not val.rstrip().endswith("]")) or (val.startswith("{") and not val.rstrip().endswith("}")):
-                    buf = [val]
-                    # simple bracket balance for [] and {}
-                    br_sq = val.count("[") - val.count("]")
-                    br_br = val.count("{") - val.count("}")
-                    while i < n and (br_sq != 0 or br_br != 0):
-                        nxt = lines[i]
-                        i += 1
-                        buf.append(nxt.rstrip("\n"))
-                        br_sq += nxt.count("[") - nxt.count("]")
-                        br_br += nxt.count("{") - nxt.count("}")
-                    val = "\n".join(buf)
-                data[key] = val.strip().strip('"').strip("'")
-            else:
-                data[key] = val.strip().strip('"').strip("'")
+            if "=" in line:
+                k, v = line.split("=", 1)
+                k = k.strip()
+                v = v.strip()
+                if k == "CODES_JSON" and not v.endswith("]"):
+                    buf_key = k
+                    buf_val = [v]
+                else:
+                    env[k] = v
 
-    email: Optional[EmailConfig] = None
-    if data.get("SMTP_HOST") and data.get("SMTP_PORT") and data.get("SMTP_USER") and data.get("SMTP_PASS") and data.get("SMTP_FROM"):
-        try:
-            port = int(data.get("SMTP_PORT", "587"))
-        except Exception:
-            port = 587
-        email = EmailConfig(
-            smtp_host=data["SMTP_HOST"],
-            smtp_port=port,
-            username=data["SMTP_USER"],
-            password=data["SMTP_PASS"],
-            from_addr=data["SMTP_FROM"],
-        )
+    headless = _parse_bool(env.get("HEADLESS"), True)
+    site_dir = env.get("SITE_DIR") or "monitor_site"
+    log_dir = env.get("MONITOR_LOG_DIR") or env.get("LOG_DIR") or "logs/monitor"
+    serve = _parse_bool(env.get("SERVE"), False)
+    site_port = int(env.get("SITE_PORT") or 8000)
 
-    headless = _bool(data.get("HEADLESS"), True)
-    site_dir = data.get("SITE_DIR", os.path.join("reports", "monitor_site"))
-    log_dir = data.get("MONITOR_LOG_DIR") or data.get("LOG_DIR") or os.path.join("logs", "monitor")
-    # Deprecated: MONITOR_WORKERS removed; monitor runs sequentially by design.
+    smtp_host = env.get("SMTP_HOST")
+    smtp_port = int(env["SMTP_PORT"]) if env.get("SMTP_PORT") else None
+    smtp_user = env.get("SMTP_USER")
+    smtp_pass = env.get("SMTP_PASS")
+    smtp_from = env.get("SMTP_FROM")
 
     codes: List[CodeConfig] = []
-    # Codes list: either JSON array in CODES_JSON or numbered entries CODE_1=... CHANNEL_1=...
-    codes_json = data.get("CODES_JSON")
-    if codes_json:
+    if env.get("CODES_JSON"):
         try:
-            arr = json.loads(codes_json)
-            if isinstance(arr, list):
-                for item in arr:
-                    code = str(item.get("code", "")).strip()
-                    if not code:
-                        continue
-                    channel = str(item.get("channel", "")).strip().lower()
-                    target = item.get("target")
-                    freq = int(item.get("freq_minutes", 60) or 60)
-                    codes.append(CodeConfig(code=code, channel=channel, target=target, freq_minutes=freq))
+            arr = json.loads(env["CODES_JSON"])
+            for obj in arr:
+                codes.append(CodeConfig(
+                    code=obj["code"].strip(),
+                    channel=(obj.get("channel") or "email").strip().lower(),
+                    target=obj.get("target"),
+                    freq_minutes=int(obj.get("freq_minutes") or 60),
+                ))
         except Exception:
-            # fall back to numbered entries silently
-            pass
-    else:
-        i = 1
-        while True:
-            code = data.get(f"CODE_{i}")
-            if not code:
-                break
-            channel = (data.get(f"CHANNEL_{i}") or "").strip().lower()
-            target = data.get(f"TARGET_{i}")
-            try:
-                freq = int(data.get(f"FREQ_MINUTES_{i}") or 60)
-            except Exception:
-                freq = 60
-            codes.append(CodeConfig(code=code.strip(), channel=channel, target=target, freq_minutes=freq))
-            i += 1
+            raise ValueError("Invalid CODES_JSON in .env")
 
-    if not codes:
-        # Provide a helpful hint path for users
-        # (Do not raise; the scheduler will print 'No codes configured')
-        try:
-            import sys
-            print("[monitor] No codes parsed from env. Check CODES_JSON or CODE_1 entries.", file=sys.stderr)
-        except Exception:
-            pass
-    return MonitorConfig(email=email, headless=headless, site_dir=site_dir, log_dir=log_dir, codes=codes)
+    idx = 1
+    while env.get(f"CODE_{idx}"):
+        codes.append(CodeConfig(
+            code=env[f"CODE_{idx}"].strip(),
+            channel=(env.get(f"CHANNEL_{idx}") or "email").strip().lower(),
+            target=env.get(f"TARGET_{idx}"),
+            freq_minutes=int(env.get(f"FREQ_MINUTES_{idx}") or 60),
+        ))
+        idx += 1
+
+    return MonitorConfig(
+        headless=headless,
+        site_dir=site_dir,
+        log_dir=log_dir,
+        serve=serve,
+        site_port=site_port,
+        smtp_host=smtp_host,
+        smtp_port=smtp_port,
+        smtp_user=smtp_user,
+        smtp_pass=smtp_pass,
+        smtp_from=smtp_from,
+        codes=codes,
+    )
