@@ -402,20 +402,38 @@ async def run_scheduler(env_path: str, once: bool = False):
                 cfg = new_cfg
                 codes = new_cfg.codes
                 
-                # Handle removed codes in status.json
-                if removed_codes:
+                # Handle changes in status.json
+                if removed_codes or modified_codes:
                     try:
                         site_json_path = os.path.join(cfg.site_dir, "status.json")
                         if os.path.exists(site_json_path):
                             with open(site_json_path, "r", encoding="utf-8") as f:
                                 status_data = json.load(f)
+                            
+                            # Remove deleted codes
                             for code in removed_codes:
                                 status_data["items"].pop(code, None)
+                            
+                            # Update modified codes' channel and target info
+                            for code in modified_codes:
+                                if code in status_data["items"] and code in new_codes:
+                                    new_code_cfg = new_codes[code]
+                                    # Check if email is properly configured
+                                    email_configured = (new_code_cfg.channel == "email" and 
+                                                      new_code_cfg.target and 
+                                                      cfg.smtp_host and 
+                                                      cfg.smtp_user and 
+                                                      cfg.smtp_pass)
+                                    
+                                    # Update channel and target in status.json
+                                    status_data["items"][code]["channel"] = "Email" if email_configured else ""
+                                    status_data["items"][code]["target"] = new_code_cfg.target or ""
+                            
                             status_data["generated_at"] = _now_iso()
                             with open(site_json_path, "w", encoding="utf-8") as f:
                                 json.dump(status_data, f, ensure_ascii=False, indent=2)
                     except Exception as e:
-                        log(f"[{_now_iso()}] Error removing codes from status.json: {e}")
+                        log(f"[{_now_iso()}] Error updating status.json: {e}")
                 
                 # Log changes
                 change_summary = []

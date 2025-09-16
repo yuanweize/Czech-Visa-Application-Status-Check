@@ -79,9 +79,16 @@ def load_env_config(env_path: str = ".env") -> MonitorConfig:
         try:
             arr = json.loads(env["CODES_JSON"])
             for obj in arr:
+                # Handle empty channel values properly
+                channel_val = obj.get("channel")
+                if channel_val is not None:
+                    channel_val = channel_val.strip().lower()
+                else:
+                    channel_val = "email"  # Only default if not explicitly set
+                    
                 codes.append(CodeConfig(
                     code=obj["code"].strip(),
-                    channel=(obj.get("channel") or "email").strip().lower(),
+                    channel=channel_val,
                     target=obj.get("target"),
                     freq_minutes=int(obj.get("freq_minutes") or 60),
                 ))
@@ -90,9 +97,16 @@ def load_env_config(env_path: str = ".env") -> MonitorConfig:
 
     idx = 1
     while env.get(f"CODE_{idx}"):
+        # Handle empty channel values properly - don't default to "email"
+        channel_val = env.get(f"CHANNEL_{idx}")
+        if channel_val is not None:
+            channel_val = channel_val.strip().lower()
+        else:
+            channel_val = "email"  # Only default if not explicitly set
+            
         codes.append(CodeConfig(
             code=env[f"CODE_{idx}"].strip(),
-            channel=(env.get(f"CHANNEL_{idx}") or "email").strip().lower(),
+            channel=channel_val,
             target=env.get(f"TARGET_{idx}"),
             freq_minutes=int(env.get(f"FREQ_MINUTES_{idx}") or 60),
         ))
