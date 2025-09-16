@@ -38,7 +38,32 @@ PROJECT_OVERVIEW.md
 - Writes `SITE_DIR/status.json`（仅字符串状态）与静态站点目录；当 `SERVE=true` 时内置 HTTP 将以 `SITE_DIR` 为根在 `SITE_PORT` 端口提供访问。
 - Sequential for stability; per-cycle browser lifecycle: create Chromium only during a cycle and close it afterward to minimize idle CPU. 复用 cz 查询逻辑，失败时软恢复并必要时重建页面/上下文。
 - Email subject: `[<Status>] <Code> - CZ Visa Status`; HTML body shows old→new when changed.
-- **Hot reloading**: Automatically detects `.env` file changes and reloads configuration without restart (requires `watchdog` package). **.env 热更新**：自动检测 `.env` 文件变化并无需重启即可重新加载配置（需要 `watchdog` 包）。
+**Hot reloading / .env 热更新**
+
+The monitor supports automatic hot reloading of the `.env` configuration file. When enabled, any changes to `.env` are detected and the configuration is reloaded without restarting the service.
+
+- **Enabled automatically in daemon mode** (not `--once`) **when the `watchdog` package is installed**.
+- If you see `Warning: watchdog not available, .env hot reloading disabled`, install watchdog:
+  ```bash
+  python -m pip install watchdog
+  # or
+  uv pip install watchdog
+  ```
+- Hot reloading works for both CLI and systemd service modes.
+- Configuration changes take effect in the next monitoring cycle.
+
+监控器支持 `.env` 文件的自动热更新。只要安装了 `watchdog` 包，修改 `.env` 文件会自动检测并重新加载配置，无需重启服务。
+
+如出现 `Warning: watchdog not available, .env hot reloading disabled`，请安装 watchdog：
+```bash
+python -m pip install watchdog
+# 或
+uv pip install watchdog
+```
+
+热更新适用于 CLI 和 systemd 服务模式。配置更改会在下一个监控周期生效。
+
+---
 
 ## Monitor service
 - HTTP server: `SERVE=true` + `SITE_PORT` → serves `SITE_DIR` as doc root.
