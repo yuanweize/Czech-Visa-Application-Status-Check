@@ -552,3 +552,82 @@ if __name__ == '__main__':
 
     headless_val = _parse_bool(args.headless, default_true=True)
     update_csv_with_status(args.i, headless=headless_val, workers=args.workers, retries=args.retries)
+
+
+# --- Public API for single-code querying (used by monitor scheduler) ---
+async def query_code_with_browser(browser, code: str) -> tuple[str, dict]:
+    """Query a single code using an existing Playwright browser.
+
+    Returns (status, timings). Caller is responsible for browser lifecycle.
+    """
+    # Lightweight context per query (isolated); reuse browser across loop
+    context = await browser.new_context()
+    # Block heavy resources
+    async def _route_handler(route):
+        try:
+            if route.request.resource_type in {"image", "font"}:
+                await route.abort()
+            else:
+                await route.continue_()
+        except Exception:
+            try:
+                await route.continue_()
+            except Exception:
+                pass
+    try:
+        try:
+            await context.route("**/*", _route_handler)
+        except Exception:
+            pass
+        page = await context.new_page()
+        try:
+            page.set_default_timeout(15000)
+            page.set_default_navigation_timeout(20000)
+        except Exception:
+            pass
+        # Single query doesn't need nav semaphore
+        status, timings = await _process_one(page, code, None)
+        return status, timings
+    finally:
+        try:
+            await context.close()
+        except Exception:
+            pass
+
+
+async def query_single_code_async(code: str, headless: bool = True, retries: int = 2) -> tuple[str, dict]:
+    """Convenience: launch a temporary browser to query a code asynchronously.
+
+    Retries a few times on transient errors.
+    """
+    from playwright.async_api import async_playwright
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=headless)
+        try:
+            last_err = ''
+            for attempt in range(1, max(1, int(retries)) + 1):
+                try:
+                    return await query_code_with_browser(browser, code)
+                except Exception as e:
+                    last_err = str(e)
+                    if attempt < retries:
+                        await asyncio.sleep(0.5 * attempt)
+            # If all retries failed
+            return 'Query Failed / 查询失败', {'error': last_err}
+        finally:
+            try:
+                await browser.close()
+            except Exception:
+                pass
+
+
+def query_single_code(code: str, headless: bool = True, retries: int = 2) -> tuple[str, dict]:
+    """Synchronous wrapper for single code query.
+
+    Example:
+        status, timings = query_single_code('PEKI202501010001')
+    """
+    try:
+        return asyncio.run(query_single_code_async(code, headless=headless, retries=retries))
+    except KeyboardInterrupt:
+        return 'Query Failed / 查询失败', {'error': 'Interrupted'}

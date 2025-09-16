@@ -260,6 +260,23 @@ Add a country module in `query_modules/` following the module API in `PROJECT_OV
 - Project overview (developer guide): [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md)
 - 项目概览（开发者指南）：[PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md)
 
+## Monitor (scheduled checks & notifications) / 定时监控与通知
+
+- Copy `.env.example` to `.env` and fill your configuration. 支持 Telegram 或 SMTP 邮件；每个查询码可配置通知渠道与频率。
+- Run one cycle / 仅运行一次：
+
+```bash
+python visa_status.py monitor --once -e .env
+```
+
+- Run as a loop / 循环运行（Ctrl+C 退出）：
+
+```bash
+python visa_status.py monitor -e .env
+```
+
+Outputs a `status.json` into `SITE_DIR`（默认 `monitor_site/`），并附带一个现代化静态页面（`monitor_site/`）用于查看状态列表。
+
 ## License / 许可证
 [MIT](LICENSE)
 
