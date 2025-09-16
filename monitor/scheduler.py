@@ -288,7 +288,7 @@ async def run_once(config: MonitorConfig) -> Dict[str, Any]:
 async def run_scheduler(env_path: str, once: bool = False):
     cfg = load_env_config(env_path)
     os.makedirs(cfg.log_dir, exist_ok=True)
-    log_path = os.path.join(cfg.log_dir, f"monitor_{datetime.now().strftime('%Y-%m-%d')}.log")
+    log_path = os.path.join(cfg.log_dir, f"monitor_{dt.datetime.now().strftime('%Y-%m-%d')}.log")
     def log(msg: str):
         with open(log_path, "a", encoding="utf-8") as f:
             f.write(msg.rstrip() + "\n")
@@ -327,6 +327,7 @@ async def run_scheduler(env_path: str, once: bool = False):
             state = {"generated_at": _now_iso(), "items": {}}
 
         async def handle_one(code_cfg):
+            nonlocal context, page
             code = code_cfg.code
             attempts = 0
             status = None
@@ -347,7 +348,6 @@ async def run_scheduler(env_path: str, once: bool = False):
                         try:
                             await context.close()
                             context = await browser.new_context()
-                            nonlocal page
                             page = await context.new_page()
                             await _ensure_ready(page, None)
                             await _maybe_hide_overlays(page)
@@ -374,7 +374,9 @@ async def run_scheduler(env_path: str, once: bool = False):
 
             if status != "Query Failed / 查询失败" and code_cfg.channel == "email" and code_cfg.target:
                 subject = _build_email_subject(status, code)
-                body = _build_email_body(code, status, first_time, old_status, changed)
+                notif_label = '状态变更' if (old_status and changed) else '首次记录'
+                when = _now_iso()
+                body = _build_email_body(code, status, when, changed=changed, old_status=old_status, notif_label=notif_label)
                 ok, err = send_email(cfg, code_cfg.target, subject, body)
                 if ok:
                     log(f"[{_now_iso()}] notify Email code={code} to={code_cfg.target} ok=True")
