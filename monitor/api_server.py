@@ -396,7 +396,7 @@ FREQ_MINUTES_{new_idx}=60
         # Send verification email
         config = self._load_config()
         base_url = f"http://localhost:{config.site_port}"
-        verification_url = f"http://localhost:5001/api/verify-add/{token}"
+        verification_url = f"http://localhost:{config.site_port}/api/verify-add/{token}"
         
         subject = "Czech Visa Monitor - Verify New Code Addition"
         html_body = f"""
