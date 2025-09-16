@@ -38,8 +38,19 @@ def load_env_config(env_path: str = ".env") -> MonitorConfig:
     # Lightweight .env parser (KEY=VALUE lines) with support for multi-line JSON values
     env: dict = {}
     if os.path.exists(env_path):
-        with open(env_path, "r", encoding="utf-8") as f:
-            lines = f.readlines()
+        try:
+            with open(env_path, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+        except (IOError, OSError) as e:
+            # File might be locked or temporarily unavailable during editing
+            print(f"Warning: Failed to read {env_path}: {e}")
+            # Return default config to avoid breaking the service
+            return MonitorConfig(
+                headless=True, site_dir="monitor_site", log_dir="logs/monitor",
+                serve=False, site_port=8000, smtp_host=None, smtp_port=None,
+                smtp_user=None, smtp_pass=None, smtp_from=None, codes=[]
+            )
+            
         buf_key = None
         buf_val: List[str] = []
         for line in lines:
@@ -77,7 +88,8 @@ def load_env_config(env_path: str = ".env") -> MonitorConfig:
     codes: List[CodeConfig] = []
     if env.get("CODES_JSON"):
         try:
-            arr = json.loads(env["CODES_JSON"])
+            json_str = env["CODES_JSON"]
+            arr = json.loads(json_str)
             for obj in arr:
                 # Handle empty channel values properly
                 channel_val = obj.get("channel")
@@ -92,8 +104,12 @@ def load_env_config(env_path: str = ".env") -> MonitorConfig:
                     target=obj.get("target"),
                     freq_minutes=int(obj.get("freq_minutes") or 60),
                 ))
-        except Exception:
-            raise ValueError("Invalid CODES_JSON in .env")
+        except (json.JSONDecodeError, KeyError, ValueError) as e:
+            # Better error reporting for JSON issues
+            print(f"Warning: Invalid CODES_JSON in {env_path}: {e}")
+            print(f"CODES_JSON content: {repr(env.get('CODES_JSON', 'missing'))}")
+            # Don't raise, just continue with empty codes to avoid breaking the service
+            pass
 
     idx = 1
     while env.get(f"CODE_{idx}"):

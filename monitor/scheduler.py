@@ -383,7 +383,29 @@ async def run_scheduler(env_path: str, once: bool = False):
         nonlocal cfg, codes
         with config_lock:
             try:
-                new_cfg = load_env_config(env_path)
+                # Add small delay and retry logic to handle file editing race conditions
+                import time
+                for attempt in range(3):
+                    try:
+                        new_cfg = load_env_config(env_path)
+                        # Sanity check: if we get 0 codes but had codes before, 
+                        # the file might be temporarily corrupted during editing
+                        if len(new_cfg.codes) == 0 and len(codes) > 0:
+                            if attempt < 2:  # Retry on first two attempts
+                                log(f"[{_now_iso()}] Warning: Got 0 codes during reload (attempt {attempt+1}), retrying...")
+                                time.sleep(0.5)  # Wait 500ms before retry
+                                continue
+                            else:
+                                log(f"[{_now_iso()}] Warning: Still got 0 codes after retries, proceeding anyway")
+                        break
+                    except Exception as e:
+                        if attempt < 2:
+                            log(f"[{_now_iso()}] Config reload attempt {attempt+1} failed: {e}, retrying...")
+                            time.sleep(0.5)
+                            continue
+                        else:
+                            raise e
+                
                 old_codes = {c.code: c for c in codes}
                 new_codes = {c.code: c for c in new_cfg.codes}
                 
