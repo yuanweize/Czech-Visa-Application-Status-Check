@@ -38,30 +38,26 @@ PROJECT_OVERVIEW.md
 - Writes `SITE_DIR/status.json`（仅字符串状态）与静态站点目录；当 `SERVE=true` 时内置 HTTP 将以 `SITE_DIR` 为根在 `SITE_PORT` 端口提供访问。
 - Sequential for stability; per-cycle browser lifecycle: create Chromium only during a cycle and close it afterward to minimize idle CPU. 复用 cz 查询逻辑，失败时软恢复并必要时重建页面/上下文。
 - Email subject: `[<Status>] <Code> - CZ Visa Status`; HTML body shows old→new when changed.
-**Hot reloading / .env 热更新**
 
-The monitor supports automatic hot reloading of the `.env` configuration file. When enabled, any changes to `.env` are detected and the configuration is reloaded without restarting the service.
+**Hot reloading / .env 热更新 (Enhanced)**
 
-- **Enabled automatically in daemon mode** (not `--once`) **when the `watchdog` package is installed**.
-- If you see `Warning: watchdog not available, .env hot reloading disabled`, install watchdog:
-  ```bash
-  python -m pip install watchdog
-  # or
-  uv pip install watchdog
-  ```
-- Hot reloading works for both CLI and systemd service modes.
-- Configuration changes take effect in the next monitoring cycle.
+Advanced hot reloading system with differential updates and robustness features:
 
-监控器支持 `.env` 文件的自动热更新。只要安装了 `watchdog` 包，修改 `.env` 文件会自动检测并重新加载配置，无需重启服务。
+- **Differential Processing**: Only handles added/removed/modified codes, leaves unchanged codes untouched
+- **Race Condition Protection**: Retry mechanism with delays handles temporary file states during editing
+- **SMTP Connection Pooling**: Reuses connections with rate limiting to prevent "too many AUTH" server bans
+- **Automatic Status Updates**: Real-time updates to status.json when notification channels change
+- **Empty Channel Support**: Set channel to empty string to disable notifications for specific codes
+- **Enhanced Logging**: Detailed cycle logging with automatic 2MB log rotation
+- **Robust Error Handling**: Graceful recovery from file I/O errors and JSON parsing issues
 
-如出现 `Warning: watchdog not available, .env hot reloading disabled`，请安装 watchdog：
-```bash
-python -m pip install watchdog
-# 或
-uv pip install watchdog
-```
+监控器支持高级 `.env` 文件热更新，包含差异化处理和稳健性功能：
 
-热更新适用于 CLI 和 systemd 服务模式。配置更改会在下一个监控周期生效。
+- **差异化处理**：仅处理新增/删除/修改的代码，保持未变更代码不变
+- **防竞态条件**：重试机制处理编辑期间的临时文件状态
+- **SMTP 连接池**：复用连接并限制频率，防止服务器禁用
+- **自动状态更新**：通知渠道变更时实时更新 status.json
+- **增强日志**：详细的周期日志，自动 2MB 轮换
 
 ---
 
@@ -88,8 +84,11 @@ uv pip install watchdog
 - 点击/隐藏/移除覆盖层；多选择器轮询；JS 回退。
 
 4) Logging & summary / 日志与总结
-- Logs under `logs/`; failures archived with `连续失败次数/Consecutive_Fail_Count`.
-- 日志位于 `logs/`；失败行归档并带有 `连续失败次数/Consecutive_Fail_Count`。
+- Enhanced logging with automatic 2MB rotation (preserves last 1000 lines)
+- Detailed cycle tracking: configuration reloads, code processing, email notifications
+- Runtime logs under `logs/`; failures archived with `连续失败次数/Consecutive_Fail_Count`
+- 增强日志系统：自动 2MB 轮换（保留最后 1000 行），详细周期跟踪：配置重载、代码处理、邮件通知
+- 运行时日志位于 `logs/`；失败行归档并带有连续失败次数
 
 ## CLI notes / CLI 说明
 - Aliases: `generate-codes` = `gen`/`gc`, `report` = `rep`/`r`, `cz` = `c`.
