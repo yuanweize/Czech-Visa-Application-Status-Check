@@ -59,6 +59,11 @@ def main():
                               help='Headless mode (default True). Use "--headless False" to SHOW browser. Accepts true/false/on/off/yes/no/0/1 / 无头模式(默认 True)。使用 "--headless False" 显示浏览器。接受 true/false/on/off/yes/no/0/1')
         q_parser.add_argument('-w', '--workers', type=int, default=1, help='Number of concurrent workers (pages) / 并发 worker 数 (默认: 1)')
 
+    # 监控子命令 / monitor subcommand
+    mon_parser = subparsers.add_parser('monitor', aliases=['mon', 'm'], help='Run scheduled monitoring & notifications / 运行定时监控与通知')
+    mon_parser.add_argument('-e', '--env', default='.env', help='Path to env file (default: .env) / 环境变量文件路径（默认 .env）')
+    mon_parser.add_argument('--once', action='store_true', help='Run one cycle and exit / 仅运行一次后退出')
+
     # 依赖提示（精简，仅记录 Playwright 与 matplotlib 提示）
     def check_notes(logs_dir_name: str):
         import datetime, os
@@ -108,6 +113,8 @@ def main():
         'rep': 'report',
         'r': 'report',
         'c': 'cz',
+        'mon': 'monitor',
+        'm': 'monitor',
     }
     if args.command in alias_map:
         args.command = alias_map[args.command]
@@ -129,6 +136,20 @@ def main():
         mod = importlib.import_module(mod_name)
         func = getattr(mod, func_name)
         func(cmd_args)
+    elif args.command == 'monitor':
+        # 调用调度器
+        from monitor.scheduler import run_scheduler
+        import argparse as ap
+        m_parser = ap.ArgumentParser()
+        m_parser.add_argument('-e', '--env', default='.env')
+        m_parser.add_argument('--once', action='store_true')
+        m_args, _ = m_parser.parse_known_args(cmd_args)
+        # Run the scheduler loop (async)
+        import asyncio as _asyncio
+        try:
+            _asyncio.run(run_scheduler(m_args.env, once=m_args.once))
+        except KeyboardInterrupt:
+            print('\nMonitor stopped by user / 监控已停止')
     elif args.command == 'report':
         # 专门处理报告：只生成 Markdown
         import tools.report as report_mod
