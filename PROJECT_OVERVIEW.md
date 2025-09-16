@@ -34,23 +34,19 @@ PROJECT_OVERVIEW.md
 ```
 
 ## Monitor (scheduler + Email) / 监控（调度器 + 邮件）
-- Email-only notifications via SMTP (Telegram removed). One or more emails per code are supported.
-- 通过 SMTP 发送邮件（已移除 Telegram），每个查询码可配置 1 个或多个收件邮箱。
-- Writes `SITE_DIR/status.json` and a static site directory for viewing status snapshots.
-- 会写出 `SITE_DIR/status.json` 与静态站点目录，便于查看状态快照。
-- Sequential design for stability: monitor uses a single page sequentially and reuses the cz querying routine; it auto-recovers the page/context on failures and retries cautiously.
-- 为稳定性采用串行：监控以单页串行方式运行，复用 cz 查询逻辑；在失败时自动恢复页面/上下文，并做谨慎重试。
-- Email subject: `[<Status>] <Code> - CZ Visa Status`; HTML body includes old→new when changed.
-- 邮件主题：`[<状态>] <查询码> - CZ Visa Status`；HTML 正文在状态变更时包含旧→新。
+- Email-only via SMTP (Telegram removed). 可为每个查询码配置 1 个或多个收件邮箱。
+- Writes `SITE_DIR/status.json`（仅字符串状态）与静态站点目录；当 `SERVE=true` 时内置 HTTP 将以 `SITE_DIR` 为根在 `SITE_PORT` 端口提供访问。
+- Sequential for stability; per-cycle browser lifecycle: create Chromium only during a cycle and close it afterward to minimize idle CPU. 复用 cz 查询逻辑，失败时软恢复并必要时重建页面/上下文。
+- Email subject: `[<Status>] <Code> - CZ Visa Status`; HTML body shows old→new when changed.
 
 ## Monitor service
-- Design: sequential, single page; reuse cz logic; soft-recover then rebuild page on failures.
-- HTTP server: enable with SERVE=true, SITE_PORT, serves SITE_DIR as doc root.
-- Systemd service (Debian):
+- HTTP server: `SERVE=true` + `SITE_PORT` → serves `SITE_DIR` as doc root.
+- Systemd (Debian):
   - Installs a unit to /etc/systemd/system/cz-visa-monitor.service
   - ExecStart: python visa_status.py monitor -e /path/to/.env
   - Restart=always; requires sudo for install/start/stop.
-- CLI helpers: `--install/--uninstall/--start/--stop/--reload/--status`.
+  - Prefers uv virtualenv (`.venv/bin/python`) if present; override with `--python-exe` at install time.
+- CLI helpers: `--install/--uninstall/--start/--stop/--reload/--restart/--status`（`--status` 使用 `--no-pager`）。
 
 ## Technical notes / 技术说明
 1) CSV-first design / CSV 优先

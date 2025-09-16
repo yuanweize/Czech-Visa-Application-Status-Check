@@ -313,9 +313,9 @@ Add a country module in `query_modules/` following the module API in `PROJECT_OV
 - 项目概览（开发者指南）：[PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md)
 
 ## Monitor (sequential) / 监控模式（串行稳定）
-- Single browser/context/page, sequential queries. 更稳定，尽量复用 cz 查询逻辑，减少失败。
-- Email-only notifications. 首次记录或状态变化才通知。
-- Writes site/status.json under SITE_DIR and can serve a static site if SERVE=true.
+- Sequential queries; during each cycle a Chromium browser/context/page is created and closed after the cycle to keep idle CPU usage low. 更稳定；每一轮查询才启动 Chromium，完成后立即关闭，空闲时几乎不占用 CPU。
+- Email-only notifications. 首次记录或状态变化才通知（主题形如 `[状态] 查询码 - CZ Visa Status`，HTML 包含旧→新变更）。
+- Writes `SITE_DIR/status.json` (string-only statuses) and can serve a static site rooted at `SITE_DIR` when `SERVE=true` on `SITE_PORT`.
 
 Env / 环境变量:
 - SITE_DIR: output folder for status.json and static page
@@ -335,6 +335,10 @@ Service on Debian (systemd):
   - `sudo python visa_status.py monitor --stop`
   - `sudo python visa_status.py monitor --reload`
   - `sudo python visa_status.py monitor --uninstall`
+ - Restart: `sudo python visa_status.py monitor --restart`
+ - Notes:
+	 - The service prefers using the uv-created virtualenv Python (`.venv/bin/python` on Linux) when available. You can override with `--python-exe /full/path/to/python` during `--install`.
+	 - `--status` uses `systemctl --no-pager` to avoid blocking output.
 
 ## License / 许可证
 [MIT](LICENSE)
