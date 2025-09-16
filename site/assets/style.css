@@ -16,6 +16,10 @@ table { width: 100%; border-collapse: collapse; background: white; border-radius
 th, td { padding: 12px 14px; border-bottom: 1px solid #e2e8f0; text-align: left; }
 th { background: #f1f5f9; color: #334155; }
 tr:hover { background: #f8fafc; }
+.sortable { cursor: pointer; user-select: none; }
+.sort-indicator { font-size: 11px; opacity: .7; }
+.sorted-asc .sort-indicator::after { content: '▲'; margin-left: 4px; }
+.sorted-desc .sort-indicator::after { content: '▼'; margin-left: 4px; }
 .status-tag { padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; }
 .status-granted { background: #dcfce7; color: #14532d; }
 .status-proc { background: #e0f2fe; color: #0c4a6e; }

@@ -15,18 +15,13 @@
     <div class="toolbar">
       <button id="refresh">Refresh</button>
       <span id="generatedAt"></span>
-      <label for="sortBy" style="margin-left:8px;">Sort By:</label>
-      <select id="sortBy">
-        <option value="code-asc">Code ↑</option>
-        <option value="status-asc">Status ↑</option>
-      </select>
       <input id="filter" type="search" placeholder="Filter by code or status..." />
     </div>
     <table id="tbl">
       <thead>
         <tr>
-          <th>Code</th>
-          <th>Status</th>
+          <th id="th-code" data-sort-key="code" class="sortable">Code <span class="sort-indicator" id="si-code"></span></th>
+          <th id="th-status" data-sort-key="status" class="sortable">Status <span class="sort-indicator" id="si-status"></span></th>
           <th>Last Checked</th>
           <th>Last Changed</th>
           <th>Channel</th>

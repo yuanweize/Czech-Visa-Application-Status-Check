@@ -19,6 +19,8 @@ function codeKeyBigInt(code) {
   }
 }
 
+let sortState = { key: 'code', dir: 'asc' }; // default: code asc
+
 function statusClass(s) {
   const t = (s || '').toLowerCase();
   if (t.includes('granted') || t.includes('已通过')) return 'status-granted';
@@ -31,31 +33,35 @@ function render(data) {
   document.getElementById('generatedAt').textContent = 'Generated at: ' + (data.generated_at || '');
   const tb = document.querySelector('#tbl tbody');
   tb.innerHTML = '';
-  const sortBy = (document.getElementById('sortBy')?.value) || 'code-asc';
   const entries = Object.values(data.items || {}).sort((a, b) => {
-    if (sortBy === 'status-asc') {
+    if (sortState.key === 'status') {
       const as = String(a.status||'').toLowerCase();
       const bs = String(b.status||'').toLowerCase();
-      if (as < bs) return -1;
-      if (as > bs) return 1;
+      let cmp = 0;
+      if (as < bs) cmp = -1; else if (as > bs) cmp = 1; else cmp = 0;
+      if (cmp !== 0) return sortState.dir === 'asc' ? cmp : -cmp;
       // tie-break by code numeric value
       const ak = codeKeyBigInt(a.code);
       const bk = codeKeyBigInt(b.code);
       if (ak !== null && bk !== null) {
-        if (ak < bk) return -1;
-        if (ak > bk) return 1;
+        if (ak < bk) return sortState.dir === 'asc' ? -1 : 1;
+        if (ak > bk) return sortState.dir === 'asc' ? 1 : -1;
       }
-      return (String(a.code||'')).localeCompare(String(b.code||''));
+      const slex = (String(a.code||'')).localeCompare(String(b.code||''));
+      return sortState.dir === 'asc' ? slex : -slex;
+    } else {
+      // code sort
+      const ak = codeKeyBigInt(a.code);
+      const bk = codeKeyBigInt(b.code);
+      if (ak !== null && bk !== null) {
+        if (ak < bk) return sortState.dir === 'asc' ? -1 : 1;
+        if (ak > bk) return sortState.dir === 'asc' ? 1 : -1;
+        const slex = (String(a.code||'')).localeCompare(String(b.code||''));
+        return sortState.dir === 'asc' ? slex : -slex;
+      }
+      const slex = (String(a.code||'')).localeCompare(String(b.code||''));
+      return sortState.dir === 'asc' ? slex : -slex;
     }
-    const ak = codeKeyBigInt(a.code);
-    const bk = codeKeyBigInt(b.code);
-    if (ak !== null && bk !== null) {
-      if (ak < bk) return -1;
-      if (ak > bk) return 1;
-      return (String(a.code||'')).localeCompare(String(b.code||''));
-    }
-    // Fallback to lexicographic if numeric key not available
-    return (String(a.code||'')).localeCompare(String(b.code||''));
   });
   const q = (document.getElementById('filter').value || '').toLowerCase();
   for (const it of entries) {
@@ -84,8 +90,35 @@ async function refresh() {
 document.getElementById('refresh').addEventListener('click', refresh);
 const filter = document.getElementById('filter');
 filter.addEventListener('input', refresh);
-const sortBy = document.getElementById('sortBy');
-if (sortBy) sortBy.addEventListener('change', refresh);
+
+// Clickable header sorting
+const thCode = document.getElementById('th-code');
+const thStatus = document.getElementById('th-status');
+function setHeaderIndicators() {
+  // reset classes
+  thCode.classList.remove('sorted-asc','sorted-desc');
+  thStatus.classList.remove('sorted-asc','sorted-desc');
+  if (sortState.key === 'code') {
+    thCode.classList.add(sortState.dir === 'asc' ? 'sorted-asc' : 'sorted-desc');
+  } else {
+    thStatus.classList.add(sortState.dir === 'asc' ? 'sorted-asc' : 'sorted-desc');
+  }
+}
+function toggleSort(key) {
+  if (sortState.key === key) {
+    sortState.dir = (sortState.dir === 'asc') ? 'desc' : 'asc';
+  } else {
+    sortState.key = key;
+    sortState.dir = 'asc';
+  }
+  setHeaderIndicators();
+  refresh();
+}
+if (thCode) thCode.addEventListener('click', () => toggleSort('code'));
+if (thStatus) thStatus.addEventListener('click', () => toggleSort('status'));
+
+// initialize indicators for default (code asc)
+setHeaderIndicators();
 
 refresh();
 setInterval(refresh, 60000);
