@@ -103,9 +103,9 @@ def load_env_config(env_path: str = ".env") -> MonitorConfig:
     site_dir = data.get("SITE_DIR", os.path.join("reports", "monitor_site"))
     log_dir = data.get("MONITOR_LOG_DIR") or data.get("LOG_DIR") or os.path.join("logs", "monitor")
     try:
-        workers = int(data.get("MONITOR_WORKERS") or 5)
+        workers = int(data.get("MONITOR_WORKERS") or 1)
     except Exception:
-        workers = 5
+        workers = 1
 
     codes: List[CodeConfig] = []
     # Codes list: either JSON array in CODES_JSON or numbered entries CODE_1=... CHANNEL_1=...

@@ -120,7 +120,7 @@ async def run_once(config: MonitorConfig) -> Dict[str, Any]:
         num_codes = len(task_map)
         try:
             with open(log_path, 'a', encoding='utf-8') as lf:
-                lf.write(f"[{_now_iso()}] startup codes={num_codes} configured_workers={max(1, int(config.workers))} effective_workers=1 nav_cap=1\n")
+                lf.write(f"[{_now_iso()}] startup mode=sequential codes={num_codes} effective_workers=1 nav_cap=1\n")
         except Exception:
             pass
 
