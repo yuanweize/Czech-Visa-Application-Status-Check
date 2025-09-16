@@ -29,7 +29,6 @@ class MonitorConfig:
     headless: bool
     site_dir: str
     log_dir: str
-    workers: int
     codes: List[CodeConfig]
 
 
@@ -102,10 +101,7 @@ def load_env_config(env_path: str = ".env") -> MonitorConfig:
     headless = _bool(data.get("HEADLESS"), True)
     site_dir = data.get("SITE_DIR", os.path.join("reports", "monitor_site"))
     log_dir = data.get("MONITOR_LOG_DIR") or data.get("LOG_DIR") or os.path.join("logs", "monitor")
-    try:
-        workers = int(data.get("MONITOR_WORKERS") or 1)
-    except Exception:
-        workers = 1
+    # Deprecated: MONITOR_WORKERS removed; monitor runs sequentially by design.
 
     codes: List[CodeConfig] = []
     # Codes list: either JSON array in CODES_JSON or numbered entries CODE_1=... CHANNEL_1=...
@@ -148,4 +144,4 @@ def load_env_config(env_path: str = ".env") -> MonitorConfig:
             print("[monitor] No codes parsed from env. Check CODES_JSON or CODE_1 entries.", file=sys.stderr)
         except Exception:
             pass
-    return MonitorConfig(email=email, headless=headless, site_dir=site_dir, log_dir=log_dir, workers=workers, codes=codes)
+    return MonitorConfig(email=email, headless=headless, site_dir=site_dir, log_dir=log_dir, codes=codes)
