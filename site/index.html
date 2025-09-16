@@ -15,6 +15,11 @@
     <div class="toolbar">
       <button id="refresh">Refresh</button>
       <span id="generatedAt"></span>
+      <label for="sortBy" style="margin-left:8px;">Sort By:</label>
+      <select id="sortBy">
+        <option value="code-asc">Code ↑</option>
+        <option value="status-asc">Status ↑</option>
+      </select>
       <input id="filter" type="search" placeholder="Filter by code or status..." />
     </div>
     <table id="tbl">

@@ -31,7 +31,22 @@ function render(data) {
   document.getElementById('generatedAt').textContent = 'Generated at: ' + (data.generated_at || '');
   const tb = document.querySelector('#tbl tbody');
   tb.innerHTML = '';
+  const sortBy = (document.getElementById('sortBy')?.value) || 'code-asc';
   const entries = Object.values(data.items || {}).sort((a, b) => {
+    if (sortBy === 'status-asc') {
+      const as = String(a.status||'').toLowerCase();
+      const bs = String(b.status||'').toLowerCase();
+      if (as < bs) return -1;
+      if (as > bs) return 1;
+      // tie-break by code numeric value
+      const ak = codeKeyBigInt(a.code);
+      const bk = codeKeyBigInt(b.code);
+      if (ak !== null && bk !== null) {
+        if (ak < bk) return -1;
+        if (ak > bk) return 1;
+      }
+      return (String(a.code||'')).localeCompare(String(b.code||''));
+    }
     const ak = codeKeyBigInt(a.code);
     const bk = codeKeyBigInt(b.code);
     if (ak !== null && bk !== null) {
@@ -69,6 +84,8 @@ async function refresh() {
 document.getElementById('refresh').addEventListener('click', refresh);
 const filter = document.getElementById('filter');
 filter.addEventListener('input', refresh);
+const sortBy = document.getElementById('sortBy');
+if (sortBy) sortBy.addEventListener('change', refresh);
 
 refresh();
 setInterval(refresh, 60000);
