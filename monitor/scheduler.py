@@ -24,6 +24,13 @@ from .config import load_env_config, MonitorConfig, CodeConfig
 from .notify import send_email
 from query_modules.cz import _process_one, _ensure_ready, _maybe_hide_overlays
 
+# Import API handler for user management
+try:
+    from .api_server import APIHandler, start_cleanup_thread
+    API_AVAILABLE = True
+except ImportError:
+    API_AVAILABLE = False
+
 
 def _now_iso() -> str:
     return dt.datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
@@ -142,10 +149,25 @@ def _ensure_dir(p: str):
         pass
 
 
-def _start_http_server(site_dir: str, port: int, stop_evt: threading.Event, log):
-    handler = partial(SimpleHTTPRequestHandler, directory=site_dir)
-    server = ThreadingHTTPServer(("0.0.0.0", port), handler)
-    log(f"[{_now_iso()}] serve start dir={site_dir} port={port}")
+def _start_http_server(site_dir: str, port: int, stop_evt: threading.Event, log, config_path: str = '.env'):
+    """Start HTTP server with static file serving and API handling"""
+    if API_AVAILABLE:
+        # Create handler that combines static file serving with API handling
+        def create_handler(*args, **kwargs):
+            return APIHandler(*args, config_path=config_path, site_dir=site_dir, **kwargs)
+        
+        server = ThreadingHTTPServer(("0.0.0.0", port), create_handler)
+        log(f"[{_now_iso()}] serve start with API dir={site_dir} port={port}")
+        
+        # Start background cleanup for user management
+        cleanup_thread = start_cleanup_thread(site_dir)
+        log(f"[{_now_iso()}] started background cleanup for user management")
+    else:
+        # Fallback to simple static file serving
+        handler = partial(SimpleHTTPRequestHandler, directory=site_dir)
+        server = ThreadingHTTPServer(("0.0.0.0", port), handler)
+        log(f"[{_now_iso()}] serve start (static only) dir={site_dir} port={port}")
+    
     t = threading.Thread(target=server.serve_forever, daemon=True)
     t.start()
     stop_evt.wait()
@@ -512,7 +534,9 @@ async def run_scheduler(env_path: str, once: bool = False):
     server_thread = None
     if cfg.serve and not once:
         server_thread = threading.Thread(
-            target=_start_http_server, args=(cfg.site_dir, cfg.site_port, stop_evt, log), daemon=True
+            target=_start_http_server, 
+            args=(cfg.site_dir, cfg.site_port, stop_evt, log, env_path), 
+            daemon=True
         )
         server_thread.start()
 

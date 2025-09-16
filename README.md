@@ -30,12 +30,18 @@ Save failing rows after retries to daily failure files in `logs/fails/` for offl
 
 ## Project structure (for contributors) / 项目结构（面向贡献者）
 - `visa_status.py` — CLI entrypoint and dispatcher that registers country modules and exposes commands.
+- `monitor/` — monitoring and user management modules:
+  - `scheduler.py` — main monitoring scheduler with integrated HTTP server
+  - `api_server.py` — user management API module (imported by scheduler)
+  - `config.py` — configuration management
+  - `notify.py` — email notification system
 - `query_modules/` — directory containing one module per country (e.g. `cz.py`). Each module implements a simple querying interface.
+- `site/` — static website files (HTML, CSS, JS) for user interface
 - `tools/generate_codes.py` — code generator utility.
 - `logs/` — run and fail logs; failing rows are appended to `logs/fails/YYYY-MM-DD_fails.csv`.
 - `requirements.txt` — Python dependencies (playwright; optional matplotlib; watchdog for .env hot reloading).
 
-设计说明：查询器为模块化设计——要添加新的国家支持，请在 `query_modules/<iso>.py` 下添加文件，按照 `PROJECT_OVERVIEW.md` 中描述的模块 API 实现并在 `visa_status.py` 中注册。
+设计说明：查询器为模块化设计——要添加新的国家支持，请在 `query_modules/<iso>.py` 下添加文件，按照 `PROJECT_OVERVIEW.md` 中描述的模块 API 实现并在 `visa_status.py` 中注册。用户管理功能通过 `monitor/api_server.py` 模块实现，可被主调度器集成或独立运行。
 
 ## Quick start (uv) / 快速开始（推荐使用 uv）
 
@@ -312,10 +318,49 @@ Add a country module in `query_modules/` following the module API in `PROJECT_OV
 - Project overview (developer guide): [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md)
 - 项目概览（开发者指南）：[PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md)
 
-## Monitor (sequential) / 监控模式（串行稳定）
+## Monitor & User Management / 监控与用户管理
 - Sequential queries; during each cycle a Chromium browser/context/page is created and closed after the cycle to keep idle CPU usage low. 更稳定；每一轮查询才启动 Chromium，完成后立即关闭，空闲时几乎不占用 CPU。
 - Email-only notifications. 首次记录或状态变化才通知（主题形如 `[状态] 查询码 - CZ Visa Status`，HTML 包含旧→新变更）。
 - Writes `SITE_DIR/status.json` (string-only statuses) and can serve a static site rooted at `SITE_DIR` when `SERVE=true` on `SITE_PORT`.
+
+### User Code Management / 用户代码管理
+The system now includes a user-friendly interface for public users to add and manage their visa codes with email verification:
+
+系统现在包含用户友好的界面，允许公众用户通过邮箱验证来添加和管理他们的签证代码：
+
+**Features / 功能:**
+- **Email Verification**: Secure 10-minute verification links for code additions / 邮件验证：代码添加的10分钟安全验证链接
+- **Simple Captcha**: Basic math questions to prevent automated abuse / 简单验证码：基础数学题防止自动化滥用
+- **Code Management**: Users can view and delete their own codes / 代码管理：用户可查看和删除自己的代码
+- **No Quantity Limits**: Users can add as many codes as needed / 无数量限制：用户可根据需要添加任意数量代码
+- **6-Digit Verification**: Time-limited verification codes for secure management / 6位验证码：用于安全管理的限时验证码
+
+**Architecture / 架构:**
+- **Modular Design**: API functionality is organized in `monitor/api_server.py` module / 模块化设计：API功能组织在`monitor/api_server.py`模块中
+- **Single Server**: One server handles both monitoring and user management / 单服务器：一个服务器同时处理监控和用户管理
+- **Configuration Control**: Use `SERVE=true/false` to enable/disable web interface / 配置控制：使用`SERVE=true/false`启用/禁用Web界面
+- **Clean Structure**: All monitoring-related modules are contained in `monitor/` folder / 清晰结构：所有监控相关模块都包含在`monitor/`文件夹中
+
+**Quick Start / 快速开始:**
+```bash
+# For web interface with user management (SERVE=true)
+# 启用Web界面和用户管理（SERVE=true）
+python visa_status.py monitor
+
+# For pure monitoring without web interface (SERVE=false)  
+# 纯监控模式，无Web界面（SERVE=false）
+python visa_status.py monitor
+
+# Configure in .env file:
+# 在.env文件中配置：
+SERVE=true   # Enable web interface / 启用Web界面
+SERVE=false  # Disable web interface / 禁用Web界面
+```
+
+**Access Points / 访问点:**
+- Main Website: http://localhost:8000 (when SERVE=true) / 主网站：http://localhost:8000（当SERVE=true时）
+- User Management: Built into main website toolbar / 用户管理：集成在主网站工具栏中
+- Pure Monitoring: No web interface (when SERVE=false) / 纯监控：无Web界面（当SERVE=false时）
 **Hot reloading / .env 热更新**
 
 The monitor supports automatic hot reloading of the `.env` configuration file. When enabled, any changes to `.env` are detected and the configuration is reloaded without restarting the service.
