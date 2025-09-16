@@ -8,6 +8,17 @@ async function loadData() {
   }
 }
 
+function codeKeyBigInt(code) {
+  try {
+    const s = String(code || '');
+    const digits = (s.match(/\d+/g) || []).join('');
+    if (!digits) return null;
+    return BigInt(digits);
+  } catch (_) {
+    return null;
+  }
+}
+
 function statusClass(s) {
   const t = (s || '').toLowerCase();
   if (t.includes('granted') || t.includes('已通过')) return 'status-granted';
@@ -20,7 +31,17 @@ function render(data) {
   document.getElementById('generatedAt').textContent = 'Generated at: ' + (data.generated_at || '');
   const tb = document.querySelector('#tbl tbody');
   tb.innerHTML = '';
-  const entries = Object.values(data.items || {}).sort((a,b)=> (a.code||'').localeCompare(b.code||''));
+  const entries = Object.values(data.items || {}).sort((a, b) => {
+    const ak = codeKeyBigInt(a.code);
+    const bk = codeKeyBigInt(b.code);
+    if (ak !== null && bk !== null) {
+      if (ak < bk) return -1;
+      if (ak > bk) return 1;
+      return (String(a.code||'')).localeCompare(String(b.code||''));
+    }
+    // Fallback to lexicographic if numeric key not available
+    return (String(a.code||'')).localeCompare(String(b.code||''));
+  });
   const q = (document.getElementById('filter').value || '').toLowerCase();
   for (const it of entries) {
     const hay = (it.code + ' ' + (it.status||'')).toLowerCase();
