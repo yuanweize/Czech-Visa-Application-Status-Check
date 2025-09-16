@@ -20,7 +20,8 @@ function codeKeyBigInt(code) {
 }
 
 let sortState = { key: 'code', dir: 'asc' }; // default: code asc
-let nextRefreshAt = 0; // epoch ms
+let countdownInterval = null;
+let refreshInProgress = false;
 
 function statusClass(s) {
   const t = (s || '').toLowerCase();
@@ -30,8 +31,46 @@ function statusClass(s) {
   return 'status-unknown';
 }
 
+function startCountdown() {
+  let seconds = 60;
+  const countdownEl = document.getElementById('countdown');
+  
+  if (countdownInterval) clearInterval(countdownInterval);
+  
+  countdownInterval = setInterval(() => {
+    seconds--;
+    if (seconds <= 0) {
+      countdownEl.textContent = 'Refreshing...';
+      clearInterval(countdownInterval);
+    } else {
+      countdownEl.textContent = `Next refresh in ${seconds}s`;
+    }
+  }, 1000);
+  
+  countdownEl.textContent = `Next refresh in ${seconds}s`;
+}
+
+function showLoading() {
+  document.getElementById('loading-overlay').style.display = 'flex';
+  const btn = document.getElementById('refresh');
+  btn.disabled = true;
+  btn.querySelector('.btn-text').style.display = 'none';
+  btn.querySelector('.spinner').style.display = 'inline';
+  refreshInProgress = true;
+}
+
+function hideLoading() {
+  document.getElementById('loading-overlay').style.display = 'none';
+  const btn = document.getElementById('refresh');
+  btn.disabled = false;
+  btn.querySelector('.btn-text').style.display = 'inline';
+  btn.querySelector('.spinner').style.display = 'none';
+  refreshInProgress = false;
+}
+
 function render(data) {
-  document.getElementById('generatedAt').textContent = 'Generated at: ' + (data.generated_at || '');
+  window.lastData = data; // Store for filter operations
+  document.getElementById('generatedAt').textContent = 'Last updated: ' + (data.generated_at || '');
   const tb = document.querySelector('#tbl tbody');
   tb.innerHTML = '';
   const entries = Object.values(data.items || {}).sort((a, b) => {
@@ -84,36 +123,34 @@ function render(data) {
 }
 
 async function refresh() {
-  const btn = document.getElementById('refresh');
-  const overlay = document.getElementById('loadingOverlay');
-  try {
-    if (btn) btn.disabled = true;
-    if (overlay) overlay.classList.add('show');
-    const data = await loadData();
-    render(data);
-    // schedule next refresh timestamp for countdown
-    nextRefreshAt = Date.now() + 60000;
-  } finally {
-    if (overlay) overlay.classList.remove('show');
-    if (btn) btn.disabled = false;
-  }
+  if (refreshInProgress) return;
+  
+  showLoading();
+  const data = await loadData();
+  render(data);
+  hideLoading();
+  startCountdown();
 }
 
 document.getElementById('refresh').addEventListener('click', refresh);
 const filter = document.getElementById('filter');
-filter.addEventListener('input', refresh);
+filter.addEventListener('input', () => {
+  if (!refreshInProgress) render(window.lastData || { items: {} });
+});
 
 // Clickable header sorting
 const thCode = document.getElementById('th-code');
 const thStatus = document.getElementById('th-status');
 function setHeaderIndicators() {
-  // reset classes
-  thCode.classList.remove('sorted-asc','sorted-desc');
-  thStatus.classList.remove('sorted-asc','sorted-desc');
+  const arrowCode = document.getElementById('arrow-code');
+  const arrowStatus = document.getElementById('arrow-status');
+  
   if (sortState.key === 'code') {
-    thCode.classList.add(sortState.dir === 'asc' ? 'sorted-asc' : 'sorted-desc');
+    arrowCode.textContent = sortState.dir === 'asc' ? '↑' : '↓';
+    arrowStatus.textContent = '';
   } else {
-    thStatus.classList.add(sortState.dir === 'asc' ? 'sorted-asc' : 'sorted-desc');
+    arrowCode.textContent = '';
+    arrowStatus.textContent = sortState.dir === 'asc' ? '↑' : '↓';
   }
 }
 function toggleSort(key) {
@@ -124,23 +161,13 @@ function toggleSort(key) {
     sortState.dir = 'asc';
   }
   setHeaderIndicators();
-  refresh();
+  if (!refreshInProgress) render(window.lastData || { items: {} });
 }
 if (thCode) thCode.addEventListener('click', () => toggleSort('code'));
 if (thStatus) thStatus.addEventListener('click', () => toggleSort('status'));
 
-// initialize indicators and countdown for default (code asc)
+// initialize indicators for default (code asc)
 setHeaderIndicators();
-
-// countdown display
-const countdownEl = document.getElementById('countdown');
-function tickCountdown() {
-  if (!countdownEl || !nextRefreshAt) return;
-  const ms = Math.max(0, nextRefreshAt - Date.now());
-  const s = Math.ceil(ms / 1000);
-  countdownEl.textContent = s ? `Next refresh in ${s}s` : '';
-}
-setInterval(tickCountdown, 250);
 
 refresh();
 setInterval(refresh, 60000);

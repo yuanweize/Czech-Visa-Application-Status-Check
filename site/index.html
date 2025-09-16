@@ -1,4 +1,7 @@
-<!doctype html>
+<!doctype  <header>
+    <h1>Czech Republic Visa Monitor</h1>
+    <p class="subtitle">Real-time visa application status monitoring / 实时签证申请状态监控</p>
+  </header>l>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
@@ -8,61 +11,57 @@
 </head>
 <body>
   <header>
-    <div class="container">
-      <h1>Czech Republic Visa Monitor</h1>
-      <p class="subtitle">Visa application status dashboard / 签证申请状态看板</p>
-    </div>
+  <h1>Czech Republic Visa Monitor</h1>
+  <p class="subtitle">Live visa application statuses for your codes / 签证申请状态</p>
   </header>
   <main>
-    <div class="container">
     <div class="toolbar">
-      <button id="refresh">Refresh</button>
-      <span id="generatedAt"></span>
-      <span id="countdown" class="muted"></span>
+      <button id="refresh" disabled>
+        <span class="btn-text">Refresh</span>
+        <span class="spinner" style="display: none;">⟳</span>
+      </button>
+      <div class="status-info">
+        <span id="generatedAt"></span>
+        <div id="countdown" class="countdown"></div>
+      </div>
       <input id="filter" type="search" placeholder="Filter by code or status..." />
     </div>
-    <div class="table-wrap">
-      <table id="tbl">
-        <thead>
-          <tr>
-            <th id="th-code" data-sort-key="code" class="sortable">Code <span class="sort-indicator" id="si-code"></span></th>
-            <th id="th-status" data-sort-key="status" class="sortable">Status <span class="sort-indicator" id="si-status"></span></th>
-            <th>Last Checked</th>
-            <th>Last Changed</th>
-            <th>Channel</th>
-          </tr>
-        </thead>
-        <tbody></tbody>
-      </table>
-      <div id="loadingOverlay" class="loading-overlay" aria-hidden="true">
-        <div class="spinner"></div>
-        <div class="loading-text">Refreshing…</div>
+    <table id="tbl">
+      <thead>
+        <tr>
+          <th id="th-code" data-sort-key="code" class="sortable">
+            Code <span class="sort-arrow" id="arrow-code">↑</span>
+          </th>
+          <th id="th-status" data-sort-key="status" class="sortable">
+            Status <span class="sort-arrow" id="arrow-status"></span>
+          </th>
+          <th>Last Checked</th>
+          <th>Last Changed</th>
+          <th>Channel</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+    <div id="loading-overlay" class="loading-overlay" style="display: none;">
+      <div class="loading-spinner">
+        <div class="spinner-ring"></div>
+        <p>Refreshing data...</p>
       </div>
-    </div>
     </div>
   </main>
   <footer>
-    <div class="container">
-      <small>Updated from status.json. Auto-refreshes every 60s.</small>
-      <div class="footer-meta">
-        <div class="footer-grid">
-          <div class="footer-col">
-            <strong>Performance &amp; Security</strong><br/>
-            EURUN CDN
-          </div>
-          <div class="footer-col">
-            <strong>Operator</strong><br/>
-            HKTSE s.r.o.
-          </div>
-          <div class="footer-col">
-            <strong>Address</strong><br/>
-            Holandská 49/4, 10100 Praha, Czech Republic
-          </div>
-          <div class="footer-col">
-            <strong>Contact</strong><br/>
-            <a href="mailto:info@hktse.eu.org">info@hktse.eu.org</a>
-          </div>
-        </div>
+    <div class="footer-main">
+      <small>Updated from status.json • Auto-refreshes every 60 seconds</small>
+    </div>
+    <div class="footer-company">
+      <div class="company-line">
+        <strong>EURUN CDN</strong> • Performance &amp; Security
+      </div>
+      <div class="operator-line">
+        Operated by <strong>HKTSE s.r.o.</strong> • Holandská 49/4, 10100 Praha, Czech Republic
+      </div>
+      <div class="contact-line">
+        Contact: <a href="mailto:info@hktse.eu.org">info@hktse.eu.org</a>
       </div>
     </div>
   </footer>
