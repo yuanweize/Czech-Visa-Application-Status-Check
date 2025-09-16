@@ -334,7 +334,8 @@ async def run_scheduler(env_path: str, once: bool = False):
             while attempts < 3:
                 attempts += 1
                 try:
-                    status = await _process_one(page, code, None)  # sequential, no nav sem
+                    s, _tim = await _process_one(page, code, None)  # sequential, no nav sem
+                    status = s or status
                     break
                 except Exception as e:
                     log(f"[{_now_iso()}] code={code} attempt={attempts} error={str(e)}")
