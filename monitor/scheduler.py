@@ -366,8 +366,33 @@ async def run_scheduler(env_path: str, once: bool = False):
     log_path = os.path.join(cfg.log_dir, f"monitor_{dt.datetime.now().strftime('%Y-%m-%d')}.log")
 
     def log(msg: str):
-        with open(log_path, "a", encoding="utf-8") as f:
-            f.write(msg.rstrip() + "\n")
+        """Enhanced logging with rotation to keep logs under 2MB."""
+        try:
+            # Check log file size and rotate if needed
+            if os.path.exists(log_path) and os.path.getsize(log_path) > 2 * 1024 * 1024:  # 2MB
+                # Create backup and truncate
+                backup_path = log_path.replace('.log', '_backup.log')
+                if os.path.exists(backup_path):
+                    os.remove(backup_path)
+                os.rename(log_path, backup_path)
+                # Keep only recent entries from backup
+                try:
+                    with open(backup_path, 'r', encoding='utf-8') as f:
+                        lines = f.readlines()
+                    # Keep last 1000 lines
+                    recent_lines = lines[-1000:] if len(lines) > 1000 else lines
+                    with open(log_path, 'w', encoding='utf-8') as f:
+                        f.writelines(recent_lines)
+                    os.remove(backup_path)
+                except Exception:
+                    # If rotation fails, just create new file
+                    open(log_path, 'w').close()
+            
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write(msg.rstrip() + "\n")
+        except Exception as e:
+            # Fallback to print if logging fails
+            print(f"Logging error: {e} - Message: {msg}")
 
     codes = cfg.codes
     if not codes:
@@ -539,33 +564,39 @@ async def run_scheduler(env_path: str, once: bool = False):
             async def handle_one(code_cfg):
                 nonlocal context, page
                 code = code_cfg.code
+                log(f"[{_now_iso()}] Processing code={code} (channel={code_cfg.channel}, target={code_cfg.target})")
                 attempts = 0
                 status = None
                 while attempts < 3:
                     attempts += 1
                     try:
+                        log(f"[{_now_iso()}] code={code} attempt={attempts}/3 starting query")
                         s, _tim = await _process_one(page, code, None)
                         status = s or status
+                        if status:
+                            log(f"[{_now_iso()}] code={code} attempt={attempts}/3 success: {status}")
                         break
                     except Exception as e:
-                        log(f"[{_now_iso()}] code={code} attempt={attempts} error={str(e)}")
+                        log(f"[{_now_iso()}] code={code} attempt={attempts}/3 error={str(e)}")
                         try:
                             await _ensure_ready(page, None)
                             await _maybe_hide_overlays(page)
                         except Exception:
                             pass
                         if attempts == 2:
+                            log(f"[{_now_iso()}] code={code} max attempts reached, recreating browser context")
                             try:
                                 await context.close()
                                 context = await browser.new_context()
                                 page = await context.new_page()
                                 await _ensure_ready(page, None)
                                 await _maybe_hide_overlays(page)
-                            except Exception:
-                                pass
+                            except Exception as ctx_e:
+                                log(f"[{_now_iso()}] code={code} context recreation failed: {ctx_e}")
                         await asyncio.sleep(0.5 * attempts)
                 if not status:
                     status = "Query Failed / 查询失败"
+                    log(f"[{_now_iso()}] code={code} all attempts failed, marking as Query Failed")
 
                 old_item = state["items"].get(code, {})
                 old_status = old_item.get("status")
@@ -591,56 +622,86 @@ async def run_scheduler(env_path: str, once: bool = False):
 
                 # Notify only on first-time record or when status actually changes (and not for Query Failed)
                 if (first_time or changed) and status != "Query Failed / 查询失败" and email_configured:
+                    log(f"[{_now_iso()}] code={code} triggering notification (first_time={first_time}, changed={changed})")
                     subject = _build_email_subject(status, code)
                     notif_label = '状态变更' if (old_status and changed) else '首次记录'
                     when = _now_iso()
                     body = _build_email_body(code, status, when, changed=changed, old_status=old_status, notif_label=notif_label)
+                    log(f"[{_now_iso()}] code={code} sending email to={code_cfg.target}")
                     ok, err = send_email(current_cfg, code_cfg.target, subject, body)
                     if ok:
                         log(f"[{_now_iso()}] notify Email code={code} to={code_cfg.target} ok=True")
                     else:
                         log(f"[{_now_iso()}] notify Email code={code} to={code_cfg.target} error={err}")
+                elif not email_configured and code_cfg.channel == "email":
+                    log(f"[{_now_iso()}] code={code} email notification skipped (email not properly configured)")
+                else:
+                    log(f"[{_now_iso()}] code={code} notification skipped (no change or query failed)")
 
             for c in current_codes:
                 await handle_one(c)
+            
+            # Log cycle summary
+            processed_count = len(current_codes)
+            log(f"[{_now_iso()}] Cycle summary: processed {processed_count} codes, updating status.json")
+            
             state["generated_at"] = _now_iso()
             with open(site_json, "w", encoding="utf-8") as f:
                 json.dump(state, f, ensure_ascii=False, indent=2)
             await browser.close()
+            log(f"[{_now_iso()}] Browser closed, cycle complete")
 
     try:
         if once:
             await run_cycle()
         else:
             while not stop_flag:
+                cycle_start = _now_iso()
+                log(f"[{cycle_start}] Starting monitoring cycle")
+                
                 # Check for configuration reload
                 if config_reload_flag.is_set():
                     config_reload_flag.clear()
+                    log(f"[{_now_iso()}] Processing configuration reload")
                     # Update site_json path in case SITE_DIR changed
                     with config_lock:
                         site_json = os.path.join(cfg.site_dir, "status.json")
                         os.makedirs(cfg.site_dir, exist_ok=True)
                 
-                await run_cycle()
+                # Get current codes for this cycle
+                with config_lock:
+                    current_codes = codes[:]
+                
+                if current_codes:
+                    log(f"[{_now_iso()}] Processing {len(current_codes)} codes")
+                    await run_cycle()
+                    cycle_end = _now_iso()
+                    log(f"[{cycle_end}] Cycle completed, processed {len(current_codes)} codes")
+                else:
+                    log(f"[{_now_iso()}] No codes configured, waiting for configuration...")
+                
                 if stop_flag:
                     break
                     
-                # Get current frequency settings
+                # Calculate sleep time
                 with config_lock:
                     current_codes = codes[:]
                     
                 if current_codes:
                     mins = min([max(1, c.freq_minutes) for c in current_codes])
                     total = mins * 60
+                    log(f"[{_now_iso()}] Sleeping for {mins} minutes until next cycle")
                     while total > 0 and not stop_flag:
                         step = min(1.0, total)
                         await asyncio.sleep(step)
                         total -= step
                         # Check for config reload during sleep
                         if config_reload_flag.is_set():
+                            log(f"[{_now_iso()}] Config reload detected during sleep, breaking early")
                             break
                 else:
                     # No codes configured, wait and check for reload
+                    log(f"[{_now_iso()}] No codes configured, sleeping 60s and rechecking")
                     await asyncio.sleep(60)
     finally:
         # Cleanup
