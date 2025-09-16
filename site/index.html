@@ -23,22 +23,24 @@
       </div>
       <input id="filter" type="search" placeholder="Filter by code or status..." />
     </div>
-    <table id="tbl">
-      <thead>
-        <tr>
-          <th id="th-code" data-sort-key="code" class="sortable">
-            Code <span class="sort-arrow" id="arrow-code">↓</span>
-          </th>
-          <th id="th-status" data-sort-key="status" class="sortable">
-            Status <span class="sort-arrow" id="arrow-status"></span>
-          </th>
-          <th>Last Checked</th>
-          <th>Last Changed</th>
-          <th>Channel</th>
-        </tr>
-      </thead>
-      <tbody></tbody>
-    </table>
+    <div class="table-container">
+      <table id="tbl">
+        <thead>
+          <tr>
+            <th id="th-code" data-sort-key="code" class="sortable">
+              Code <span class="sort-arrow" id="arrow-code">↓</span>
+            </th>
+            <th id="th-status" data-sort-key="status" class="sortable">
+              Status <span class="sort-arrow" id="arrow-status"></span>
+            </th>
+            <th>Last Checked</th>
+            <th>Last Changed</th>
+            <th>Channel</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
     <div class="footer-main">
       <small>Updated from status.json • Auto-refreshes every 60 seconds</small>
     </div>
