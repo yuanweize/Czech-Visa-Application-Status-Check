@@ -9,8 +9,8 @@ from typing import Dict, Any
 from playwright.async_api import async_playwright
 
 from .config import load_env_config, MonitorConfig, CodeConfig
-from .notify import send_telegram, send_email
-from query_modules.cz import query_code_with_browser, _normalize_status
+from .notify import send_email
+from query_modules.cz import _process_one
 
 
 STATE_FILE = "status.json"
@@ -20,18 +20,64 @@ def _now_iso() -> str:
     return dt.datetime.now().isoformat(timespec="seconds")
 
 
-def _format_notify(code: str, status: str, when: str) -> str:
-    return (
-        f"<b>CZ Visa Status</b>\n"
-        f"Code: <code>{code}</code>\n"
-        f"Status: <b>{status}</b>\n"
-        f"Time: {when}"
-    )
+def _build_email_subject(status: str, code: str) -> str:
+        # Example: [Granted / 已通过] PEKI202508190001 - CZ Visa Status
+        return f"[{status}] {code} - CZ Visa Status"
+
+
+def _build_email_body(code: str, status: str, when: str, *, changed: bool, old_status: str | None, notif_label: str) -> str:
+        # Simple, clean HTML email with minimal inline styles
+        old_to_new = ''
+        if changed and old_status:
+                old_to_new = f"<tr><td style=\"color:#555;\">状态变化</td><td><b>{old_status}</b> &rarr; <b>{status}</b></td></tr>"
+        return f"""
+        <div style=\"font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif; line-height:1.6; color:#222;\">
+            <div style=\"max-width:680px; margin:24px auto; border:1px solid #eee; border-radius:10px; overflow:hidden; box-shadow:0 4px 14px rgba(0,0,0,.06);\">
+                <div style=\"padding:16px 20px; background:#0b5ed7; color:#fff;\">
+                    <div style=\"font-weight:600; font-size:16px; letter-spacing:.2px;\">CZ Visa Status 通知</div>
+                    <div style=\"margin-top:4px; font-size:13px; opacity:.9;\">Code <b>{code}</b> · 当前状态 <b>{status}</b></div>
+                </div>
+                <div style=\"padding:16px 20px; background:#fff;\">
+                    <table style=\"width:100%; border-collapse:collapse; font-size:14px;\">
+                        <tr>
+                            <td style=\"width:120px; color:#555;\">查询码</td>
+                            <td><code style=\"background:#f6f8fa; padding:2px 6px; border-radius:6px;\">{code}</code></td>
+                        </tr>
+                        <tr>
+                            <td style=\"color:#555;\">通知类型</td>
+                            <td>{notif_label}</td>
+                        </tr>
+                        {old_to_new}
+                        <tr>
+                            <td style=\"color:#555;\">当前状态</td>
+                            <td><b>{status}</b></td>
+                        </tr>
+                        <tr>
+                            <td style=\"color:#555;\">时间</td>
+                            <td>{when}</td>
+                        </tr>
+                    </table>
+                </div>
+                <div style=\"padding:12px 20px; background:#fafafa; color:#666; font-size:12px; border-top:1px solid #eee;\">
+                    说明：当首次查询或状态发生变化时会发送通知；若状态为“查询失败”，不会触发通知。
+                </div>
+            </div>
+        </div>
+        """
+
+
+def _ensure_dir(p: str):
+    try:
+        os.makedirs(p, exist_ok=True)
+    except Exception:
+        pass
 
 
 async def run_once(config: MonitorConfig) -> Dict[str, Any]:
-    os.makedirs(config.site_dir, exist_ok=True)
+    _ensure_dir(config.site_dir)
+    _ensure_dir(config.log_dir)
     state_path = os.path.join(config.site_dir, STATE_FILE)
+    log_path = os.path.join(config.log_dir, f"monitor_{dt.date.today().isoformat()}.log")
     # Load previous state
     prev: Dict[str, Any] = {}
     if os.path.exists(state_path):
@@ -53,40 +99,182 @@ async def run_once(config: MonitorConfig) -> Dict[str, Any]:
     }
 
     async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=config.headless)
+        # Add small stealth args to reduce headless detection odds
+        browser = await p.chromium.launch(
+            headless=config.headless,
+            args=["--disable-blink-features=AutomationControlled", "--no-sandbox", "--disable-gpu"]
+        )
         try:
-            # Sequential by default to be gentle; small concurrency could be added if needed
+            queue: asyncio.Queue = asyncio.Queue()
+
+            # Build items with channel label and enqueue (Email-only)
+            task_map = {}
             for cc in config.codes:
                 code = cc.code
-                status, timings = await query_code_with_browser(browser, code)
-                status = _normalize_status(status or "")
-                when = _now_iso()
-                result_summary["checked"] += 1
-                old = items.get(code)
-                first_time = old is None
-                old_status = old.get("status") if isinstance(old, dict) else None
-                changed = (old_status != status)
-                if changed:
-                    result_summary["changed"] += 1
-                # Persist
-                items[code] = {
-                    "code": code,
-                    "status": status,
-                    "last_checked": when,
-                    "last_changed": when if changed else (old.get("last_changed") if isinstance(old, dict) else when),
-                    "channel": cc.channel,
-                    "target": cc.target,
+                chan = (cc.channel or '').lower()
+                chan_label = 'Email' if chan == 'email' else ''
+                task_map[code] = {
+                    'code': code,
+                    'chan': chan,
+                    'chan_label': chan_label,
+                    'target': cc.target,
                 }
-                # Notify if first time OR changed
-                do_notify = first_time or changed
-                if do_notify:
-                    sent = False
-                    if cc.channel == "tg" and config.telegram:
-                        sent = send_telegram(config.telegram, _format_notify(code, status, when), chat_id_override=cc.target)
-                    elif cc.channel == "email" and config.email and cc.target:
-                        sent = send_email(config.email, cc.target, subject=f"CZ Visa Status for {code}", body=_format_notify(code, status, when))
-                    if sent:
-                        result_summary["notified"] += 1
+                await queue.put(code)
+
+            # Determine effective worker count: don't spawn more workers than codes
+            num_codes = len(task_map)
+            configured_workers = max(1, int(config.workers))
+            workers = min(configured_workers, max(1, num_codes)) if num_codes > 0 else 0
+
+            # Align navigation throttling with effective worker count
+            nav_cap = min(10, max(1, workers)) if workers > 0 else 1
+            nav_sem = asyncio.Semaphore(nav_cap)
+
+            # Startup log
+            try:
+                with open(log_path, 'a', encoding='utf-8') as lf:
+                    lf.write(f"[{_now_iso()}] startup codes={num_codes} configured_workers={configured_workers} effective_workers={workers} nav_cap={nav_cap}\n")
+            except Exception:
+                pass
+
+            result_lock = asyncio.Lock()
+
+            async def handle_result(code: str, status: str):
+                nonlocal items, result_summary
+                when = _now_iso()
+                async with result_lock:
+                    result_summary["checked"] += 1
+                    meta = task_map[code]
+                    old = items.get(code)
+                    first_time = old is None
+                    old_status = old.get("status") if isinstance(old, dict) else None
+                    changed = (old_status != status)
+                    if changed:
+                        result_summary["changed"] += 1
+                    items[code] = {
+                        "code": code,
+                        "status": status,
+                        "last_checked": when,
+                        "last_changed": when if changed else (old.get("last_changed") if isinstance(old, dict) else when),
+                        "channel": meta['chan_label'],
+                        "target": meta['target'],
+                    }
+                    # Notify
+                    do_notify = (first_time or changed) and (not isinstance(status, str) or 'query failed' not in status.lower())
+                    if do_notify:
+                        sent = False
+                        if meta['chan'] == 'email' and config.email and meta['target']:
+                            notif_label = '状态变更' if changed and old_status else '首次记录'
+                            subject = _build_email_subject(status, code)
+                            body = _build_email_body(code, status, when, changed=changed, old_status=old_status, notif_label=notif_label)
+                            try:
+                                # send_email will raise on failure; success returns True
+                                sent = send_email(config.email, meta['target'], subject=subject, body=body)
+                            except Exception as e:
+                                sent = False
+                                try:
+                                    with open(log_path, 'a', encoding='utf-8') as lf:
+                                        lf.write(f"[{_now_iso()}] notify Email code={code} to={meta['target']} error={str(e)}\n")
+                                except Exception:
+                                    pass
+                            else:
+                                try:
+                                    with open(log_path, 'a', encoding='utf-8') as lf:
+                                        lf.write(f"[{_now_iso()}] notify Email code={code} to={meta['target']} ok={sent}\n")
+                                except Exception:
+                                    pass
+                        if sent:
+                            result_summary["notified"] += 1
+
+            async def worker(name: str):
+                context = await browser.new_context()
+                # basic stealth: unset webdriver and set languages/plugins
+                try:
+                    await context.add_init_script(
+                        """
+                        Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+                        Object.defineProperty(navigator, 'language', { get: () => 'en-US' });
+                        Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
+                        Object.defineProperty(navigator, 'plugins', { get: () => [1,2,3] });
+                        """
+                    )
+                except Exception:
+                    pass
+                # Block heavy resources similar to cz worker
+                async def _route_handler(route):
+                    try:
+                        if route.request.resource_type in {"image", "font"}:
+                            await route.abort()
+                        else:
+                            await route.continue_()
+                    except Exception:
+                        try:
+                            await route.continue_()
+                        except Exception:
+                            pass
+                try:
+                    await context.route("**/*", _route_handler)
+                except Exception:
+                    pass
+                page = await context.new_page()
+                try:
+                    page.set_default_timeout(15000)
+                    page.set_default_navigation_timeout(20000)
+                except Exception:
+                    pass
+                # Pre-warm: ensure input present and hide overlays once
+                try:
+                    from query_modules.cz import _ensure_ready, _maybe_hide_overlays
+                    await _ensure_ready(page, nav_sem)
+                    await _maybe_hide_overlays(page)
+                except Exception:
+                    pass
+                while True:
+                    try:
+                        code = await queue.get()
+                    except Exception:
+                        break
+                    if code is None:
+                        queue.task_done()
+                        break
+                    status = 'Query Failed / 查询失败'
+                    for attempt in range(1, 3):
+                        try:
+                            s, _tim = await _process_one(page, code, nav_sem)
+                            # Do not re-normalize; _process_one already returns normalized status
+                            status = s or 'Unknown / 未知'
+                            break
+                        except Exception as e:
+                            try:
+                                with open(log_path, 'a', encoding='utf-8') as lf:
+                                    lf.write(f"[{_now_iso()}] code={code} attempt={attempt} error={str(e)}\n")
+                            except Exception:
+                                pass
+                            if attempt < 2:
+                                await asyncio.sleep(1.0)
+                    # Log final status (no captures)
+                    try:
+                        with open(log_path, 'a', encoding='utf-8') as lf:
+                            lf.write(f"[{_now_iso()}] result code={code} status={status}\n")
+                    except Exception:
+                        pass
+                    await handle_result(code, status)
+                    queue.task_done()
+                try:
+                    await context.close()
+                except Exception:
+                    pass
+
+            if workers == 0:
+                # No codes to process; skip spawning workers
+                pass
+            else:
+                tasks = [asyncio.create_task(worker(f"mw{i+1}")) for i in range(workers)]
+                for _ in range(workers):
+                    await queue.put(None)
+                await queue.join()
+                for t in tasks:
+                    await t
         finally:
             try:
                 await browser.close()

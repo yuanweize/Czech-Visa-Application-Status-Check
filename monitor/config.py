@@ -7,12 +7,6 @@ from typing import List, Optional, Dict, Any
 
 
 @dataclass
-class TelegramConfig:
-    bot_token: str
-    chat_id: str
-
-
-@dataclass
 class EmailConfig:
     smtp_host: str
     smtp_port: int
@@ -24,17 +18,18 @@ class EmailConfig:
 @dataclass
 class CodeConfig:
     code: str
-    channel: str  # 'tg' or 'email' or ''
-    target: Optional[str]  # email address for email channel, or chat id override for tg
+    channel: str  # 'email' or '' (other values are ignored)
+    target: Optional[str]  # email address for email channel
     freq_minutes: int
 
 
 @dataclass
 class MonitorConfig:
-    telegram: Optional[TelegramConfig]
     email: Optional[EmailConfig]
     headless: bool
     site_dir: str
+    log_dir: str
+    workers: int
     codes: List[CodeConfig]
 
 
@@ -53,21 +48,42 @@ def _bool(val: Optional[str], default: bool) -> bool:
 
 
 def load_env_config(env_path: str = ".env") -> MonitorConfig:
-    # Lightweight .env parser (KEY=VALUE lines)
+    # Lightweight .env parser (KEY=VALUE lines) with support for multi-line JSON values
     data: Dict[str, str] = {}
     if os.path.exists(env_path):
         with open(env_path, "r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if not line or line.startswith("#"):
-                    continue
-                if "=" in line:
-                    k, v = line.split("=", 1)
-                    data[k.strip()] = v.strip().strip('"').strip("'")
-
-    tg: Optional[TelegramConfig] = None
-    if data.get("TG_BOT_TOKEN") and data.get("TG_CHAT_ID"):
-        tg = TelegramConfig(bot_token=data["TG_BOT_TOKEN"], chat_id=data["TG_CHAT_ID"])
+            lines = f.readlines()
+        i = 0
+        n = len(lines)
+        while i < n:
+            raw = lines[i]
+            i += 1
+            line = raw.strip()
+            if not line or line.startswith("#"):
+                continue
+            if "=" not in line:
+                continue
+            k, v = line.split("=", 1)
+            key = k.strip()
+            val = v.strip()
+            # Handle multi-line JSON values (e.g., CODES_JSON=[ ... ])
+            if key.upper() == "CODES_JSON":
+                # If starts with [ or { and not obviously closed on this line, accumulate
+                if (val.startswith("[") and not val.rstrip().endswith("]")) or (val.startswith("{") and not val.rstrip().endswith("}")):
+                    buf = [val]
+                    # simple bracket balance for [] and {}
+                    br_sq = val.count("[") - val.count("]")
+                    br_br = val.count("{") - val.count("}")
+                    while i < n and (br_sq != 0 or br_br != 0):
+                        nxt = lines[i]
+                        i += 1
+                        buf.append(nxt.rstrip("\n"))
+                        br_sq += nxt.count("[") - nxt.count("]")
+                        br_br += nxt.count("{") - nxt.count("}")
+                    val = "\n".join(buf)
+                data[key] = val.strip().strip('"').strip("'")
+            else:
+                data[key] = val.strip().strip('"').strip("'")
 
     email: Optional[EmailConfig] = None
     if data.get("SMTP_HOST") and data.get("SMTP_PORT") and data.get("SMTP_USER") and data.get("SMTP_PASS") and data.get("SMTP_FROM"):
@@ -85,6 +101,11 @@ def load_env_config(env_path: str = ".env") -> MonitorConfig:
 
     headless = _bool(data.get("HEADLESS"), True)
     site_dir = data.get("SITE_DIR", os.path.join("reports", "monitor_site"))
+    log_dir = data.get("MONITOR_LOG_DIR") or data.get("LOG_DIR") or os.path.join("logs", "monitor")
+    try:
+        workers = int(data.get("MONITOR_WORKERS") or 5)
+    except Exception:
+        workers = 5
 
     codes: List[CodeConfig] = []
     # Codes list: either JSON array in CODES_JSON or numbered entries CODE_1=... CHANNEL_1=...
@@ -102,6 +123,7 @@ def load_env_config(env_path: str = ".env") -> MonitorConfig:
                     freq = int(item.get("freq_minutes", 60) or 60)
                     codes.append(CodeConfig(code=code, channel=channel, target=target, freq_minutes=freq))
         except Exception:
+            # fall back to numbered entries silently
             pass
     else:
         i = 1
@@ -118,4 +140,12 @@ def load_env_config(env_path: str = ".env") -> MonitorConfig:
             codes.append(CodeConfig(code=code.strip(), channel=channel, target=target, freq_minutes=freq))
             i += 1
 
-    return MonitorConfig(telegram=tg, email=email, headless=headless, site_dir=site_dir, codes=codes)
+    if not codes:
+        # Provide a helpful hint path for users
+        # (Do not raise; the scheduler will print 'No codes configured')
+        try:
+            import sys
+            print("[monitor] No codes parsed from env. Check CODES_JSON or CODE_1 entries.", file=sys.stderr)
+        except Exception:
+            pass
+    return MonitorConfig(email=email, headless=headless, site_dir=site_dir, log_dir=log_dir, workers=workers, codes=codes)
