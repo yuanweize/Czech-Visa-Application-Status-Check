@@ -329,6 +329,10 @@ python visa_status.py monitor -e .env
 
 Outputs a `status.json` into `SITE_DIR`（默认 `monitor_site/`），并附带一个现代化静态页面（`monitor_site/`）用于查看状态列表。
 
+Stability / 稳定性：
+- Monitor runs sequentially (single page) and reuses the same browser/page, with recovery on errors; it calls the same cz querying routine to minimize flaky failures.
+- 监控以“串行单页”方式运行，复用同一浏览器/页面并在异常时自恢复；与 cz 查询复用相同逻辑，尽量降低查询失败概率。
+
 Email content / 邮件内容：
 - Subject 主题：`[<Status>] <Code> - CZ Visa Status`
 - Body 正文：HTML 表格，包含以下信息：

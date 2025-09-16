@@ -10,7 +10,7 @@ from playwright.async_api import async_playwright
 
 from .config import load_env_config, MonitorConfig, CodeConfig
 from .notify import send_email
-from query_modules.cz import _process_one
+from query_modules.cz import _process_one, _ensure_ready, _maybe_hide_overlays
 
 
 STATE_FILE = "status.json"
@@ -104,178 +104,159 @@ async def run_once(config: MonitorConfig) -> Dict[str, Any]:
             headless=config.headless,
             args=["--disable-blink-features=AutomationControlled", "--no-sandbox", "--disable-gpu"]
         )
+        nav_sem = asyncio.Semaphore(1)  # sequential navigation only
+        # Build metadata map once
+        task_map: Dict[str, Dict[str, Any]] = {}
+        for cc in config.codes:
+            chan = (cc.channel or '').lower()
+            task_map[cc.code] = {
+                'code': cc.code,
+                'chan': chan,
+                'chan_label': 'Email' if chan == 'email' else '',
+                'target': cc.target,
+                'freq': max(1, int(cc.freq_minutes or 60)),
+            }
+
+        num_codes = len(task_map)
         try:
-            queue: asyncio.Queue = asyncio.Queue()
+            with open(log_path, 'a', encoding='utf-8') as lf:
+                lf.write(f"[{_now_iso()}] startup codes={num_codes} configured_workers={max(1, int(config.workers))} effective_workers=1 nav_cap=1\n")
+        except Exception:
+            pass
 
-            # Build items with channel label and enqueue (Email-only)
-            task_map = {}
-            for cc in config.codes:
-                code = cc.code
-                chan = (cc.channel or '').lower()
-                chan_label = 'Email' if chan == 'email' else ''
-                task_map[code] = {
-                    'code': code,
-                    'chan': chan,
-                    'chan_label': chan_label,
-                    'target': cc.target,
-                }
-                await queue.put(code)
-
-            # Determine effective worker count: don't spawn more workers than codes
-            num_codes = len(task_map)
-            configured_workers = max(1, int(config.workers))
-            workers = min(configured_workers, max(1, num_codes)) if num_codes > 0 else 0
-
-            # Align navigation throttling with effective worker count
-            nav_cap = min(10, max(1, workers)) if workers > 0 else 1
-            nav_sem = asyncio.Semaphore(nav_cap)
-
-            # Startup log
+        # Create one context + page, reuse sequentially; recover if page dies
+        async def _new_page():
+            ctx = await browser.new_context()
             try:
-                with open(log_path, 'a', encoding='utf-8') as lf:
-                    lf.write(f"[{_now_iso()}] startup codes={num_codes} configured_workers={configured_workers} effective_workers={workers} nav_cap={nav_cap}\n")
+                await ctx.add_init_script(
+                    """
+                    Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+                    Object.defineProperty(navigator, 'language', { get: () => 'en-US' });
+                    Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
+                    Object.defineProperty(navigator, 'plugins', { get: () => [1,2,3] });
+                    """
+                )
             except Exception:
                 pass
-
-            result_lock = asyncio.Lock()
-
-            async def handle_result(code: str, status: str):
-                nonlocal items, result_summary
-                when = _now_iso()
-                async with result_lock:
-                    result_summary["checked"] += 1
-                    meta = task_map[code]
-                    old = items.get(code)
-                    first_time = old is None
-                    old_status = old.get("status") if isinstance(old, dict) else None
-                    changed = (old_status != status)
-                    if changed:
-                        result_summary["changed"] += 1
-                    items[code] = {
-                        "code": code,
-                        "status": status,
-                        "last_checked": when,
-                        "last_changed": when if changed else (old.get("last_changed") if isinstance(old, dict) else when),
-                        "channel": meta['chan_label'],
-                        "target": meta['target'],
-                    }
-                    # Notify
-                    do_notify = (first_time or changed) and (not isinstance(status, str) or 'query failed' not in status.lower())
-                    if do_notify:
-                        sent = False
-                        if meta['chan'] == 'email' and config.email and meta['target']:
-                            notif_label = '状态变更' if changed and old_status else '首次记录'
-                            subject = _build_email_subject(status, code)
-                            body = _build_email_body(code, status, when, changed=changed, old_status=old_status, notif_label=notif_label)
-                            try:
-                                # send_email will raise on failure; success returns True
-                                sent = send_email(config.email, meta['target'], subject=subject, body=body)
-                            except Exception as e:
-                                sent = False
-                                try:
-                                    with open(log_path, 'a', encoding='utf-8') as lf:
-                                        lf.write(f"[{_now_iso()}] notify Email code={code} to={meta['target']} error={str(e)}\n")
-                                except Exception:
-                                    pass
-                            else:
-                                try:
-                                    with open(log_path, 'a', encoding='utf-8') as lf:
-                                        lf.write(f"[{_now_iso()}] notify Email code={code} to={meta['target']} ok={sent}\n")
-                                except Exception:
-                                    pass
-                        if sent:
-                            result_summary["notified"] += 1
-
-            async def worker(name: str):
-                context = await browser.new_context()
-                # basic stealth: unset webdriver and set languages/plugins
+            async def _route_handler(route):
                 try:
-                    await context.add_init_script(
-                        """
-                        Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-                        Object.defineProperty(navigator, 'language', { get: () => 'en-US' });
-                        Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
-                        Object.defineProperty(navigator, 'plugins', { get: () => [1,2,3] });
-                        """
-                    )
+                    if route.request.resource_type in {"image", "font"}:
+                        await route.abort()
+                    else:
+                        await route.continue_()
                 except Exception:
-                    pass
-                # Block heavy resources similar to cz worker
-                async def _route_handler(route):
                     try:
-                        if route.request.resource_type in {"image", "font"}:
-                            await route.abort()
-                        else:
-                            await route.continue_()
-                    except Exception:
-                        try:
-                            await route.continue_()
-                        except Exception:
-                            pass
-                try:
-                    await context.route("**/*", _route_handler)
-                except Exception:
-                    pass
-                page = await context.new_page()
-                try:
-                    page.set_default_timeout(15000)
-                    page.set_default_navigation_timeout(20000)
-                except Exception:
-                    pass
-                # Pre-warm: ensure input present and hide overlays once
-                try:
-                    from query_modules.cz import _ensure_ready, _maybe_hide_overlays
-                    await _ensure_ready(page, nav_sem)
-                    await _maybe_hide_overlays(page)
-                except Exception:
-                    pass
-                while True:
-                    try:
-                        code = await queue.get()
-                    except Exception:
-                        break
-                    if code is None:
-                        queue.task_done()
-                        break
-                    status = 'Query Failed / 查询失败'
-                    for attempt in range(1, 3):
-                        try:
-                            s, _tim = await _process_one(page, code, nav_sem)
-                            # Do not re-normalize; _process_one already returns normalized status
-                            status = s or 'Unknown / 未知'
-                            break
-                        except Exception as e:
-                            try:
-                                with open(log_path, 'a', encoding='utf-8') as lf:
-                                    lf.write(f"[{_now_iso()}] code={code} attempt={attempt} error={str(e)}\n")
-                            except Exception:
-                                pass
-                            if attempt < 2:
-                                await asyncio.sleep(1.0)
-                    # Log final status (no captures)
-                    try:
-                        with open(log_path, 'a', encoding='utf-8') as lf:
-                            lf.write(f"[{_now_iso()}] result code={code} status={status}\n")
+                        await route.continue_()
                     except Exception:
                         pass
-                    await handle_result(code, status)
-                    queue.task_done()
+            try:
+                await ctx.route("**/*", _route_handler)
+            except Exception:
+                pass
+            pg = await ctx.new_page()
+            try:
+                pg.set_default_timeout(15000)
+                pg.set_default_navigation_timeout(20000)
+            except Exception:
+                pass
+            try:
+                await _ensure_ready(pg, nav_sem)
+                await _maybe_hide_overlays(pg)
+            except Exception:
+                pass
+            return ctx, pg
+
+        context = None
+        page = None
+        try:
+            context, page = await _new_page()
+            # Iterate codes sequentially
+            for code, meta in task_map.items():
+                status = 'Query Failed / 查询失败'
+                # Up to 3 attempts with recovery steps
+                for attempt in range(1, 4):
+                    try:
+                        s, _tim = await _process_one(page, code, nav_sem)
+                        status = s or 'Unknown / 未知'
+                        break
+                    except Exception as e:
+                        # Log error
+                        try:
+                            with open(log_path, 'a', encoding='utf-8') as lf:
+                                lf.write(f"[{_now_iso()}] code={code} attempt={attempt} error={str(e)}\n")
+                        except Exception:
+                            pass
+                        # Recovery strategy per attempt
+                        try:
+                            if attempt == 1:
+                                # Soft reload of base form + overlays
+                                await _ensure_ready(page, nav_sem)
+                                await _maybe_hide_overlays(page)
+                            elif attempt == 2:
+                                # Recreate page within same browser
+                                if context:
+                                    try:
+                                        await context.close()
+                                    except Exception:
+                                        pass
+                                context, page = await _new_page()
+                            # small backoff
+                            await asyncio.sleep(1.0 * attempt)
+                        except Exception:
+                            # If recovery itself fails, try to recreate on next loop
+                            pass
+                # Log final
                 try:
-                    await context.close()
+                    with open(log_path, 'a', encoding='utf-8') as lf:
+                        lf.write(f"[{_now_iso()}] result code={code} status={status}\n")
                 except Exception:
                     pass
 
-            if workers == 0:
-                # No codes to process; skip spawning workers
-                pass
-            else:
-                tasks = [asyncio.create_task(worker(f"mw{i+1}")) for i in range(workers)]
-                for _ in range(workers):
-                    await queue.put(None)
-                await queue.join()
-                for t in tasks:
-                    await t
+                # Handle result and maybe notify (sequential, no explicit lock needed)
+                when = _now_iso()
+                result_summary["checked"] += 1
+                old = items.get(code)
+                first_time = old is None
+                old_status = old.get("status") if isinstance(old, dict) else None
+                changed = (old_status != status)
+                if changed:
+                    result_summary["changed"] += 1
+                items[code] = {
+                    "code": code,
+                    "status": status,
+                    "last_checked": when,
+                    "last_changed": when if changed else (old.get("last_changed") if isinstance(old, dict) else when),
+                    "channel": meta['chan_label'],
+                    "target": meta['target'],
+                }
+                do_notify = (first_time or changed) and (not isinstance(status, str) or 'query failed' not in status.lower())
+                if do_notify and meta['chan'] == 'email' and config.email and meta['target']:
+                    notif_label = '状态变更' if changed and old_status else '首次记录'
+                    subject = _build_email_subject(status, code)
+                    body = _build_email_body(code, status, when, changed=changed, old_status=old_status, notif_label=notif_label)
+                    sent = False
+                    try:
+                        sent = send_email(config.email, meta['target'], subject=subject, body=body)
+                    except Exception as e:
+                        try:
+                            with open(log_path, 'a', encoding='utf-8') as lf:
+                                lf.write(f"[{_now_iso()}] notify Email code={code} to={meta['target']} error={str(e)}\n")
+                        except Exception:
+                            pass
+                    else:
+                        try:
+                            with open(log_path, 'a', encoding='utf-8') as lf:
+                                lf.write(f"[{_now_iso()}] notify Email code={code} to={meta['target']} ok={sent}\n")
+                        except Exception:
+                            pass
+                    if sent:
+                        result_summary["notified"] += 1
         finally:
+            try:
+                if context:
+                    await context.close()
+            except Exception:
+                pass
             try:
                 await browser.close()
             except Exception:

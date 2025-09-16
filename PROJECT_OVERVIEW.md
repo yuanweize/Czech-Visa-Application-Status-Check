@@ -38,8 +38,8 @@ PROJECT_OVERVIEW.md
 - 通过 SMTP 发送邮件（已移除 Telegram），每个查询码可配置 1 个或多个收件邮箱。
 - Writes `SITE_DIR/status.json` and a static site directory for viewing status snapshots.
 - 会写出 `SITE_DIR/status.json` 与静态站点目录，便于查看状态快照。
-- Worker capping: effective workers = min(configured, number_of_codes). Navigation concurrency is throttled via a semaphore.
-- Worker 上限：实际 worker = min(配置值, 查询码数量)；导航并发通过信号量限流以增强稳定性。
+- Sequential design for stability: monitor uses a single page sequentially and reuses the cz querying routine; it auto-recovers the page/context on failures and retries cautiously.
+- 为稳定性采用串行：监控以单页串行方式运行，复用 cz 查询逻辑；在失败时自动恢复页面/上下文，并做谨慎重试。
 - Email subject: `[<Status>] <Code> - CZ Visa Status`; HTML body includes old→new when changed.
 - 邮件主题：`[<状态>] <查询码> - CZ Visa Status`；HTML 正文在状态变更时包含旧→新。
 
