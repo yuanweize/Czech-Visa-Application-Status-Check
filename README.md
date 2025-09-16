@@ -1,9 +1,9 @@
- # Czech Visa Application Status Check / 捷克签证状态批量查询
+# Czech Visa Application Status Check / 捷克签证状态批量查询
 
 A small CLI to generate visa application query codes and bulk-check application status on the Czech Immigration Office website.
 一个用于生成签证申请查询码并在捷克移民局网站批量查询申请状态的小型命令行工具。
 
-[![python](https://img.shields.io/badge/python-3.8%2B-blue)](https://www.python.org/)  
+[![python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)  
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 ## Tech stack / 技术栈
@@ -37,7 +37,59 @@ Save failing rows after retries to daily failure files in `logs/fails/` for offl
 
 设计说明：查询器为模块化设计——要添加新的国家支持，请在 `query_modules/<iso>.py` 下添加文件，按照 `PROJECT_OVERVIEW.md` 中描述的模块 API 实现并在 `visa_status.py` 中注册。
 
-## Quick start / 快速开始
+## Quick start (uv) / 快速开始（推荐使用 uv）
+
+uv is a fast Python package and environment manager. You don’t need a global Python after installing uv.
+uv 是一个高性能的 Python 包与环境管理器。安装 uv 后无需全局 Python 亦可使用。
+
+1) Install uv / 安装 uv
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+# Follow the printed instructions to add uv to PATH for the current shell
+```
+
+2) Create a virtual environment in this project / 在项目目录创建虚拟环境
+
+```bash
+uv venv
+```
+
+3) Activate the environment / 激活虚拟环境
+
+- macOS/Linux (bash/zsh):
+
+```bash
+source .venv/bin/activate
+```
+
+- Windows (Git Bash):
+
+```bash
+source .venv/Scripts/activate
+```
+
+4) Install dependencies from requirements.txt / 安装依赖
+
+```bash
+uv pip install -r requirements.txt
+```
+
+5) Install Playwright browsers / 安装 Playwright 浏览器内核
+
+```bash
+playwright install
+```
+
+6) Run the script / 运行脚本
+
+```bash
+python visa_status.py cz
+```
+
+—
+
+## Quick start (pip alternative) / 快速开始（pip 方案）
 1) Install dependencies / 安装依赖
 Python package requirements are listed in `requirements.txt`.
 Python 依赖项列在 `requirements.txt` 中。
@@ -93,7 +145,7 @@ Notes:
 	- python -m playwright install chromium
 - 需要安装 `playwright` 与 Chromium 运行时（首次一次性安装）。
 
-<!-- Agent mode and alternative backends have been removed in 2025 refactor to keep the tool minimal and deterministic. -->
+<!-- Legacy agent/backends removed in 2025 refactor to keep the tool minimal and deterministic. -->
 
 Parameters（cz）/ 参数（cz）：
 - `-i, --i PATH` — input CSV path (default: `query_codes.csv`). / 输入 CSV（默认 `query_codes.csv`）
@@ -260,9 +312,9 @@ Add a country module in `query_modules/` following the module API in `PROJECT_OV
 - Project overview (developer guide): [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md)
 - 项目概览（开发者指南）：[PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md)
 
-## Monitor (scheduled checks & notifications) / 定时监控与通知
+## Monitor (scheduled checks & Email notifications) / 定时监控与邮件通知
 
-- Copy `.env.example` to `.env` and fill your configuration. 支持 Telegram 或 SMTP 邮件；每个查询码可配置通知渠道与频率。
+- Copy `.env.example` to `.env` and fill your configuration. 目前仅支持通过 SMTP 发送邮件通知；每个查询码可配置通知邮箱与频率。
 - Run one cycle / 仅运行一次：
 
 ```bash
@@ -276,6 +328,26 @@ python visa_status.py monitor -e .env
 ```
 
 Outputs a `status.json` into `SITE_DIR`（默认 `monitor_site/`），并附带一个现代化静态页面（`monitor_site/`）用于查看状态列表。
+
+Email content / 邮件内容：
+- Subject 主题：`[<Status>] <Code> - CZ Visa Status`
+- Body 正文：HTML 表格，包含以下信息：
+	- Notification type 通知类型：首次记录 / 状态变更
+	- Old → New 状态变化（若发生变更）
+	- Current Status 当前状态
+	- Time 发送时间（本地时间）
+
+Notes / 说明：
+- 仅保留 Email 渠道（已移除 Telegram）。
+- Worker 数量会自动按查询码数量上限收敛，避免资源浪费；导航并发使用信号量限流以增强稳定性。
+
+### Git ignore / 版本控制忽略
+
+本项目默认忽略以下运行时或私密内容，请不要提交：
+- `logs/`、`reports/`、`monitor_site/`（运行时产物、静态站点导出）
+- `.env`、`.env.*`、`*.secrets`、`credentials.json`（私密信息）
+
+CSV 文件是项目数据的一部分，默认不忽略。若需要忽略本地测试用 CSV，可在 `.gitignore` 里添加更窄的规则（如 `*.local.csv`）。
 
 ## License / 许可证
 [MIT](LICENSE)
