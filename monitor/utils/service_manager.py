@@ -5,7 +5,7 @@ from typing import Optional
 SERVICE_NAME = "cz-visa-monitor"
 
 def _root_dir() -> Path:
-    return Path(__file__).resolve().parents[1]
+    return Path(__file__).resolve().parents[2]
 
 def _detect_python_exe() -> str:
     proj = _root_dir()

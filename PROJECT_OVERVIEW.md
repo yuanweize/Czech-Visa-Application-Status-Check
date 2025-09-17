@@ -38,7 +38,10 @@ monitor/                      # Monitoring and user management modules (modular 
   │  ├─ smtp_client.py        # SMTP client with connection pooling and hot reload
   │  └─ user_management.py    # User verification and management emails
   ├─ utils/                   # Utility modules
-  │  └─ env_watcher.py        # .env file monitoring and hot reload with watchdog
+  │  ├─ env_watcher.py        # .env file monitoring and hot reload with watchdog
+  │  ├─ logger.py             # Rotating logger with automatic 2MB rotation
+  │  ├─ signal_handler.py     # Graceful shutdown handling for signals
+  │  └─ service_manager.py    # Systemd service management for Linux deployment
   └─ __init__.py              # Package initialization
 query_modules/
   └─ cz.py                    # Czech module (Playwright-only, async workers)
@@ -200,6 +203,17 @@ Advanced hot reloading system with enterprise-grade robustness features:
 - **运行时归档**：运行时日志位于 `logs/`，智能失败归档包含连续失败次数用于趋势分析
 - **热更新日志**：详细跟踪 .env 文件变更、配置重载和差异化更新以便调试
 - **性能监控**：周期计时、吞吐量分析和资源使用跟踪以进行优化
+
+5) Signal handling & service management / 信号处理与服务管理
+- **Graceful Shutdown**: Advanced signal handling for SIGINT/SIGTERM with cleanup callbacks and resource management
+- **Service Integration**: Complete systemd service management with auto-detection of Python virtual environments
+- **Production Deployment**: Robust service installation, start/stop/restart/reload operations with proper error handling
+- **Cross-platform Compatibility**: Service management designed for Linux environments with fallback behaviors
+
+- **优雅关闭**：高级信号处理，支持SIGINT/SIGTERM，包含清理回调和资源管理
+- **服务集成**：完整的systemd服务管理，自动检测Python虚拟环境
+- **生产部署**：强大的服务安装、启动/停止/重启/重载操作，具有适当的错误处理
+- **跨平台兼容性**：为Linux环境设计的服务管理，具有回退行为
 
 ## CLI notes / CLI 说明
 - Aliases: `generate-codes` = `gen`/`gc`, `report` = `rep`/`r`, `cz` = `c`.

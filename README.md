@@ -42,6 +42,9 @@ Save failing rows after retries to daily failure files in `logs/fails/` for offl
     - `user_management.py` — user verification and management emails
   - `utils/` — utility modules:
     - `env_watcher.py` — .env file monitoring and hot reload with watchdog
+    - `logger.py` — rotating logger with automatic 2MB rotation and line preservation
+    - `signal_handler.py` — graceful shutdown handling for SIGINT/SIGTERM signals
+    - `service_manager.py` — systemd service management for Linux deployment
 - `query_modules/` — directory containing one module per country (e.g. `cz.py`). Each module implements a simple querying interface.
 - `site/` — static website files (HTML, CSS, JS) for user interface
 - `tools/generate_codes.py` — code generator utility.
