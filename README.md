@@ -4,7 +4,24 @@ A small CLI to generate visa application query codes and bulk-check application 
 一个用于生成签证申请查询码并在捷克移民局网站批量查询申请状态的小型命令行工具。
 
 [![python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)  
-[![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![license](https:/**User Code Management / 用户代码管理**
+The system now includes a user-friendly interface for public users to add and manage their visa codes with email verification:
+
+系统现在包含用户友好的界面，允许公众用户通过邮箱验证来添加和管理他们的签证代码：
+
+**Features / 功能:**
+- **Email Verification**: Secure 10-minute verification links for code additions / 邮件验证：代码添加的10分钟安全验证链接
+- **Simple Captcha**: Basic math questions to prevent automated abuse / 简单验证码：基础数学题防止自动化滥用
+- **Code Management**: Users can view and delete their own codes / 代码管理：用户可查看和删除自己的代码
+- **No Quantity Limits**: Users can add as many codes as needed / 无数量限制：用户可根据需要添加任意数量代码
+- **6-Digit Verification**: Time-limited verification codes for secure management / 6位验证码：用于安全管理的限时验证码
+- **Duplicate Protection**: Comprehensive duplicate detection system prevents monitoring conflicts / 重复保护：全面的重复检测系统防止监控冲突
+
+**Duplicate Detection System / 重复检测系统:**
+- **Startup Protection**: Automatically rejects startup when duplicate codes are found in configuration / 启动保护：配置中发现重复代码时自动拒绝启动
+- **Web Interface Protection**: Dual-layer detection checks both configuration files and runtime data / Web界面保护：双层检测检查配置文件和运行时数据
+- **Privacy-Preserving**: Masks email addresses when showing conflicts (e.g., `use***@example.com`) / 隐私保护：显示冲突时掩码邮箱地址
+- **Clear Error Messages**: Provides specific error details for easy troubleshooting / 清晰错误信息：提供具体错误详情便于故障排查s.io/badge/license-MIT-green)](LICENSE)
 
 ## Tech stack / 技术栈
 Python 3.10+。
@@ -352,6 +369,7 @@ The system now includes a user-friendly interface for public users to add and ma
 - **Hot Reload Engine**: Real-time configuration monitoring in `monitor/utils/env_watcher.py` / 热更新引擎：位于`monitor/utils/env_watcher.py`的实时配置监控
 - **Configuration Control**: Use `SERVE=true/false` to enable/disable web interface / 配置控制：使用`SERVE=true/false`启用/禁用Web界面
 - **Clean Structure**: All monitoring-related modules are contained in `monitor/` folder with organized submodules / 清晰结构：所有监控相关模块都包含在`monitor/`文件夹中，具有组织化的子模块
+- **Simplified Duplicate Handling**: Direct startup rejection approach replaces complex merging strategies for reliability / 简化重复处理：直接启动拒绝方式替代复杂合并策略以提高可靠性
 
 **Quick Start / 快速开始:**
 ```bash

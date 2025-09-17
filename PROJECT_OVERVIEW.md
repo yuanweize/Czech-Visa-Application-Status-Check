@@ -3,8 +3,8 @@
 Czech Visa Application Status Check is a compact CLI to generate visa application query codes and bulk-check application status on the Czech Immigration Office website.
 本项目是一个用于生成签证申请查询码并在捷克移民局网站批量查询申请状态的小型命令行工具。
 
-Refactor 2025: Modular architecture with priority scheduling, comprehensive hot reloading, SMTP connection pooling. Legacy Selenium/agent/backends removed.
-2025 重构：模块化架构，支持优先级调度、全面热更新、SMTP连接池；已移除 Selenium/Agent/多后端。
+Refactor 2025: Modular architecture with priority scheduling, comprehensive hot reloading, SMTP connection pooling, simplified duplicate detection with startup rejection. Legacy Selenium/agent/backends and complex duplicate merging systems removed.
+2025 重构：模块化架构，支持优先级调度、全面热更新、SMTP连接池、简化的启动拒绝重复检测；已移除 Selenium/Agent/多后端和复杂重复合并系统。
 
 ## Design goals / 设计目标
 - Reliable long-running batches with per-row CSV flush and retries/backoff.
@@ -15,6 +15,8 @@ Refactor 2025: Modular architecture with priority scheduling, comprehensive hot 
 - 通过全面的热更新系统实现实时配置更新。
 - Simple module-based extensibility to add more countries.
 - 基于模块的可扩展性，便于添加更多国家支持。
+- Simplified duplicate detection with fail-fast startup rejection for reliability.
+- 简化的重复检测，采用快速失败的启动拒绝机制确保可靠性。
 
 ## Module API / 模块 API
 - Country module exposes `update_csv_with_status(csv_path: str, headless=True, workers=1, retries=3, log_dir='logs', **_) -> None`.
@@ -160,12 +162,87 @@ Advanced hot reloading system with enterprise-grade robustness features:
 - **代码管理**：用户可通过Web界面查看和删除自己的代码
 - **Data Integration**: User-added codes are automatically integrated into monitoring system
 - **数据集成**：用户添加的代码自动集成到监控系统中
+- **Duplicate Detection**: Comprehensive protection with startup rejection and web interface validation
+- **重复检测**：全面保护，包括启动拒绝和Web界面验证
 
 **Configuration Control / 配置控制:**
 - `SERVE=true`: Enables web interface with user management (port 8000)
 - `SERVE=true`：启用包含用户管理的Web界面（端口8000）
 - `SERVE=false`: Pure monitoring mode without web interface
 - `SERVE=false`：纯监控模式，无Web界面
+
+---
+
+## Duplicate Detection System / 重复检测系统
+
+**Architecture Overview / 架构概览:**
+The system implements a simplified, fail-fast approach to duplicate detection, replacing complex merging strategies with clear rejection mechanisms for enhanced reliability.
+
+系统实现简化的快速失败重复检测方法，以清晰的拒绝机制替代复杂的合并策略，以增强可靠性。
+
+**Core Components / 核心组件:**
+
+**1. Startup Configuration Validation / 启动配置验证:**
+- **Location**: `monitor/core/config.py` - `load_env_config()` function
+- **Behavior**: Automatically detects duplicate codes in `.env` configuration during system startup
+- **Response**: Immediate termination with detailed error message listing all duplicate codes
+- **位置**：`monitor/core/config.py` - `load_env_config()` 函数
+- **行为**：系统启动时自动检测 `.env` 配置中的重复代码
+- **响应**：立即终止并显示包含所有重复代码的详细错误信息
+
+```python
+# Example error output / 错误输出示例
+❌ 配置错误：发现重复查询码 ['PEKI202506020001']
+请检查 .env 文件并移除重复的查询码配置
+```
+
+**2. Web API Protection / Web API 保护:**
+- **Location**: `monitor/server/api_handler.py` - `_handle_add_code()` method
+- **Dual-Layer Detection**: Checks both configuration files and runtime status data
+- **Privacy Protection**: Masks email addresses when displaying conflicts
+- **位置**：`monitor/server/api_handler.py` - `_handle_add_code()` 方法
+- **双层检测**：检查配置文件和运行时状态数据
+- **隐私保护**：显示冲突时掩码邮箱地址
+
+**Detection Logic / 检测逻辑:**
+1. **Configuration File Check**: Validates against current `.env` codes with email matching
+2. **Status Data Check**: Validates against `status.json` runtime records for complete coverage
+3. **Response Differentiation**: Different messages for same-user vs different-user conflicts
+4. **Error Recovery**: Graceful handling of configuration load failures with fallback checks
+
+1. **配置文件检查**：对当前 `.env` 代码进行验证，包括邮箱匹配
+2. **状态数据检查**：对 `status.json` 运行时记录进行验证以实现完全覆盖
+3. **响应区分**：为同用户和不同用户冲突提供不同消息
+4. **错误恢复**：优雅处理配置加载失败，提供回退检查
+
+**Privacy-Preserving Masking / 隐私保护掩码:**
+```javascript
+// Email masking example / 邮箱掩码示例
+"user@example.com" → "use***@example.com"
+"admin@domain.org" → "adm***@domain.org"
+```
+
+**User Experience Benefits / 用户体验优势:**
+- **Clear Error Messages**: Specific guidance on how to resolve duplicate conflicts
+- **No Data Loss**: Rejects duplicates before any data modification occurs
+- **User Privacy**: Protects existing user information while providing helpful conflict details
+- **Administrative Clarity**: Simple rule - one code per system, preventing confusion
+
+- **清晰错误信息**：关于如何解决重复冲突的具体指导
+- **无数据丢失**：在任何数据修改发生之前拒绝重复
+- **用户隐私**：保护现有用户信息，同时提供有用的冲突详情
+- **管理清晰性**：简单规则 - 系统中每个代码唯一，防止混乱
+
+**Implementation Benefits / 实现优势:**
+- **Simplified Codebase**: Removed complex `duplicate_detector.py` module and merging logic
+- **Enhanced Reliability**: Fail-fast approach prevents data inconsistencies
+- **Better Performance**: No complex merge operations or duplicate resolution algorithms
+- **Easier Debugging**: Clear error paths and deterministic behavior
+
+- **简化代码库**：移除复杂的 `duplicate_detector.py` 模块和合并逻辑
+- **增强可靠性**：快速失败方法防止数据不一致
+- **更好性能**：无复杂合并操作或重复解决算法
+- **更易调试**：清晰的错误路径和确定性行为
 
 ---
 
