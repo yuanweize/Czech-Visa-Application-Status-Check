@@ -3,12 +3,16 @@
 Czech Visa Application Status Check is a compact CLI to generate visa application query codes and bulk-check application status on the Czech Immigration Office website.
 本项目是一个用于生成签证申请查询码并在捷克移民局网站批量查询申请状态的小型命令行工具。
 
-Refactor 2025: Playwright-only, async workers, simplified CLI. Legacy Selenium/agent/backends removed.
-2025 重构：仅 Playwright、异步并发、精简 CLI；已移除 Selenium/Agent/多后端。
+Refactor 2025: Modular architecture with priority scheduling, comprehensive hot reloading, SMTP connection pooling. Legacy Selenium/agent/backends removed.
+2025 重构：模块化架构，支持优先级调度、全面热更新、SMTP连接池；已移除 Selenium/Agent/多后端。
 
 ## Design goals / 设计目标
 - Reliable long-running batches with per-row CSV flush and retries/backoff.
 - 支持长期批量运行，通过逐行写回 CSV 与重试/退避实现鲁棒性。
+- Modular architecture with clean separation of concerns for maintainability.
+- 模块化架构，清晰的关注点分离，便于维护。
+- Real-time configuration updates through comprehensive hot reloading system.
+- 通过全面的热更新系统实现实时配置更新。
 - Simple module-based extensibility to add more countries.
 - 基于模块的可扩展性，便于添加更多国家支持。
 
@@ -23,11 +27,19 @@ Refactor 2025: Playwright-only, async workers, simplified CLI. Legacy Selenium/a
 ## Project layout / 项目结构
 ```
 visa_status.py                # CLI entrypoint/dispatcher (aliases & short flags supported)
-monitor/                      # Monitoring and user management modules
-  ├─ scheduler.py             # Main monitoring scheduler with integrated HTTP server
-  ├─ api_server.py            # User management API module (imported by scheduler)
-  ├─ config.py                # Configuration management
-  └─ notify.py                # Email notification system
+monitor/                      # Monitoring and user management modules (modular architecture)
+  ├─ core/                    # Core monitoring functionality
+  │  ├─ scheduler.py          # Priority-based monitoring scheduler with differential updates
+  │  └─ config.py             # Environment configuration management with hot reload support
+  ├─ server/                  # HTTP server and API handling
+  │  ├─ http_server.py        # Static file server and API integration
+  │  └─ api_handler.py        # User management API endpoints with email verification
+  ├─ notification/            # Email notification system
+  │  ├─ smtp_client.py        # SMTP client with connection pooling and hot reload
+  │  └─ user_management.py    # User verification and management emails
+  ├─ utils/                   # Utility modules
+  │  └─ env_watcher.py        # .env file monitoring and hot reload with watchdog
+  └─ __init__.py              # Package initialization
 query_modules/
   └─ cz.py                    # Czech module (Playwright-only, async workers)
 site/                         # Static website files (HTML, CSS, JS) for user interface
@@ -43,40 +55,98 @@ PROJECT_OVERVIEW.md
 ```
 
 ## Monitor (scheduler + Email) / 监控（调度器 + 邮件）
-- Email-only via SMTP (Telegram removed). 可为每个查询码配置 1 个或多个收件邮箱。
-- Writes `SITE_DIR/status.json`（仅字符串状态）与静态站点目录；当 `SERVE=true` 时内置 HTTP 将以 `SITE_DIR` 为根在 `SITE_PORT` 端口提供访问。
-- Sequential for stability; per-cycle browser lifecycle: create Chromium only during a cycle and close it afterward to minimize idle CPU. 复用 cz 查询逻辑，失败时软恢复并必要时重建页面/上下文。
-- Email subject: `[<Status>] <Code> - CZ Visa Status`; HTML body shows old→new when changed.
+- **Priority-based Scheduling**: Enhanced scheduler with differential code processing for maximum efficiency. 优先级调度，带差异化代码处理以实现最高效率。
+- **Email-only Notifications**: SMTP-based notifications with connection pooling and rate limiting (Telegram removed). 仅邮件通知，使用SMTP连接池和频率限制（已移除Telegram）。
+- **Real-time Status Updates**: Writes `SITE_DIR/status.json` with string-only statuses and serves static site when `SERVE=true` on `SITE_PORT`. 实时状态更新，写入字符串状态到 `status.json`，当 `SERVE=true` 时在 `SITE_PORT` 提供静态站点。
+- **Sequential Processing**: For stability with per-cycle browser lifecycle - creates Chromium only during a cycle and closes afterward to minimize idle CPU. 顺序处理确保稳定性，单周期浏览器生命周期，仅在周期内创建Chromium并随后关闭以最小化空闲CPU。
+- **Smart Recovery**: Reuses `cz` query logic with soft recovery and context/page rebuilding when necessary. 智能恢复，复用 `cz` 查询逻辑，必要时进行软恢复和上下文/页面重建。
+- **Email Format**: Subject: `[<Status>] <Code> - CZ Visa Status`; HTML body shows old→new when changed. 邮件格式：主题显示状态和代码，HTML正文在变更时显示新旧对比。
 
-**Hot reloading / .env 热更新 (Enhanced)**
+**Hot reloading / .env 热更新 (Enhanced Architecture)**
 
-Advanced hot reloading system with differential updates and robustness features:
+Comprehensive hot reloading system with enterprise-grade robustness and efficiency:
+
+**Core Components / 核心组件:**
+- **File Watcher**: `monitor/utils/env_watcher.py` - Advanced file monitoring with `watchdog` library, 0.5s debounce delay, and intelligent change detection
+- **Configuration Manager**: `monitor/core/config.py` - Enhanced `load_env_config()` with environment variable precedence and validation
+- **Priority Scheduler**: `monitor/core/scheduler.py` - Differential processing engine with thread-safe configuration reload
+- **SMTP Client**: `monitor/notification/smtp_client.py` - Connection pooling with rate limiting and hot reload support
+
+**文件监控器**：使用 `watchdog` 库的高级文件监控，0.5秒防抖延迟和智能变更检测
+**配置管理器**：增强的 `load_env_config()` 支持环境变量优先级和验证
+**优先级调度器**：差异化处理引擎，支持线程安全的配置重载
+**SMTP客户端**：连接池，支持频率限制和热更新
+
+**Advanced Features / 高级功能:**
+- **Differential Processing**: Only handles added/removed/modified codes, unchanged codes remain untouched for optimal performance
+- **Race Condition Protection**: Sophisticated retry mechanism with exponential backoff handles temporary file states during editing
+- **SMTP Connection Pooling**: Intelligent connection reuse with rate limiting prevents "450 too many AUTH" server bans
+- **Automatic Status Synchronization**: Real-time updates to status.json when notification channels change
+- **Empty Channel Support**: Set channel to empty string to disable notifications for specific codes without deletion
+- **Thread-safe Configuration**: Atomic configuration updates with locking mechanism ensures data consistency
+- **Enhanced Logging**: Detailed cycle logging with automatic 2MB log rotation for comprehensive monitoring
+
+**差异化处理**：仅处理新增/删除/修改的代码，未变更代码保持不变以实现最佳性能
+**防竞态条件**：复杂的重试机制，使用指数退避处理编辑期间的临时文件状态
+**SMTP连接池**：智能连接复用和频率限制，防止"450 AUTH过多"服务器封禁
+**自动状态同步**：通知渠道变更时实时更新 status.json
+**空通道支持**：设置通道为空字符串来禁用特定代码的通知而不删除代码
+**线程安全配置**：原子配置更新使用锁机制确保数据一致性
+**增强日志**：详细周期日志，自动2MB轮换以实现全面监控
+
+**Supported Configuration Coverage / 支持的配置覆盖范围:**
+- **Base Configuration**: All fundamental settings including `HEADLESS`, `SITE_DIR`, `LOG_DIR`, `SERVE`, `SITE_PORT`, `DEFAULT_FREQ_MINUTES`
+- **SMTP Configuration**: Complete email system settings including `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM`  
+- **Query Code Management**: Both JSON format (`CODES_JSON`) and numbered format (`CODE_x`, `CHANNEL_x`, `TARGET_x`, `FREQ_MINUTES_x`, `NOTE_x`)
+- **Environment Variables**: Full precedence support - environment variables override .env file values
+
+**基础配置**：所有基础设置，包括无头模式、站点目录、日志目录、服务开关等
+**SMTP配置**：完整的邮件系统设置，包括主机、端口、用户、密码、发件人
+**查询码管理**：支持JSON格式和编号格式两种配置方式
+**环境变量**：完全的优先级支持 - 环境变量覆盖 .env 文件值
+
+**Technical Implementation / 技术实现:**
+- **Activation**: Automatically enabled in daemon mode (not `--once`) when `watchdog` package is installed
+- **Performance**: Configuration changes take effect in the next monitoring cycle with minimal overhead  
+- **Compatibility**: Works seamlessly with both CLI and systemd service modes
+- **Error Handling**: Graceful recovery from file I/O errors, JSON parsing issues, and network problems
+
+**激活方式**：守护进程模式下自动启用（非 `--once`），需要安装 `watchdog` 包
+**性能优化**：配置更改在下一个监控周期生效，开销最小
+**兼容性**：与CLI和systemd服务模式无缝配合
+**错误处理**：优雅处理文件I/O错误、JSON解析问题和网络故障
+
+Advanced hot reloading system with enterprise-grade robustness features:
 
 - **Differential Processing**: Only handles added/removed/modified codes, leaves unchanged codes untouched
-- **Race Condition Protection**: Retry mechanism with delays handles temporary file states during editing
-- **SMTP Connection Pooling**: Reuses connections with rate limiting to prevent "too many AUTH" server bans
-- **Automatic Status Updates**: Real-time updates to status.json when notification channels change
-- **Empty Channel Support**: Set channel to empty string to disable notifications for specific codes
-- **Enhanced Logging**: Detailed cycle logging with automatic 2MB log rotation
-- **Robust Error Handling**: Graceful recovery from file I/O errors and JSON parsing issues
+- **Race Condition Protection**: Sophisticated retry mechanism with exponential backoff handles temporary file states during editing
+- **SMTP Connection Pooling**: Intelligent connection reuse with rate limiting prevents "450 too many AUTH" server bans
+- **Automatic Status Synchronization**: Real-time updates to status.json when notification channels change
+- **Empty Channel Support**: Set channel to empty string to disable notifications for specific codes without deletion
+- **Thread-safe Configuration**: Atomic configuration updates with locking mechanism ensures data consistency
+- **Enhanced Logging**: Detailed cycle logging with automatic 2MB log rotation for comprehensive monitoring
+- **Robust Error Handling**: Graceful recovery from file I/O errors, JSON parsing issues, and network problems
 
-监控器支持高级 `.env` 文件热更新，包含差异化处理和稳健性功能：
+监控器支持高级 `.env` 文件热更新，具备企业级稳健性功能：
 
 - **差异化处理**：仅处理新增/删除/修改的代码，保持未变更代码不变
-- **防竞态条件**：重试机制处理编辑期间的临时文件状态
-- **SMTP 连接池**：复用连接并限制频率，防止服务器禁用
-- **自动状态更新**：通知渠道变更时实时更新 status.json
-- **增强日志**：详细的周期日志，自动 2MB 轮换
+- **防竞态条件**：复杂的重试机制，使用指数退避处理编辑期间的临时文件状态
+- **SMTP连接池**：智能连接复用和频率限制，防止服务器封禁
+- **自动状态同步**：通知渠道变更时实时更新 status.json
+- **空通道支持**：设置通道为空字符串来禁用特定代码的通知而不删除
+- **线程安全配置**：原子配置更新使用锁机制确保数据一致性
+- **增强日志**：详细周期日志，自动2MB轮换以实现全面监控
+- **强大错误处理**：优雅处理文件I/O错误、JSON解析问题和网络故障
 
 ---
 
 ## User Management System / 用户管理系统
 
 **Architecture / 架构:**
-- **Modular Integration**: User management functionality is implemented in `monitor/api_server.py` and integrated into the main scheduler
-- **模块化集成**：用户管理功能在 `monitor/api_server.py` 中实现，集成到主调度器中
-- **Single Server Design**: When `SERVE=true`, the scheduler serves both static files and API endpoints
-- **单服务器设计**：当 `SERVE=true` 时，调度器同时提供静态文件和API端点服务
+- **Modular Integration**: User management functionality is implemented across modular components - `monitor/server/api_handler.py` for API endpoints, `monitor/server/http_server.py` for HTTP serving, and integrated into the priority scheduler
+- **模块化集成**：用户管理功能跨模块组件实现 - `monitor/server/api_handler.py` 处理API端点，`monitor/server/http_server.py` 处理HTTP服务，集成到优先级调度器中
+- **Enhanced Server Design**: Separation of concerns with dedicated modules for API handling and HTTP serving while maintaining unified scheduling
+- **增强服务器设计**：关注点分离，专用模块处理API和HTTP服务，同时保持统一调度
 
 **Features / 功能:**
 - **Email Verification**: Secure 10-minute verification links for code additions
@@ -119,11 +189,17 @@ Advanced hot reloading system with differential updates and robustness features:
 - 点击/隐藏/移除覆盖层；多选择器轮询；JS 回退。
 
 4) Logging & summary / 日志与总结
-- Enhanced logging with automatic 2MB rotation (preserves last 1000 lines)
-- Detailed cycle tracking: configuration reloads, code processing, email notifications
-- Runtime logs under `logs/`; failures archived with `连续失败次数/Consecutive_Fail_Count`
-- 增强日志系统：自动 2MB 轮换（保留最后 1000 行），详细周期跟踪：配置重载、代码处理、邮件通知
-- 运行时日志位于 `logs/`；失败行归档并带有连续失败次数
+- **Enhanced Logging System**: Automatic 2MB log rotation with preservation of last 1000 lines for optimal disk usage
+- **Comprehensive Cycle Tracking**: Detailed monitoring of configuration reloads, differential code processing, email notifications, and performance metrics
+- **Runtime Archiving**: Runtime logs under `logs/` with intelligent failure archiving including `连续失败次数/Consecutive_Fail_Count` for trend analysis
+- **Hot Reload Logging**: Detailed tracking of .env file changes, configuration reloads, and differential updates for debugging
+- **Performance Monitoring**: Cycle timing, throughput analysis, and resource usage tracking for optimization
+
+- **增强日志系统**：自动2MB日志轮换，保留最后1000行以优化磁盘使用
+- **全面周期跟踪**：详细监控配置重载、差异化代码处理、邮件通知和性能指标
+- **运行时归档**：运行时日志位于 `logs/`，智能失败归档包含连续失败次数用于趋势分析
+- **热更新日志**：详细跟踪 .env 文件变更、配置重载和差异化更新以便调试
+- **性能监控**：周期计时、吞吐量分析和资源使用跟踪以进行优化
 
 ## CLI notes / CLI 说明
 - Aliases: `generate-codes` = `gen`/`gc`, `report` = `rep`/`r`, `cz` = `c`.

@@ -139,36 +139,36 @@ def main():
         func(cmd_args)
     elif args.cmd == 'monitor':
         if args.install:
-            from monitor.service import install
+            from monitor.utils import install
             install(args.env, python_exe=args.python_exe)
             return
         if args.uninstall:
-            from monitor.service import uninstall
+            from monitor.utils import uninstall
             uninstall()
             return
         if args.start:
-            from monitor.service import start as svc_start
+            from monitor.utils import start as svc_start
             svc_start()
             return
         if args.stop:
-            from monitor.service import stop as svc_stop
+            from monitor.utils import stop as svc_stop
             svc_stop()
             return
         if args.reload:
-            from monitor.service import reload as svc_reload
+            from monitor.utils import reload as svc_reload
             svc_reload()
             return
         if args.restart:
-            from monitor.service import restart as svc_restart
+            from monitor.utils import restart as svc_restart
             svc_restart()
             return
         if args.status:
-            from monitor.service import status as svc_status
+            from monitor.utils import status as svc_status
             svc_status()
             return
-        # run scheduler
-        from monitor.scheduler import run_scheduler
-        asyncio.run(run_scheduler(args.env, once=args.once))
+        # run priority scheduler (new efficient scheduler)
+        from monitor import run_priority_scheduler
+        asyncio.run(run_priority_scheduler(args.env, once=args.once))
         return
     elif args.cmd == 'report':
         # 专门处理报告：只生成 Markdown

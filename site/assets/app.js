@@ -108,7 +108,11 @@ function render(data) {
     const hay = (it.code + ' ' + (it.status||'')).toLowerCase();
     if (q && !hay.includes(q)) continue;
     const tr = document.createElement('tr');
-    const tdCode = document.createElement('td'); tdCode.textContent = it.code || '';
+    const tdCode = document.createElement('td'); 
+    tdCode.textContent = it.code || '';
+    if (it.next_check) {
+      tdCode.title = `Next check: ${new Date(it.next_check).toLocaleString()}`;
+    }
     const tdStatus = document.createElement('td');
     const span = document.createElement('span');
     span.className = 'status-tag ' + statusClass(it.status);
@@ -189,6 +193,31 @@ function openModal(modalId) {
     generateCaptcha('captcha-question', 'captcha-answer');
   } else if (modalId === 'modal-manage') {
     generateCaptcha('captcha-question-2', 'captcha-answer-2');
+    // Reset manage modal state
+    resetManageModal();
+  }
+}
+
+async function resetManageModal() {
+  // Clear verification code input
+  document.getElementById('verification-code').value = '';
+  
+  // Check if user is logged in with valid session
+  const isLoggedIn = await verifySession();
+  
+  if (isLoggedIn) {
+    // Show only logged-in state
+    document.getElementById('form-verify-email').style.display = 'none';
+    document.getElementById('verification-step').style.display = 'none';
+    document.getElementById('codes-list').style.display = 'block';
+    document.getElementById('logout-section').style.display = 'block';
+    await loadUserCodes();
+  } else {
+    // Show login state
+    document.getElementById('form-verify-email').style.display = 'block';
+    document.getElementById('verification-step').style.display = 'none';
+    document.getElementById('codes-list').style.display = 'none';
+    document.getElementById('logout-section').style.display = 'none';
   }
 }
 
@@ -259,6 +288,23 @@ document.getElementById('form-verify-email').addEventListener('submit', async (e
     return;
   }
   
+  // Check if email was sent recently (60 seconds cooldown)
+  const lastSentKey = `lastEmailSent_${email}`;
+  const lastSent = localStorage.getItem(lastSentKey);
+  const now = Date.now();
+  
+  if (lastSent && (now - parseInt(lastSent)) < 60000) {
+    const remainingSeconds = Math.ceil((60000 - (now - parseInt(lastSent))) / 1000);
+    showResult('manage-result', `Please wait ${remainingSeconds} seconds before sending another code`, 'error');
+    return;
+  }
+  
+  // Disable button and show sending state
+  const submitBtn = e.target.querySelector('button[type="submit"]');
+  const originalText = submitBtn.textContent;
+  submitBtn.disabled = true;
+  submitBtn.textContent = 'Sending...';
+  
   try {
     const response = await fetch('/api/send-manage-code', {
       method: 'POST',
@@ -269,19 +315,81 @@ document.getElementById('form-verify-email').addEventListener('submit', async (e
     const result = await response.json();
     
     if (response.ok) {
+      // Store send time
+      localStorage.setItem(lastSentKey, now.toString());
+      
       showResult('manage-result', 'Verification code sent to your email!', 'success');
       document.getElementById('verification-step').style.display = 'block';
+      
+      // Start countdown
+      startSendCooldown(submitBtn, originalText, 60);
     } else {
+      submitBtn.disabled = false;
+      submitBtn.textContent = originalText;
       showResult('manage-result', result.error || 'Failed to send verification code', 'error');
       generateCaptcha('captcha-question-2', 'captcha-answer-2');
     }
   } catch (error) {
+    submitBtn.disabled = false;
+    submitBtn.textContent = originalText;
     showResult('manage-result', 'Network error. Please try again.', 'error');
   }
 });
 
-// 验证并显示用户代码
-async function verifyAndShowCodes() {
+// Countdown function for send button
+function startSendCooldown(button, originalText, seconds) {
+  let remaining = seconds;
+  const updateButton = () => {
+    if (remaining > 0) {
+      button.textContent = `Wait ${remaining}s`;
+      remaining--;
+      setTimeout(updateButton, 1000);
+    } else {
+      button.disabled = false;
+      button.textContent = originalText;
+    }
+  };
+  updateButton();
+}
+
+// Session Management
+function getSessionId() {
+  return localStorage.getItem('visa_session_id');
+}
+
+function setSessionId(sessionId) {
+  localStorage.setItem('visa_session_id', sessionId);
+}
+
+function clearSession() {
+  localStorage.removeItem('visa_session_id');
+}
+
+async function verifySession() {
+  const sessionId = getSessionId();
+  if (!sessionId) return false;
+  
+  try {
+    const response = await fetch('/api/verify-session', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session_id: sessionId })
+    });
+    
+    if (response.ok) {
+      const result = await response.json();
+      return result.valid;
+    } else {
+      clearSession();
+      return false;
+    }
+  } catch (error) {
+    clearSession();
+    return false;
+  }
+}
+
+async function loginWithVerificationCode() {
   const email = document.getElementById('verify-email').value.trim();
   const verificationCode = document.getElementById('verification-code').value.trim();
   
@@ -291,7 +399,7 @@ async function verifyAndShowCodes() {
   }
   
   try {
-    const response = await fetch('/api/verify-manage', {
+    const response = await fetch('/api/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, verification_code: verificationCode })
@@ -300,15 +408,56 @@ async function verifyAndShowCodes() {
     const result = await response.json();
     
     if (response.ok) {
-      displayUserCodes(result.codes);
+      setSessionId(result.session_id);
+      await loadUserCodes();
+      
+      // Hide login forms and show only codes management
+      document.getElementById('form-verify-email').style.display = 'none';
+      document.getElementById('verification-step').style.display = 'none';
       document.getElementById('codes-list').style.display = 'block';
-      showResult('manage-result', '', 'success');
+      document.getElementById('logout-section').style.display = 'block';
+      
+      showResult('manage-result', 'Login successful!', 'success');
     } else {
       showResult('manage-result', result.error || 'Invalid verification code', 'error');
     }
   } catch (error) {
     showResult('manage-result', 'Network error. Please try again.', 'error');
   }
+}
+
+async function logout() {
+  const sessionId = getSessionId();
+  if (sessionId) {
+    try {
+      await fetch('/api/logout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session_id: sessionId })
+      });
+    } catch (error) {
+      console.log('Logout request failed, but clearing local session');
+    }
+  }
+  
+  clearSession();
+  
+  // Restore login interface
+  document.getElementById('form-verify-email').style.display = 'block';
+  document.getElementById('verification-step').style.display = 'none';
+  document.getElementById('codes-list').style.display = 'none';
+  document.getElementById('logout-section').style.display = 'none';
+  
+  // Clear forms
+  document.getElementById('verify-email').value = '';
+  document.getElementById('verification-code').value = '';
+  
+  showResult('manage-result', 'Logged out successfully', 'success');
+}
+
+// 验证并显示用户代码
+async function verifyAndShowCodes() {
+  await loginWithVerificationCode();
 }
 
 // 显示用户代码列表
@@ -320,13 +469,47 @@ function displayUserCodes(codes) {
     return;
   }
   
-  container.innerHTML = codes.map(code => `
-    <div class="user-code-item">
+  container.innerHTML = codes.map(code => {
+    const nextCheckTooltip = code.next_check ? 
+      `title="Next check: ${new Date(code.next_check).toLocaleString()}"` : '';
+    
+    return `
+    <div class="user-code-item" ${nextCheckTooltip}>
       <span class="code">${code.code}</span>
       <span class="status">${code.status || 'Pending first check'}</span>
+      ${code.note ? `<span class="note">${code.note}</span>` : ''}
       <button class="btn-danger btn-small" onclick="deleteCode('${code.code}', '${code.email}')">Delete</button>
     </div>
-  `).join('');
+  `;
+  }).join('');
+}
+
+async function loadUserCodes() {
+  const sessionId = getSessionId();
+  if (!sessionId) return;
+  
+  try {
+    const response = await fetch('/api/verify-manage', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session_id: sessionId })
+    });
+    
+    const result = await response.json();
+    
+    if (response.ok) {
+      displayUserCodes(result.codes);
+    } else {
+      if (response.status === 401) {
+        clearSession();
+        document.getElementById('codes-list').style.display = 'none';
+        document.getElementById('logout-section').style.display = 'none';
+      }
+      showResult('manage-result', result.error || 'Failed to load codes', 'error');
+    }
+  } catch (error) {
+    showResult('manage-result', 'Network error. Please try again.', 'error');
+  }
 }
 
 // 删除代码
@@ -335,13 +518,17 @@ async function deleteCode(code, email) {
     return;
   }
   
-  const verificationCode = document.getElementById('verification-code').value.trim();
+  const sessionId = getSessionId();
+  if (!sessionId) {
+    showResult('manage-result', 'Please log in first', 'error');
+    return;
+  }
   
   try {
     const response = await fetch('/api/delete-code', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ code, email, verification_code: verificationCode })
+      body: JSON.stringify({ code, email, session_id: sessionId })
     });
     
     const result = await response.json();
@@ -349,9 +536,16 @@ async function deleteCode(code, email) {
     if (response.ok) {
       showResult('manage-result', `Code ${code} deleted successfully!`, 'success');
       // 重新获取并显示代码列表
-      setTimeout(() => verifyAndShowCodes(), 1000);
+      setTimeout(() => loadUserCodes(), 1000);
     } else {
-      showResult('manage-result', result.error || 'Failed to delete code', 'error');
+      if (response.status === 401) {
+        clearSession();
+        document.getElementById('codes-list').style.display = 'none';
+        document.getElementById('logout-section').style.display = 'none';
+        showResult('manage-result', 'Session expired. Please log in again.', 'error');
+      } else {
+        showResult('manage-result', result.error || 'Failed to delete code', 'error');
+      }
     }
   } catch (error) {
     showResult('manage-result', 'Network error. Please try again.', 'error');
@@ -367,7 +561,14 @@ function showResult(elementId, message, type) {
 }
 
 // 事件监听器
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
+  // Check for existing session on page load
+  if (await verifySession()) {
+    await loadUserCodes();
+    document.getElementById('codes-list').style.display = 'block';
+    document.getElementById('logout-section').style.display = 'block';
+  }
+  
   // 按钮点击事件
   document.getElementById('btn-add-code').addEventListener('click', () => openModal('modal-add'));
   document.getElementById('btn-manage-codes').addEventListener('click', () => openModal('modal-manage'));

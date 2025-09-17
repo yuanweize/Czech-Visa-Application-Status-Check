@@ -223,7 +223,8 @@ async def run_once(config: MonitorConfig) -> Dict[str, Any]:
                 'chan': chan,
                 'chan_label': 'Email' if email_configured else '',
                 'target': cc.target,
-                'freq': max(1, int(cc.freq_minutes or 60)),
+                'freq': max(1, int(cc.freq_minutes or config.default_freq_minutes)),
+                'note': cc.note,  # Include note in task data
             }
 
         num_codes = len(task_map)
@@ -424,10 +425,11 @@ async def run_scheduler(env_path: str, once: bool = False):
     # Configuration reload flag and lock
     config_reload_flag = threading.Event()
     config_lock = threading.Lock()
+    new_codes_to_check = []  # New codes that need immediate checking
     
     def reload_config():
         """Reload configuration from .env file with differential updates."""
-        nonlocal cfg, codes
+        nonlocal cfg, codes, new_codes_to_check
         with config_lock:
             try:
                 # Add small delay and retry logic to handle file editing race conditions
@@ -470,6 +472,9 @@ async def run_scheduler(env_path: str, once: bool = False):
                 # Update global config and codes
                 cfg = new_cfg
                 codes = new_cfg.codes
+                
+                # Store new codes for immediate processing
+                new_codes_to_check = list(added_codes)
                 
                 # Handle changes in status.json
                 if removed_codes or modified_codes:
@@ -634,13 +639,20 @@ async def run_scheduler(env_path: str, once: bool = False):
                                   current_cfg.smtp_user and 
                                   current_cfg.smtp_pass)
                 
+                # Calculate next check time
+                freq_minutes = code_cfg.freq_minutes or current_cfg.default_freq_minutes
+                next_check = dt.datetime.now() + dt.timedelta(minutes=freq_minutes)
+                
                 state["items"][code] = {
                     "code": code,
                     "status": status,
                     "last_checked": _now_iso(),
                     "last_changed": old_item.get("last_changed") if not changed else _now_iso(),
+                    "next_check": next_check.isoformat(),
                     "channel": "Email" if email_configured else "",
                     "target": code_cfg.target or "",
+                    "freq_minutes": freq_minutes,
+                    "note": code_cfg.note,
                 }
                 log(f"[{_now_iso()}] result code={code} status={status}")
 
@@ -695,6 +707,10 @@ async def run_scheduler(env_path: str, once: bool = False):
                 # Get current codes for this cycle
                 with config_lock:
                     current_codes = codes[:]
+                    # Check for newly added codes that need immediate processing
+                    has_new_codes = len(new_codes_to_check) > 0
+                    if has_new_codes:
+                        new_codes_to_check.clear()  # Clear the list
                 
                 if current_codes:
                     log(f"[{_now_iso()}] Processing {len(current_codes)} codes")
@@ -710,9 +726,10 @@ async def run_scheduler(env_path: str, once: bool = False):
                 # Calculate sleep time
                 with config_lock:
                     current_codes = codes[:]
+                    current_config = cfg
                     
                 if current_codes:
-                    mins = min([max(1, c.freq_minutes) for c in current_codes])
+                    mins = min([max(1, c.freq_minutes or current_config.default_freq_minutes) for c in current_codes])
                     total = mins * 60
                     log(f"[{_now_iso()}] Sleeping for {mins} minutes until next cycle")
                     while total > 0 and not stop_flag:
@@ -723,6 +740,11 @@ async def run_scheduler(env_path: str, once: bool = False):
                         if config_reload_flag.is_set():
                             log(f"[{_now_iso()}] Config reload detected during sleep, breaking early")
                             break
+                        # Check for new codes that need immediate processing
+                        with config_lock:
+                            if len(new_codes_to_check) > 0:
+                                log(f"[{_now_iso()}] New codes detected during sleep, breaking early for immediate processing")
+                                break
                 else:
                     # No codes configured, wait and check for reload
                     log(f"[{_now_iso()}] No codes configured, sleeping 60s and rechecking")

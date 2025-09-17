@@ -10,19 +10,22 @@ that can be imported and integrated into the main scheduler.
 import os
 import json
 import secrets
-import smtplib
-import ssl
 import re
 import threading
 import time
 from datetime import datetime, timedelta
-from email.mime.text import MIMEText
-from email.utils import formataddr
 from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 from urllib.parse import urlparse
 
-from monitor.config import load_env_config
+from monitor.core.config import load_env_config
+from monitor.notification import (
+    send_email_sync, 
+    build_verification_email,
+    build_management_code_email,
+    send_verification_email,
+    send_management_code_email
+)
 
 
 def _now_iso() -> str:
@@ -33,6 +36,7 @@ class APIHandler(BaseHTTPRequestHandler):
     def __init__(self, *args, config_path='.env', site_dir='site', **kwargs):
         self.config_path = config_path
         self.site_dir = site_dir
+        self._base_url = None  # Will be set when first request comes in
         super().__init__(*args, **kwargs)
     
     def log_message(self, format, *args):
@@ -50,15 +54,32 @@ class APIHandler(BaseHTTPRequestHandler):
         response = json.dumps(data, ensure_ascii=False).encode('utf-8')
         self.wfile.write(response)
     
-    def _send_html_response(self, status_code: int, html: str):
-        self.send_response(status_code)
-        self.send_header('Content-Type', 'text/html; charset=utf-8')
-        self.end_headers()
-        self.wfile.write(html.encode('utf-8'))
-    
     def _load_config(self):
         """Load configuration from .env file"""
         return load_env_config(self.config_path)
+    
+    def _get_base_url(self):
+        """Generate base URL from request headers (cached)"""
+        if self._base_url is None:
+            host_header = self.headers.get('Host', f'localhost:{self._load_config().site_port}')
+            
+            # Determine protocol based on common patterns
+            if 'localhost' in host_header or host_header.startswith('127.0.0.1') or host_header.startswith('192.168.'):
+                protocol = 'http'
+            elif any(domain in host_header for domain in ['eurun.top', 'yuanweize.win']) or ':443' in host_header:
+                protocol = 'https'
+            else:
+                # Default to https for production domains, http for others
+                protocol = 'https' if '.' in host_header.split(':')[0] and not host_header.startswith('localhost') else 'http'
+            
+            self._base_url = f"{protocol}://{host_header}"
+        
+        return self._base_url
+    
+    @property
+    def base_url(self):
+        """Property for easy access to base URL"""
+        return self._get_base_url()
     
     def _load_status_data(self):
         """Load status data from status.json"""
@@ -72,7 +93,8 @@ class APIHandler(BaseHTTPRequestHandler):
                 "items": {},
                 "user_management": {
                     "verification_codes": {},
-                    "pending_additions": {}
+                    "pending_additions": {},
+                    "sessions": {}
                 }
             }
     
@@ -90,45 +112,6 @@ class APIHandler(BaseHTTPRequestHandler):
     def _generate_verification_code(self):
         """Generate 6-digit verification code"""
         return f"{secrets.randbelow(900000) + 100000:06d}"
-    
-    def _send_email(self, to_email: str, subject: str, html_body: str):
-        """Send email using configuration from .env"""
-        try:
-            config = self._load_config()
-            
-            if not config.smtp_host:
-                return False, "SMTP not configured"
-            
-            msg = MIMEText(html_body, "html", "utf-8")
-            sender = config.smtp_from or "CZ Visa Monitor"
-            if "@" in sender:
-                msg["From"] = formataddr(("CZ Visa Monitor", sender))
-            else:
-                msg["From"] = "CZ Visa Monitor <noreply@example.com>"
-            msg["To"] = to_email
-            msg["Subject"] = subject
-            
-            port = config.smtp_port or 465
-            if port == 465:
-                with smtplib.SMTP_SSL(config.smtp_host, port, context=ssl.create_default_context()) as server:
-                    if config.smtp_user and config.smtp_pass:
-                        server.login(config.smtp_user, config.smtp_pass)
-                    server.send_message(msg)
-            else:
-                with smtplib.SMTP(config.smtp_host, port) as server:
-                    server.ehlo()
-                    try:
-                        server.starttls(context=ssl.create_default_context())
-                        server.ehlo()
-                    except:
-                        pass
-                    if config.smtp_user and config.smtp_pass:
-                        server.login(config.smtp_user, config.smtp_pass)
-                    server.send_message(msg)
-            
-            return True, None
-        except Exception as e:
-            return False, str(e)
     
     def _add_to_env_config(self, code: str, email: str):
         """Add new code to .env configuration"""
@@ -303,6 +286,12 @@ FREQ_MINUTES_{new_idx}=60
             self._handle_verify_manage(data)
         elif path == '/api/delete-code':
             self._handle_delete_code(data)
+        elif path == '/api/login':
+            self._handle_login(data)
+        elif path == '/api/logout':
+            self._handle_logout(data)
+        elif path == '/api/verify-session':
+            self._handle_verify_session(data)
         else:
             self._send_json_response(404, {'error': 'API endpoint not found'})
     
@@ -393,58 +382,20 @@ FREQ_MINUTES_{new_idx}=60
         
         self._save_status_data(status_data)
         
-        # Send verification email
+        # Generate verification URL using cached base_url
+        verification_url = f"{self.base_url}/api/verify-add/{token}"
+        
+        # Prepare SMTP configuration
         config = self._load_config()
-        base_url = f"http://localhost:{config.site_port}"
-        verification_url = f"http://localhost:{config.site_port}/api/verify-add/{token}"
+        smtp_config = {
+            'host': config.smtp_host,
+            'port': config.smtp_port,
+            'user': config.smtp_user,
+            'pass': config.smtp_pass,
+            'from': config.smtp_from
+        }
         
-        subject = "Czech Visa Monitor - Verify New Code Addition"
-        html_body = f"""
-        <html>
-        <body style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-            <div style="background: linear-gradient(135deg, #007bff, #0056b3); color: white; padding: 2rem; text-align: center;">
-                <h1>Czech Republic Visa Monitor</h1>
-                <p>Verify New Code Addition</p>
-            </div>
-            
-            <div style="padding: 2rem;">
-                <h2>Hello!</h2>
-                <p>You requested to add the visa code <strong>{code}</strong> to our monitoring system.</p>
-                
-                <div style="background: #f8f9fa; padding: 1rem; border-radius: 8px; margin: 1rem 0;">
-                    <p><strong>Code:</strong> {code}</p>
-                    <p><strong>Email:</strong> {email}</p>
-                    <p><strong>Notifications:</strong> Enabled</p>
-                </div>
-                
-                <p>To confirm this addition, please click the button below:</p>
-                
-                <div style="text-align: center; margin: 2rem 0;">
-                    <a href="{verification_url}" style="background: linear-gradient(135deg, #28a745, #20c997); color: white; padding: 1rem 2rem; text-decoration: none; border-radius: 8px; display: inline-block; font-weight: bold;">
-                        ✅ Confirm Addition
-                    </a>
-                </div>
-                
-                <p><strong>Important:</strong> This link will expire in 10 minutes for security reasons.</p>
-                
-                <hr style="margin: 2rem 0; border: none; border-top: 1px solid #ddd;">
-                
-                <p style="color: #666; font-size: 0.9rem;">
-                    If you didn't request this, please ignore this email. The code will not be added without verification.
-                </p>
-                
-                <div style="text-align: center; margin-top: 2rem;">
-                    <p style="color: #666; font-size: 0.9rem;">
-                        <strong>Czech Republic Visa Monitor</strong><br>
-                        <a href="{base_url}">Return to Main Site</a>
-                    </p>
-                </div>
-            </div>
-        </body>
-        </html>
-        """
-        
-        success, error = self._send_email(email, subject, html_body)
+        success, error = send_verification_email(email, code, verification_url, self.base_url, smtp_config, self.config_path)
         
         if success:
             self._send_json_response(200, {'message': 'Verification email sent successfully'})
@@ -456,15 +407,10 @@ FREQ_MINUTES_{new_idx}=60
         pending = status_data.get('user_management', {}).get('pending_additions', {}).get(token)
         
         if not pending:
-            self._send_html_response(400, """
-            <html>
-            <body style="font-family: Arial, sans-serif; text-align: center; padding: 2rem;">
-                <h1>❌ Invalid Verification Link</h1>
-                <p>This verification link is invalid or has already been used.</p>
-                <a href="/">Return to Main Site</a>
-            </body>
-            </html>
-            """)
+            self._send_json_response(400, {
+                'error': 'Invalid verification link',
+                'message': 'This verification link is invalid or has already been used.'
+            })
             return
         
         # Check expiry
@@ -472,15 +418,10 @@ FREQ_MINUTES_{new_idx}=60
         if datetime.now() > expires:
             del status_data['user_management']['pending_additions'][token]
             self._save_status_data(status_data)
-            self._send_html_response(400, """
-            <html>
-            <body style="font-family: Arial, sans-serif; text-align: center; padding: 2rem;">
-                <h1>⏰ Link Expired</h1>
-                <p>This verification link has expired. Please submit a new request.</p>
-                <a href="/">Return to Main Site</a>
-            </body>
-            </html>
-            """)
+            self._send_json_response(400, {
+                'error': 'Link expired',
+                'message': 'This verification link has expired. Please submit a new request.'
+            })
             return
         
         code = pending['code']
@@ -508,36 +449,12 @@ FREQ_MINUTES_{new_idx}=60
         except Exception as e:
             print(f"[{_now_iso()}] Failed to add to .env: {e}")
         
-        config = self._load_config()
-        base_url = f"http://localhost:{config.site_port}"
-        
-        self._send_html_response(200, f"""
-        <html>
-        <body style="font-family: Arial, sans-serif; text-align: center; padding: 2rem; background: linear-gradient(135deg, #f8f9fa, #e9ecef);">
-            <div style="background: white; padding: 3rem; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); max-width: 500px; margin: 0 auto;">
-                <h1 style="color: #28a745;">✅ Success!</h1>
-                <p>Your visa code <strong>{code}</strong> has been successfully added to the monitoring system.</p>
-                
-                <div style="background: #d4edda; padding: 1rem; border-radius: 8px; margin: 1rem 0; border: 1px solid #c3e6cb;">
-                    <p style="margin: 0; color: #155724;"><strong>What happens next?</strong></p>
-                    <p style="margin: 0.5rem 0 0 0; color: #155724;">• Your code will be checked every hour</p>
-                    <p style="margin: 0.5rem 0 0 0; color: #155724;">• You'll receive email notifications when the status changes</p>
-                    <p style="margin: 0.5rem 0 0 0; color: #155724;">• You can view real-time status on our website</p>
-                </div>
-                
-                <div style="margin: 2rem 0;">
-                    <a href="{base_url}" style="background: linear-gradient(135deg, #007bff, #0056b3); color: white; padding: 1rem 2rem; text-decoration: none; border-radius: 8px; display: inline-block; font-weight: bold;">
-                        🏠 Return to Main Site
-                    </a>
-                </div>
-                
-                <p style="color: #666; font-size: 0.9rem;">
-                    Need to manage your codes? Use the "Manage My Codes" button on the main site.
-                </p>
-            </div>
-        </body>
-        </html>
-        """)
+        self._send_json_response(200, {
+            'success': True,
+            'message': f'Code {code} has been successfully added to monitoring system',
+            'code': code,
+            'base_url': self.base_url
+        })
     
     def _handle_send_manage_code(self, data):
         email = data.get('email', '').strip().lower()
@@ -567,48 +484,17 @@ FREQ_MINUTES_{new_idx}=60
         
         self._save_status_data(status_data)
         
-        # Send email
-        subject = "Czech Visa Monitor - Management Verification Code"
-        html_body = f"""
-        <html>
-        <body style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-            <div style="background: linear-gradient(135deg, #6c757d, #5a6268); color: white; padding: 2rem; text-align: center;">
-                <h1>Czech Republic Visa Monitor</h1>
-                <p>Management Verification Code</p>
-            </div>
-            
-            <div style="padding: 2rem;">
-                <h2>Hello!</h2>
-                <p>You requested to manage your monitored visa codes. Your verification code is:</p>
-                
-                <div style="background: #f8f9fa; border: 2px solid #007bff; padding: 2rem; text-align: center; border-radius: 8px; margin: 2rem 0;">
-                    <h1 style="color: #007bff; font-size: 2.5rem; margin: 0; letter-spacing: 0.5rem; font-family: 'Courier New', monospace;">
-                        {verification_code}
-                    </h1>
-                </div>
-                
-                <p><strong>Important:</strong> This code will expire in 10 minutes for security reasons.</p>
-                
-                <p>Enter this code on the website to view and manage your monitored codes.</p>
-                
-                <hr style="margin: 2rem 0; border: none; border-top: 1px solid #ddd;">
-                
-                <p style="color: #666; font-size: 0.9rem;">
-                    If you didn't request this code, please ignore this email.
-                </p>
-                
-                <div style="text-align: center; margin-top: 2rem;">
-                    <p style="color: #666; font-size: 0.9rem;">
-                        <strong>Czech Republic Visa Monitor</strong><br>
-                        Czech Republic Visa Application Status Monitor
-                    </p>
-                </div>
-            </div>
-        </body>
-        </html>
-        """
+        # Prepare SMTP configuration
+        config = self._load_config()
+        smtp_config = {
+            'host': config.smtp_host,
+            'port': config.smtp_port,
+            'user': config.smtp_user,
+            'pass': config.smtp_pass,
+            'from': config.smtp_from
+        }
         
-        success, error = self._send_email(email, subject, html_body)
+        success, error = send_management_code_email(email, verification_code, smtp_config, self.config_path)
         
         if success:
             self._send_json_response(200, {'message': 'Verification code sent successfully'})
@@ -616,32 +502,57 @@ FREQ_MINUTES_{new_idx}=60
             self._send_json_response(500, {'error': f'Failed to send email: {error}'})
     
     def _handle_verify_manage(self, data):
+        # Support both verification code and session authentication
         email = data.get('email', '').strip().lower()
         verification_code = data.get('verification_code', '').strip()
+        session_id = data.get('session_id', '').strip()
         
-        if not email or not verification_code:
-            self._send_json_response(400, {'error': 'Email and verification code are required'})
-            return
-        
-        # Check verification code
         status_data = self._load_status_data()
-        stored = status_data.get('user_management', {}).get('verification_codes', {}).get(email)
         
-        if not stored:
-            self._send_json_response(400, {'error': 'No verification code found for this email'})
-            return
-        
-        # Check expiry
-        expires = datetime.fromisoformat(stored['expires'])
-        if datetime.now() > expires:
-            del status_data['user_management']['verification_codes'][email]
+        # Session authentication method
+        if session_id:
+            sessions = status_data.get('user_management', {}).get('sessions', {})
+            session = sessions.get(session_id)
+            
+            if not session:
+                self._send_json_response(401, {'error': 'Invalid session'})
+                return
+            
+            # Check expiration
+            expires = datetime.fromisoformat(session['expires'])
+            if datetime.now() > expires:
+                del sessions[session_id]
+                self._save_status_data(status_data)
+                self._send_json_response(401, {'error': 'Session expired'})
+                return
+            
+            # Update last used
+            session['last_used'] = _now_iso()
             self._save_status_data(status_data)
-            self._send_json_response(400, {'error': 'Verification code has expired'})
-            return
-        
-        # Check code
-        if stored['code'] != verification_code:
-            self._send_json_response(400, {'error': 'Invalid verification code'})
+            email = session['email']
+            
+        # Verification code method (legacy)
+        elif email and verification_code:
+            stored = status_data.get('user_management', {}).get('verification_codes', {}).get(email)
+            
+            if not stored:
+                self._send_json_response(400, {'error': 'No verification code found for this email'})
+                return
+            
+            # Check expiry
+            expires = datetime.fromisoformat(stored['expires'])
+            if datetime.now() > expires:
+                del status_data['user_management']['verification_codes'][email]
+                self._save_status_data(status_data)
+                self._send_json_response(400, {'error': 'Verification code has expired'})
+                return
+            
+            # Check code
+            if stored['code'] != verification_code:
+                self._send_json_response(400, {'error': 'Invalid verification code'})
+                return
+        else:
+            self._send_json_response(400, {'error': 'Email and verification code, or session ID required'})
             return
         
         # Get user codes
@@ -654,7 +565,9 @@ FREQ_MINUTES_{new_idx}=60
                     'email': email,
                     'status': item.get('status'),
                     'last_checked': item.get('last_checked'),
-                    'added_at': item.get('added_at')
+                    'next_check': item.get('next_check'),
+                    'added_at': item.get('added_at'),
+                    'note': item.get('note')
                 })
         
         self._send_json_response(200, {'codes': user_codes})
@@ -663,22 +576,50 @@ FREQ_MINUTES_{new_idx}=60
         email = data.get('email', '').strip().lower()
         code = data.get('code', '').strip().upper()
         verification_code = data.get('verification_code', '').strip()
+        session_id = data.get('session_id', '').strip()
         
-        if not all([email, code, verification_code]):
-            self._send_json_response(400, {'error': 'Email, code, and verification code are required'})
+        if not code:
+            self._send_json_response(400, {'error': 'Code is required'})
             return
         
-        # Check verification code
         status_data = self._load_status_data()
-        stored = status_data.get('user_management', {}).get('verification_codes', {}).get(email)
         
-        if not stored:
-            self._send_json_response(400, {'error': 'Verification code expired or invalid'})
-            return
-        
-        expires = datetime.fromisoformat(stored['expires'])
-        if datetime.now() > expires or stored['code'] != verification_code:
-            self._send_json_response(400, {'error': 'Invalid or expired verification code'})
+        # Session authentication method
+        if session_id:
+            sessions = status_data.get('user_management', {}).get('sessions', {})
+            session = sessions.get(session_id)
+            
+            if not session:
+                self._send_json_response(401, {'error': 'Invalid session'})
+                return
+            
+            # Check expiration
+            expires = datetime.fromisoformat(session['expires'])
+            if datetime.now() > expires:
+                del sessions[session_id]
+                self._save_status_data(status_data)
+                self._send_json_response(401, {'error': 'Session expired'})
+                return
+            
+            # Update last used
+            session['last_used'] = _now_iso()
+            self._save_status_data(status_data)
+            email = session['email']
+            
+        # Verification code method (legacy)
+        elif email and verification_code:
+            stored = status_data.get('user_management', {}).get('verification_codes', {}).get(email)
+            
+            if not stored:
+                self._send_json_response(400, {'error': 'Verification code expired or invalid'})
+                return
+            
+            expires = datetime.fromisoformat(stored['expires'])
+            if datetime.now() > expires or stored['code'] != verification_code:
+                self._send_json_response(400, {'error': 'Invalid or expired verification code'})
+                return
+        else:
+            self._send_json_response(400, {'error': 'Email and verification code, or session ID required'})
             return
         
         # Remove from status.json
@@ -694,6 +635,102 @@ FREQ_MINUTES_{new_idx}=60
             print(f"[{_now_iso()}] Failed to remove from .env: {e}")
         
         self._send_json_response(200, {'message': 'Code deleted successfully'})
+
+    def _handle_login(self, data):
+        """Handle user login request"""
+        email = data.get('email', '').strip().lower()
+        verification_code = data.get('verification_code', '').strip()
+        
+        if not email or not verification_code:
+            self._send_json_response(400, {'error': 'Email and verification code are required'})
+            return
+        
+        status_data = self._load_status_data()
+        stored = status_data.get('user_management', {}).get('verification_codes', {}).get(email)
+        
+        if not stored:
+            self._send_json_response(400, {'error': 'No verification code found for this email'})
+            return
+        
+        # Check expiration and code
+        expires = datetime.fromisoformat(stored['expires'])
+        if datetime.now() > expires or stored['code'] != verification_code:
+            self._send_json_response(400, {'error': 'Invalid or expired verification code'})
+            return
+        
+        # Create session (7 days)
+        import secrets
+        session_id = secrets.token_urlsafe(32)
+        session_expires = datetime.now() + timedelta(days=7)
+        
+        status_data.setdefault('user_management', {}).setdefault('sessions', {})[session_id] = {
+            'email': email,
+            'created': _now_iso(),
+            'expires': session_expires.isoformat(),
+            'last_used': _now_iso()
+        }
+        
+        # Remove verification code since it's been used
+        del status_data['user_management']['verification_codes'][email]
+        
+        self._save_status_data(status_data)
+        self._send_json_response(200, {
+            'message': 'Login successful',
+            'session_id': session_id,
+            'expires': session_expires.isoformat()
+        })
+
+    def _handle_logout(self, data):
+        """Handle user logout request"""
+        session_id = data.get('session_id', '').strip()
+        
+        if not session_id:
+            self._send_json_response(400, {'error': 'Session ID is required'})
+            return
+        
+        status_data = self._load_status_data()
+        sessions = status_data.get('user_management', {}).get('sessions', {})
+        
+        if session_id in sessions:
+            del sessions[session_id]
+            self._save_status_data(status_data)
+            self._send_json_response(200, {'message': 'Logout successful'})
+        else:
+            self._send_json_response(400, {'error': 'Invalid session ID'})
+
+    def _handle_verify_session(self, data):
+        """Handle session verification request"""
+        session_id = data.get('session_id', '').strip()
+        
+        if not session_id:
+            self._send_json_response(400, {'error': 'Session ID is required'})
+            return
+        
+        status_data = self._load_status_data()
+        sessions = status_data.get('user_management', {}).get('sessions', {})
+        session = sessions.get(session_id)
+        
+        if not session:
+            self._send_json_response(401, {'error': 'Session not found'})
+            return
+        
+        # Check expiration
+        expires = datetime.fromisoformat(session['expires'])
+        if datetime.now() > expires:
+            del sessions[session_id]
+            self._save_status_data(status_data)
+            self._send_json_response(401, {'error': 'Session expired'})
+            return
+        
+        # Update last used time
+        session['last_used'] = _now_iso()
+        self._save_status_data(status_data)
+        
+        self._send_json_response(200, {
+            'valid': True,
+            'email': session['email'],
+            'expires': session['expires']
+        })
 
 
 # Background task to clean up expired data
@@ -731,6 +768,18 @@ def cleanup_expired_data(site_dir='site'):
                 
                 for token in expired_tokens:
                     del pending_additions[token]
+                    changed = True
+                
+                # Clean expired sessions (7 days)
+                sessions = data.get('user_management', {}).get('sessions', {})
+                expired_sessions = []
+                for session_id, session_data in sessions.items():
+                    expires = datetime.fromisoformat(session_data['expires'])
+                    if now > expires:
+                        expired_sessions.append(session_id)
+                
+                for session_id in expired_sessions:
+                    del sessions[session_id]
                     changed = True
                 
                 # Save if changed

@@ -522,6 +522,13 @@ footer {
   font-size: 0.9rem;
 }
 
+.user-code-item .note {
+  color: #6c757d;
+  font-size: 0.85rem;
+  font-style: italic;
+  margin-left: 0.5rem;
+}
+
 /* 响应式设计 */
 @media (max-width: 768px) {
   header {

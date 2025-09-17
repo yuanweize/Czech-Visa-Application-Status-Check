@@ -30,18 +30,25 @@ Save failing rows after retries to daily failure files in `logs/fails/` for offl
 
 ## Project structure (for contributors) / 项目结构（面向贡献者）
 - `visa_status.py` — CLI entrypoint and dispatcher that registers country modules and exposes commands.
-- `monitor/` — monitoring and user management modules:
-  - `scheduler.py` — main monitoring scheduler with integrated HTTP server
-  - `api_server.py` — user management API module (imported by scheduler)
-  - `config.py` — configuration management
-  - `notify.py` — email notification system
+- `monitor/` — monitoring and user management modules (modular architecture):
+  - `core/` — core monitoring functionality:
+    - `scheduler.py` — priority-based monitoring scheduler with differential updates
+    - `config.py` — environment configuration management with hot reload support
+  - `server/` — HTTP server and API handling:
+    - `http_server.py` — static file server and API integration
+    - `api_handler.py` — user management API endpoints with email verification
+  - `notification/` — email notification system:
+    - `smtp_client.py` — SMTP client with connection pooling and hot reload
+    - `user_management.py` — user verification and management emails
+  - `utils/` — utility modules:
+    - `env_watcher.py` — .env file monitoring and hot reload with watchdog
 - `query_modules/` — directory containing one module per country (e.g. `cz.py`). Each module implements a simple querying interface.
 - `site/` — static website files (HTML, CSS, JS) for user interface
 - `tools/generate_codes.py` — code generator utility.
 - `logs/` — run and fail logs; failing rows are appended to `logs/fails/YYYY-MM-DD_fails.csv`.
 - `requirements.txt` — Python dependencies (playwright; optional matplotlib; watchdog for .env hot reloading).
 
-设计说明：查询器为模块化设计——要添加新的国家支持，请在 `query_modules/<iso>.py` 下添加文件，按照 `PROJECT_OVERVIEW.md` 中描述的模块 API 实现并在 `visa_status.py` 中注册。用户管理功能通过 `monitor/api_server.py` 模块实现，可被主调度器集成或独立运行。
+设计说明：查询器为模块化设计——要添加新的国家支持，请在 `query_modules/<iso>.py` 下添加文件，按照 `PROJECT_OVERVIEW.md` 中描述的模块 API 实现并在 `visa_status.py` 中注册。用户管理功能通过新的模块化架构实现：`monitor/server/api_handler.py` 处理用户API，`monitor/notification/` 处理邮件通知，`monitor/core/scheduler.py` 提供优先级调度，`monitor/utils/env_watcher.py` 提供 .env 热更新支持。
 
 ## Quick start (uv) / 快速开始（推荐使用 uv）
 
@@ -336,10 +343,12 @@ The system now includes a user-friendly interface for public users to add and ma
 - **6-Digit Verification**: Time-limited verification codes for secure management / 6位验证码：用于安全管理的限时验证码
 
 **Architecture / 架构:**
-- **Modular Design**: API functionality is organized in `monitor/api_server.py` module / 模块化设计：API功能组织在`monitor/api_server.py`模块中
-- **Single Server**: One server handles both monitoring and user management / 单服务器：一个服务器同时处理监控和用户管理
+- **Modular Design**: API functionality is organized in `monitor/server/api_handler.py` module with HTTP server in `monitor/server/http_server.py` / 模块化设计：API功能组织在`monitor/server/api_handler.py`模块中，HTTP服务器在`monitor/server/http_server.py`中
+- **Priority Scheduler**: Enhanced scheduler with differential code processing in `monitor/core/scheduler.py` / 优先级调度器：在`monitor/core/scheduler.py`中增强的调度器，支持差异化代码处理
+- **Email System**: Comprehensive notification system in `monitor/notification/` with SMTP pooling / 邮件系统：位于`monitor/notification/`的全面通知系统，支持SMTP连接池
+- **Hot Reload Engine**: Real-time configuration monitoring in `monitor/utils/env_watcher.py` / 热更新引擎：位于`monitor/utils/env_watcher.py`的实时配置监控
 - **Configuration Control**: Use `SERVE=true/false` to enable/disable web interface / 配置控制：使用`SERVE=true/false`启用/禁用Web界面
-- **Clean Structure**: All monitoring-related modules are contained in `monitor/` folder / 清晰结构：所有监控相关模块都包含在`monitor/`文件夹中
+- **Clean Structure**: All monitoring-related modules are contained in `monitor/` folder with organized submodules / 清晰结构：所有监控相关模块都包含在`monitor/`文件夹中，具有组织化的子模块
 
 **Quick Start / 快速开始:**
 ```bash
@@ -363,37 +372,46 @@ SERVE=false  # Disable web interface / 禁用Web界面
 - Pure Monitoring: No web interface (when SERVE=false) / 纯监控：无Web界面（当SERVE=false时）
 **Hot reloading / .env 热更新**
 
-The monitor supports automatic hot reloading of the `.env` configuration file. When enabled, any changes to `.env` are detected and the configuration is reloaded without restarting the service.
+The monitor supports comprehensive automatic hot reloading of the `.env` configuration file through an advanced file watching system. When enabled, any changes to `.env` are detected in real-time and the configuration is reloaded without restarting the service.
 
-- **Enabled automatically in daemon mode** (not `--once`) **when the `watchdog` package is installed**.
-- **Differential Updates**: Only processes changed codes (added/removed/modified) for efficiency
-- **Automatic Cleanup**: Removes deleted codes from status.json automatically
-- **Race Condition Protection**: Retry mechanism handles temporary file states during editing
-- **Empty Channel Support**: Set `CHANNEL_X=` (empty) to disable notifications for specific codes
-- If you see `Warning: watchdog not available, .env hot reloading disabled`, install watchdog:
-  ```bash
-  python -m pip install watchdog
-  # or
-  uv pip install watchdog
-  ```
-- Hot reloading works for both CLI and systemd service modes.
-- Configuration changes take effect in the next monitoring cycle.
+监控器通过高级文件监控系统支持 `.env` 配置文件的全面自动热更新。启用后，对 `.env` 的任何更改都会被实时检测，并在不重启服务的情况下重新加载配置。
 
-监控器支持 `.env` 文件的自动热更新。只要安装了 `watchdog` 包，修改 `.env` 文件会自动检测并重新加载配置，无需重启服务。
+**Enhanced Features / 增强功能:**
+- **Real-time File Monitoring**: Uses `watchdog` library for instant .env file change detection / 实时文件监控：使用 `watchdog` 库即时检测 .env 文件变化
+- **Differential Updates**: Only processes changed codes (added/removed/modified) for maximum efficiency / 差异化更新：仅处理变更的代码（新增/删除/修改），实现最高效率
+- **SMTP Connection Pooling**: Reuses connections with intelligent rate limiting to prevent server bans / SMTP连接池：智能复用连接并限制频率，防止服务器封禁
+- **Race Condition Protection**: Advanced retry mechanism handles temporary file states during editing / 防竞态条件：高级重试机制处理编辑期间的临时文件状态
+- **Automatic Status Updates**: Real-time updates to status.json when notification channels change / 自动状态更新：通知渠道变更时实时更新 status.json
+- **Empty Channel Support**: Set `CHANNEL_X=` (empty) to disable notifications for specific codes / 空通道支持：设置 `CHANNEL_X=`（空）来禁用特定代码的通知
+- **Thread Safety**: Configuration reload with lock mechanism ensures data consistency / 线程安全：配置重载使用锁机制确保数据一致性
+- **Comprehensive Coverage**: Supports all environment variables including base config, SMTP, and query codes / 全面覆盖：支持所有环境变量，包括基础配置、SMTP和查询码
 
-- **差异化更新**：仅处理变更的代码（新增/删除/修改），提高效率
-- **自动清理**：从 status.json 中自动删除已删除的代码
-- **防竞态条件**：重试机制处理编辑期间的临时文件状态
-- **空通道支持**：设置 `CHANNEL_X=`（空）来禁用特定代码的通知
+**Supported Configuration Types / 支持的配置类型:**
+- **Base Configuration**: `HEADLESS`, `SITE_DIR`, `LOG_DIR`, `SERVE`, `SITE_PORT`, `DEFAULT_FREQ_MINUTES`
+- **SMTP Configuration**: `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM`
+- **Query Codes**: Both `CODES_JSON` (JSON format) and `CODE_x`, `CHANNEL_x`, `TARGET_x`, `FREQ_MINUTES_x`, `NOTE_x` (numbered format)
 
+**Technical Architecture / 技术架构:**
+- **File Watcher**: `monitor/utils/env_watcher.py` with 0.5s debounce delay / 文件监控器：带0.5秒防抖延迟
+- **Configuration Loader**: Enhanced `load_env_config()` with environment variable precedence / 配置加载器：增强的 `load_env_config()` 支持环境变量优先级
+- **Scheduler Integration**: Priority-based scheduler with automatic new code detection / 调度器集成：基于优先级的调度器，自动检测新代码
+
+**Activation / 启用:**
+- **Enabled automatically in daemon mode** (not `--once`) **when the `watchdog` package is installed**
+- **在守护进程模式下自动启用**（非 `--once`）**当安装了 `watchdog` 包时**
+
+If you see `Warning: watchdog not available, .env hot reloading disabled`, install watchdog:
 如出现 `Warning: watchdog not available, .env hot reloading disabled`，请安装 watchdog：
 ```bash
 python -m pip install watchdog
-# 或
+# or
 uv pip install watchdog
 ```
 
-热更新适用于 CLI 和 systemd 服务模式。配置更改会在下一个监控周期生效。
+- Hot reloading works for both CLI and systemd service modes.
+- Configuration changes take effect in the next monitoring cycle.
+- 热更新适用于 CLI 和 systemd 服务模式
+- 配置更改会在下一个监控周期生效
 
 ---Env / 环境变量:
 - SITE_DIR: output folder for status.json and static page
@@ -407,21 +425,25 @@ Run / 运行:
 - Daemon / 常驻: `python visa_status.py monitor -e .env`
 
 **Hot Reloading / 热更新功能:**
-- **Differential Updates**: Only affects changed codes (added/removed/modified), unchanged codes are left alone
-- **SMTP Connection Pooling**: Reuses connections to prevent 450 "too many AUTH" errors
-- **Race Condition Protection**: Retry mechanism with delays handles file editing states
+- **Comprehensive File Monitoring**: Advanced `.env` file watching with `watchdog` library and 0.5s debounce
+- **Priority-based Processing**: Enhanced scheduler with differential updates for maximum efficiency
+- **SMTP Connection Pooling**: Intelligent connection reuse to prevent 450 "too many AUTH" errors
+- **Race Condition Protection**: Robust retry mechanism with delays handles file editing states
 - **Automatic Log Rotation**: Keeps monitor logs under 2MB with detailed cycle information
 - **Empty Channel Support**: Set channel to empty string to disable notifications
 - **Real-time Status Updates**: Automatically updates status.json when configurations change
+- **Thread-safe Configuration**: Atomic configuration updates with locking mechanism
 - Enabled automatically in daemon mode (not `--once`) when `watchdog` package is installed
 - Monitors `.env` file for changes and reloads configuration seamlessly
 - Configuration changes take effect in the next monitoring cycle
 - Supports adding/removing codes, changing frequencies, SMTP settings, etc.
 - 在守护进程模式下自动启用（非 `--once`），需要安装 `watchdog` 包
-- **差异化更新**：仅影响变更的代码，未变更的代码保持不变
-- **SMTP 连接池**：复用连接防止 450 "AUTH 过多" 错误
-- **防竞态条件**：重试机制处理文件编辑状态
+- **全面文件监控**：高级 `.env` 文件监控，使用 `watchdog` 库和0.5秒防抖
+- **基于优先级的处理**：增强的调度器，支持差异化更新以实现最高效率
+- **SMTP 连接池**：智能连接复用防止 450 "AUTH 过多" 错误
+- **防竞态条件**：强大的重试机制处理文件编辑状态
 - **自动日志轮换**：保持监控日志在 2MB 以下并包含详细周期信息
+- **线程安全配置**：使用锁机制进行原子配置更新
 - 监控 `.env` 文件变化并无缝重新加载配置
 - 配置更改在下一个监控周期生效
 - 支持添加/删除查询码、更改频率、SMTP设置等
@@ -443,31 +465,38 @@ Service on Debian (systemd):
 
 The monitor includes comprehensive logging with automatic rotation to help with debugging and monitoring.
 
+监控器包含带自动轮换的全面日志记录，有助于调试和监控。
+
 **Features / 功能:**
-- **Automatic Log Rotation**: Keeps log files under 2MB, preserves last 1000 lines when rotating
-- **Detailed Cycle Logging**: Logs every monitoring cycle, code processing, and sleep periods
-- **Email Notification Tracking**: Detailed logs of when and why notifications are sent/skipped
-- **Error Recovery Logging**: Browser context recreation, retry attempts, configuration reload details
-- **Performance Monitoring**: Cycle timing, processing counts, and throughput information
+- **Automatic Log Rotation**: Keeps log files under 2MB, preserves last 1000 lines when rotating / 自动日志轮换：保持日志文件在2MB以下，轮换时保留最后1000行
+- **Detailed Cycle Logging**: Logs every monitoring cycle, code processing, and sleep periods / 详细周期日志：记录每个监控周期、代码处理和休眠期间
+- **Email Notification Tracking**: Detailed logs of when and why notifications are sent/skipped / 邮件通知跟踪：详细记录通知发送/跳过的时间和原因
+- **Error Recovery Logging**: Browser context recreation, retry attempts, configuration reload details / 错误恢复日志：浏览器上下文重建、重试尝试、配置重载详情
+- **Performance Monitoring**: Cycle timing, processing counts, and throughput information / 性能监控：周期时间、处理计数和吞吐量信息
+- **Hot Reload Tracking**: Detailed logging of .env changes and differential updates / 热更新跟踪：.env变更和差异化更新的详细日志
 
 **Log Location / 日志位置:**
 - Default: `logs/monitor/monitor_YYYY-MM-DD.log`
 - Configurable via `MONITOR_LOG_DIR` environment variable
+- 默认：`logs/monitor/monitor_YYYY-MM-DD.log`
+- 可通过 `MONITOR_LOG_DIR` 环境变量配置
 
 **Sample Log Output / 日志示例:**
 ```
 [2025-09-17T10:30:00] Starting monitoring cycle
-[2025-09-17T10:30:00] Processing 34 codes
+[2025-09-17T10:30:00] Processing 34 codes (3 added, 1 removed, 2 modified)
 [2025-09-17T10:30:01] Processing code=PEKI202508140001 (channel=email, target=user@example.com)
 [2025-09-17T10:30:01] code=PEKI202508140001 attempt=1/3 starting query
 [2025-09-17T10:30:03] code=PEKI202508140001 attempt=1/3 success: Granted/已通过
 [2025-09-17T10:30:03] code=PEKI202508140001 triggering notification (first_time=false, changed=true)
 [2025-09-17T10:30:03] notify Email code=PEKI202508140001 to=user@example.com ok=True
 [2025-09-17T10:30:45] Cycle summary: processed 34 codes, updating status.json
+[2025-09-17T10:30:45] .env file changed detected, reloading configuration
+[2025-09-17T10:30:45] Configuration reload: 2 codes added, 1 code removed
 [2025-09-17T10:30:45] Sleeping for 60 minutes until next cycle
 ```
 
-自动日志轮换保持日志文件在 2MB 以下，包含详细的周期信息、代码处理和邮件通知跟踪。
+自动日志轮换保持日志文件在 2MB 以下，包含详细的周期信息、代码处理、邮件通知跟踪和热更新日志。
 
 ## License / 许可证
 [MIT](LICENSE)
