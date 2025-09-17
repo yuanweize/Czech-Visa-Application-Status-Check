@@ -37,6 +37,18 @@ def _parse_bool(v: Optional[str], default: bool) -> bool:
 
 
 def load_env_config(env_path: str = ".env") -> MonitorConfig:
+    """
+    加载环境配置，检测重复代码并拒绝启动
+    
+    Args:
+        env_path: 环境文件路径
+    
+    Returns:
+        配置对象
+        
+    Raises:
+        ValueError: 发现重复查询码时抛出异常
+    """
     # Load from environment variables first, then from .env file
     env: dict = {}
     
@@ -146,6 +158,24 @@ def load_env_config(env_path: str = ".env") -> MonitorConfig:
             note=env.get(f"NOTE_{idx}"),
         ))
         idx += 1
+
+    # 检测重复查询码 - 直接拒绝启动
+    if codes:
+        code_set = set()
+        duplicate_codes = []
+        
+        for code_config in codes:
+            if code_config.code in code_set:
+                duplicate_codes.append(code_config.code)
+            else:
+                code_set.add(code_config.code)
+        
+        if duplicate_codes:
+            error_msg = f"❌ 配置错误：发现重复查询码 {duplicate_codes}\n" \
+                       f"请检查配置文件 {env_path} 并删除重复的查询码。\n" \
+                       f"系统拒绝启动以防止数据混乱。"
+            print(error_msg)
+            raise ValueError(f"Duplicate query codes found: {duplicate_codes}")
 
     return MonitorConfig(
         headless=headless,

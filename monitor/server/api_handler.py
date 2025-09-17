@@ -363,12 +363,54 @@ FREQ_MINUTES_{new_idx}=60
             self._send_json_response(400, {'error': 'Invalid visa code format'})
             return
         
-        # Check if already exists
+        # 简单重复检测 - 检查配置文件和status.json
+        try:
+            config = self._load_config()
+            
+            # 检查配置文件中是否已存在
+            for code_config in config.codes:
+                if code_config.code == code:
+                    if code_config.target == email:
+                        self._send_json_response(400, {
+                            'error': 'This code is already being monitored for this email',
+                            'details': 'You are already receiving notifications for this visa code.'
+                        })
+                        return
+                    else:
+                        # 隐藏部分邮箱信息保护隐私
+                        if code_config.target and '@' in code_config.target:
+                            masked_email = code_config.target[:3] + '***@' + code_config.target.split('@')[1]
+                        else:
+                            masked_email = 'hidden'
+                        
+                        self._send_json_response(400, {
+                            'error': 'This code is already being monitored',
+                            'details': f'This visa code is already being monitored for {masked_email}. If this is your code, please contact support.'
+                        })
+                        return
+        except Exception as e:
+            # 配置加载失败，记录错误但继续检查status.json
+            print(f"[{_now_iso()}] Config load error during duplicate check: {e}")
+        
+        # 检查status.json中的现有记录
         status_data = self._load_status_data()
         items = status_data.get('items', {})
-        if code in items and items[code].get('added_by') == email:
-            self._send_json_response(400, {'error': 'This code is already being monitored for this email'})
-            return
+        if code in items:
+            existing_email = items[code].get('added_by', items[code].get('target', 'unknown'))
+            if existing_email == email:
+                self._send_json_response(400, {'error': 'This code is already being monitored for this email'})
+                return
+            else:
+                # 隐藏部分邮箱信息
+                if existing_email and '@' in existing_email:
+                    masked_email = existing_email[:3] + '***@' + existing_email.split('@')[1]
+                else:
+                    masked_email = 'hidden'
+                self._send_json_response(400, {
+                    'error': 'This code is already being monitored',
+                    'details': f'This visa code is already being monitored for {masked_email}. If this is your code, please contact support.'
+                })
+                return
         
         # Generate verification token
         token = secrets.token_urlsafe(32)

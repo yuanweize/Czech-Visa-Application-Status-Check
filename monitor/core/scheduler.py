@@ -137,8 +137,9 @@ class BrowserManager:
 class PriorityScheduler:
     """基于优先队列的智能调度器"""
     
-    def __init__(self, config: MonitorConfig):
+    def __init__(self, config: MonitorConfig, env_path: str = ".env"):
         self.config = config
+        self.env_path = env_path  # 保存env_path用于配置重载
         self.task_queue: List[ScheduledTask] = []
         self.browser_manager = BrowserManager()
         self.status_data = {}
@@ -453,27 +454,136 @@ class PriorityScheduler:
             self._log(f"Failed to send email notification for {code}: {e}")
     
     def reload_config(self):
-        """重新加载配置"""
+        """重新加载配置 - 完整的差异化更新"""
+        import time
+        import json
+        import os
+        
         with self.config_lock:
             try:
-                # 重新加载配置
-                old_codes = set(c.code for c in self.config.codes)
-                self.config = load_env_config()
-                new_codes = set(c.code for c in self.config.codes)
+                # 保存旧配置
+                old_codes = {c.code: c for c in self.config.codes}
                 
-                # 找出新增的代码
-                added_codes = new_codes - old_codes
+                # 添加重试机制处理文件编辑期间的竞态条件
+                for attempt in range(3):
+                    try:
+                        new_config = load_env_config(self.env_path)
+                        
+                        # 安全检查：如果新配置代码为0但旧的有代码，可能是文件编辑中的临时状态
+                        if len(new_config.codes) == 0 and len(old_codes) > 0:
+                            if attempt < 2:  # 前两次重试
+                                self._log(f"Warning: Got 0 codes during reload (attempt {attempt+1}), retrying...")
+                                time.sleep(0.5)  # 等待500ms
+                                continue
+                            else:
+                                self._log(f"Warning: Still got 0 codes after retries, proceeding anyway")
+                        break
+                    except ValueError as e:
+                        # 配置文件有重复代码错误
+                        self._log(f"Configuration reload failed due to duplicate codes: {e}")
+                        raise e
+                    except Exception as e:
+                        if attempt < 2:
+                            self._log(f"Config reload attempt {attempt+1} failed: {e}, retrying...")
+                            time.sleep(0.5)
+                            continue
+                        else:
+                            raise e
+                
+                # 构建新代码映射
+                new_codes = {c.code: c for c in new_config.codes}
+                
+                # 计算差异
+                added_codes = set(new_codes.keys()) - set(old_codes.keys())
+                removed_codes = set(old_codes.keys()) - set(new_codes.keys())
+                modified_codes = []
+                
+                # 检测修改的代码
+                for code in set(old_codes.keys()) & set(new_codes.keys()):
+                    old_c, new_c = old_codes[code], new_codes[code]
+                    if (old_c.channel != new_c.channel or 
+                        old_c.target != new_c.target or 
+                        old_c.freq_minutes != new_c.freq_minutes):
+                        modified_codes.append(code)
+                
+                # 更新配置
+                self.config = new_config
+                
+                # 处理新增代码
                 if added_codes:
                     for code_config in self.config.codes:
                         if code_config.code in added_codes:
                             self.new_codes_to_check.append(code_config)
-                    
-                    self._log(f"Config reloaded: {len(added_codes)} new codes added")
-                else:
-                    self._log("Config reloaded: no changes")
+                
+                # 处理删除和修改的代码 - 更新status.json
+                if removed_codes or modified_codes:
+                    self._update_status_json_for_changes(removed_codes, modified_codes, new_codes)
+                
+                # 记录变更
+                change_summary = []
+                if added_codes:
+                    change_summary.append(f"added {len(added_codes)}")
+                if removed_codes:
+                    change_summary.append(f"removed {len(removed_codes)}")
+                if modified_codes:
+                    change_summary.append(f"modified {len(modified_codes)}")
+                
+                changes_str = ", ".join(change_summary) if change_summary else "no changes"
+                self._log(f"Configuration reloaded: {len(old_codes)} -> {len(new_codes)} codes ({changes_str})")
+                
+                if added_codes:
+                    self._log(f"New codes for immediate checking: {list(added_codes)}")
+                if removed_codes:
+                    self._log(f"Removed codes: {list(removed_codes)}")
+                if modified_codes:
+                    self._log(f"Modified codes: {modified_codes}")
                     
             except Exception as e:
                 self._log(f"Failed to reload config: {e}")
+                raise e
+                
+    def _update_status_json_for_changes(self, removed_codes, modified_codes, new_codes):
+        """更新status.json以反映删除和修改的代码"""
+        try:
+            site_json_path = os.path.join(self.config.site_dir, "status.json")
+            if os.path.exists(site_json_path):
+                with open(site_json_path, "r", encoding="utf-8") as f:
+                    status_data = json.load(f)
+                
+                # 删除已移除的代码
+                for code in removed_codes:
+                    if code in status_data.get("items", {}):
+                        del status_data["items"][code]
+                        self._log(f"Removed code {code} from status.json")
+                
+                # 更新修改的代码的通知配置
+                for code in modified_codes:
+                    if code in status_data.get("items", {}) and code in new_codes:
+                        new_code_cfg = new_codes[code]
+                        # 检查邮件是否正确配置
+                        email_configured = (
+                            new_code_cfg.channel == "email" and 
+                            new_code_cfg.target and 
+                            self.config.smtp_host and 
+                            self.config.smtp_user and 
+                            self.config.smtp_pass
+                        )
+                        
+                        # 更新通知渠道和目标
+                        status_data["items"][code]["channel"] = "Email" if email_configured else ""
+                        status_data["items"][code]["target"] = new_code_cfg.target or ""
+                        status_data["items"][code]["freq_minutes"] = new_code_cfg.freq_minutes
+                        self._log(f"Updated notification config for code {code}")
+                
+                # 更新生成时间
+                status_data["generated_at"] = datetime.now().isoformat()
+                
+                # 写回文件
+                with open(site_json_path, "w", encoding="utf-8") as f:
+                    json.dump(status_data, f, ensure_ascii=False, indent=2)
+                    
+        except Exception as e:
+            self._log(f"Error updating status.json for changes: {e}")
     
     def graceful_shutdown(self):
         """优雅关闭"""
@@ -587,7 +697,7 @@ async def run_priority_scheduler(env_path: str = ".env", once: bool = False):
         return
     
     # 创建调度器
-    scheduler = PriorityScheduler(config)
+    scheduler = PriorityScheduler(config, env_path)
     
     if once:
         # 单次运行模式：处理所有到期任务
