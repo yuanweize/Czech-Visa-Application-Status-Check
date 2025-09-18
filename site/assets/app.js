@@ -1,9 +1,11 @@
 async function loadData() {
   try {
-    const res = await fetch('status.json?_=' + Date.now());
+    // Use safe public API endpoint
+    const res = await fetch('/api/public-status?_=' + Date.now());
     const data = await res.json();
     return data;
   } catch (e) {
+    console.error('Public API failed:', e);
     return { generated_at: '', items: {} };
   }
 }
@@ -118,12 +120,98 @@ function render(data) {
     span.className = 'status-tag ' + statusClass(it.status);
     span.textContent = it.status || '';
     tdStatus.appendChild(span);
-    const tdLC = document.createElement('td'); tdLC.textContent = it.last_checked || '';
+    
+    // Enhanced time display with Last Checked and Next Check countdown
+    const tdTime = document.createElement('td'); 
+    tdTime.className = 'time-cell';
+    
+    // Create time container with two lines
+    const timeContainer = document.createElement('div');
+    timeContainer.className = 'time-container';
+    
+    // Last Checked line
+    const lastCheckedDiv = document.createElement('div');
+    lastCheckedDiv.className = 'last-checked';
+    if (it.last_checked) {
+      const lastCheckedTime = new Date(it.last_checked);
+      lastCheckedDiv.textContent = `Last: ${lastCheckedTime.toLocaleString()}`;
+      lastCheckedDiv.title = `Last checked: ${lastCheckedTime.toLocaleString()}`;
+    } else {
+      lastCheckedDiv.textContent = 'Last: Never';
+    }
+    
+    // Next Check countdown line
+    const nextCheckDiv = document.createElement('div');
+    nextCheckDiv.className = 'next-check';
+    if (it.next_check) {
+      nextCheckDiv.setAttribute('data-next-check', it.next_check);
+      nextCheckDiv.textContent = 'Next: Calculating...';
+    } else {
+      nextCheckDiv.textContent = 'Next: Not scheduled';
+    }
+    
+    timeContainer.appendChild(lastCheckedDiv);
+    timeContainer.appendChild(nextCheckDiv);
+    tdTime.appendChild(timeContainer);
+    
     const tdLCh = document.createElement('td'); tdLCh.textContent = it.last_changed || '';
     const tdCh = document.createElement('td'); tdCh.textContent = it.channel || '';
-    tr.appendChild(tdCode); tr.appendChild(tdStatus); tr.appendChild(tdLC); tr.appendChild(tdLCh); tr.appendChild(tdCh);
+    tr.appendChild(tdCode); tr.appendChild(tdStatus); tr.appendChild(tdTime); tr.appendChild(tdLCh); tr.appendChild(tdCh);
     tb.appendChild(tr);
   }
+  
+  // Start countdown timers for each next_check
+  startNextCheckCountdowns();
+}
+
+// Global variable to track countdown intervals
+let nextCheckIntervals = [];
+
+function startNextCheckCountdowns() {
+  // Clear existing intervals
+  nextCheckIntervals.forEach(interval => clearInterval(interval));
+  nextCheckIntervals = [];
+  
+  // Find all next-check elements
+  const nextCheckElements = document.querySelectorAll('.next-check[data-next-check]');
+  
+  nextCheckElements.forEach(element => {
+    const nextCheckTime = new Date(element.getAttribute('data-next-check'));
+    
+    function updateCountdown() {
+      const now = new Date();
+      const timeRemaining = nextCheckTime - now;
+      
+      if (timeRemaining <= 0) {
+        element.textContent = 'Next: Overdue';
+        element.className = 'next-check overdue';
+        return;
+      }
+      
+      const minutes = Math.floor(timeRemaining / (1000 * 60));
+      const hours = Math.floor(minutes / 60);
+      const days = Math.floor(hours / 24);
+      
+      let countdownText = 'Next: ';
+      if (days > 0) {
+        countdownText += `${days}d ${hours % 24}h`;
+      } else if (hours > 0) {
+        countdownText += `${hours}h ${minutes % 60}m`;
+      } else {
+        countdownText += `${minutes}m`;
+      }
+      
+      element.textContent = countdownText;
+      element.title = `Next check: ${nextCheckTime.toLocaleString()}`;
+    }
+    
+    // Update immediately
+    updateCountdown();
+    
+    // Update every minute
+    const interval = setInterval(updateCountdown, 60000);
+    nextCheckIntervals.push(interval);
+  });
 }
 
 async function refresh() {
@@ -203,9 +291,15 @@ async function resetManageModal() {
   document.getElementById('verification-code').value = '';
   
   // Check if user is logged in with valid session
+  console.log('Checking session for user login...');
+  const sessionId = getSessionId();
+  console.log('Found session ID:', sessionId ? sessionId.substring(0, 8) + '...' : 'None');
+  
   const isLoggedIn = await verifySession();
+  console.log('Session verification result:', isLoggedIn);
   
   if (isLoggedIn) {
+    console.log('User is logged in, showing management interface');
     // Show only logged-in state
     document.getElementById('form-verify-email').style.display = 'none';
     document.getElementById('verification-step').style.display = 'none';
@@ -213,6 +307,7 @@ async function resetManageModal() {
     document.getElementById('logout-section').style.display = 'block';
     await loadUserCodes();
   } else {
+    console.log('User is not logged in, showing login interface');
     // Show login state
     document.getElementById('form-verify-email').style.display = 'block';
     document.getElementById('verification-step').style.display = 'none';
@@ -253,6 +348,15 @@ document.getElementById('form-add-code').addEventListener('submit', async (e) =>
     return;
   }
   
+  // 添加加载状态
+  const submitBtn = e.target.querySelector('button[type="submit"]');
+  const originalText = submitBtn.textContent;
+  submitBtn.disabled = true;
+  submitBtn.innerHTML = '<span class="spinner">⟳</span> Sending...';
+  
+  // 清除之前的结果消息
+  document.getElementById('add-result').style.display = 'none';
+  
   try {
     const response = await fetch('/api/add-code', {
       method: 'POST',
@@ -265,12 +369,17 @@ document.getElementById('form-add-code').addEventListener('submit', async (e) =>
     if (response.ok) {
       showResult('add-result', 'Verification email sent! Please check your inbox and click the verification link.', 'success');
       document.getElementById('form-add-code').reset();
+      generateCaptcha('captcha-question', 'captcha-answer');
     } else {
       showResult('add-result', result.error || 'Failed to submit request', 'error');
       generateCaptcha('captcha-question', 'captcha-answer');
     }
   } catch (error) {
     showResult('add-result', 'Network error. Please try again.', 'error');
+  } finally {
+    // 恢复按钮状态
+    submitBtn.disabled = false;
+    submitBtn.innerHTML = originalText;
   }
 });
 
@@ -303,7 +412,10 @@ document.getElementById('form-verify-email').addEventListener('submit', async (e
   const submitBtn = e.target.querySelector('button[type="submit"]');
   const originalText = submitBtn.textContent;
   submitBtn.disabled = true;
-  submitBtn.textContent = 'Sending...';
+  submitBtn.innerHTML = '<span class="spinner">⟳</span> Sending...';
+  
+  // 清除之前的结果消息
+  document.getElementById('manage-result').style.display = 'none';
   
   try {
     const response = await fetch('/api/send-manage-code', {
@@ -325,13 +437,13 @@ document.getElementById('form-verify-email').addEventListener('submit', async (e
       startSendCooldown(submitBtn, originalText, 60);
     } else {
       submitBtn.disabled = false;
-      submitBtn.textContent = originalText;
+      submitBtn.innerHTML = originalText;
       showResult('manage-result', result.error || 'Failed to send verification code', 'error');
       generateCaptcha('captcha-question-2', 'captcha-answer-2');
     }
   } catch (error) {
     submitBtn.disabled = false;
-    submitBtn.textContent = originalText;
+    submitBtn.innerHTML = originalText;
     showResult('manage-result', 'Network error. Please try again.', 'error');
   }
 });
@@ -399,7 +511,7 @@ async function loginWithVerificationCode() {
   }
   
   try {
-    const response = await fetch('/api/login', {
+    const response = await fetch('/api/verify-manage', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, verification_code: verificationCode })
@@ -408,8 +520,14 @@ async function loginWithVerificationCode() {
     const result = await response.json();
     
     if (response.ok) {
-      setSessionId(result.session_id);
-      await loadUserCodes();
+      // Save session if provided
+      if (result.session_id) {
+        setSessionId(result.session_id);
+        console.log('Session created for seamless management experience');
+      }
+      
+      // Display user codes
+      displayUserCodes(result.codes);
       
       // Hide login forms and show only codes management
       document.getElementById('form-verify-email').style.display = 'none';
@@ -560,6 +678,36 @@ function showResult(elementId, message, type) {
   element.style.display = message ? 'block' : 'none';
 }
 
+// Hash路由处理
+function handleHashRouting() {
+  const hash = window.location.hash.substring(1); // Remove #
+  console.log('Handling hash routing:', hash);
+  
+  switch (hash) {
+    case 'manage':
+      console.log('Opening manage modal from hash');
+      openModal('modal-manage');
+      break;
+    case 'add':
+      console.log('Opening add modal from hash');
+      openModal('modal-add');
+      break;
+    default:
+      // No specific hash, close all modals
+      if (hash === '') {
+        closeAllModals();
+      }
+      break;
+  }
+}
+
+// 关闭所有模态框
+function closeAllModals() {
+  document.querySelectorAll('.modal').forEach(modal => {
+    modal.style.display = 'none';
+  });
+}
+
 // 事件监听器
 document.addEventListener('DOMContentLoaded', async () => {
   // Check for existing session on page load
@@ -568,6 +716,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('codes-list').style.display = 'block';
     document.getElementById('logout-section').style.display = 'block';
   }
+  
+  // Handle URL hash routing
+  handleHashRouting();
+  
+  // Listen for hash changes
+  window.addEventListener('hashchange', handleHashRouting);
   
   // 按钮点击事件
   document.getElementById('btn-add-code').addEventListener('click', () => openModal('modal-add'));

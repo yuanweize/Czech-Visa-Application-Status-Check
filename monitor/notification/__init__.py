@@ -14,8 +14,11 @@ from .user_management import (
     build_verification_email,
     build_management_code_email,
     send_verification_email,
-    send_management_code_email
+    send_management_code_email,
+    build_success_page,
+    build_error_page
 )
+from ..utils.logger import get_email_logger, EmailOperationLogger
 
 __all__ = [
     # Status notifications
@@ -24,5 +27,9 @@ __all__ = [
     'send_email', 'send_email_sync', 'send_email_async',
     # User management functions
     'build_verification_email', 'build_management_code_email',
-    'send_verification_email', 'send_management_code_email'
+    'send_verification_email', 'send_management_code_email',
+    # HTML page generation functions
+    'build_success_page', 'build_error_page',
+    # Email logging
+    'get_email_logger', 'EmailOperationLogger'
 ]

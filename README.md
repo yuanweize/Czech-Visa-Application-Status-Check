@@ -1,74 +1,107 @@
 # Czech Visa Application Status Check / 捷克签证状态批量查询
 
-A small CLI to generate visa application query codes and bulk-check application status on the Czech Immigration Office website.
-一个用于生成签证申请查询码并在捷克移民局网站批量查询申请状态的小型命令行工具。
+A comprehensive tool for generating visa application query codes and monitoring application status on the Czech Immigration Office website with automated notifications and user management.
+
+一个全面的工具，用于生成签证申请查询码并在捷克移民局网站监控申请状态，具备自动通知和用户管理功能。
 
 [![python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)  
-[![license](https:/**User Code Management / 用户代码管理**
-The system now includes a user-friendly interface for public users to add and manage their visa codes with email verification:
+[![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-系统现在包含用户友好的界面，允许公众用户通过邮箱验证来添加和管理他们的签证代码：
+## Features / 主要功能
 
-**Features / 功能:**
+### Core Query Engine / 核心查询引擎
+- **Automated Status Checking**: Bulk query visa application status from Czech Immigration Office website / 自动状态检查：从捷克移民局网站批量查询签证申请状态
+- **Smart Code Generation**: Generate date-based query codes with flexible scheduling and exclusion rules / 智能代码生成：使用灵活的调度和排除规则生成基于日期的查询码
+- **Robust Error Handling**: Comprehensive retry mechanisms with exponential backoff and failure logging / 强健错误处理：具有指数退避和失败日志记录的全面重试机制
+- **Real-time Updates**: Immediate CSV updates with progress tracking and resume capability / 实时更新：即时CSV更新，具有进度跟踪和恢复功能
+
+### Monitoring & Notifications / 监控与通知
+- **Automated Monitoring**: Continuous background monitoring with configurable frequency / 自动监控：具有可配置频率的连续后台监控
+- **Email Notifications**: Smart email alerts for status changes with HTML formatting / 邮件通知：状态变更的智能邮件提醒，支持HTML格式
+- **Hot Configuration Reload**: Real-time configuration updates without service restart / 热配置重载：无需重启服务的实时配置更新
+- **Priority Scheduling**: Differential processing for optimal resource utilization / 优先级调度：差异化处理以优化资源利用
+
+### User Management & Security / 用户管理与安全
+- **Web Interface**: User-friendly interface for public code management / Web界面：用户友好的公共代码管理界面
 - **Email Verification**: Secure 10-minute verification links for code additions / 邮件验证：代码添加的10分钟安全验证链接
-- **Simple Captcha**: Basic math questions to prevent automated abuse / 简单验证码：基础数学题防止自动化滥用
-- **Code Management**: Users can view and delete their own codes / 代码管理：用户可查看和删除自己的代码
-- **No Quantity Limits**: Users can add as many codes as needed / 无数量限制：用户可根据需要添加任意数量代码
-- **6-Digit Verification**: Time-limited verification codes for secure management / 6位验证码：用于安全管理的限时验证码
-- **Duplicate Protection**: Comprehensive duplicate detection system prevents monitoring conflicts / 重复保护：全面的重复检测系统防止监控冲突
+- **Advanced Security**: CAPTCHA protection, API rate limiting (100 req/min), and file access control / 高级安全：验证码保护、API频率限制（100请求/分钟）和文件访问控制
+- **Self-Service Management**: Users can view, add, and delete their own codes / 自助管理：用户可查看、添加和删除自己的代码
+- **Error Handling**: Unified error redirects and comprehensive security logging / 错误处理：统一错误重定向和全面安全日志记录
 
-**Duplicate Detection System / 重复检测系统:**
-- **Startup Protection**: Automatically rejects startup when duplicate codes are found in configuration / 启动保护：配置中发现重复代码时自动拒绝启动
-- **Web Interface Protection**: Dual-layer detection checks both configuration files and runtime data / Web界面保护：双层检测检查配置文件和运行时数据
-- **Privacy-Preserving**: Masks email addresses when showing conflicts (e.g., `use***@example.com`) / 隐私保护：显示冲突时掩码邮箱地址
-- **Clear Error Messages**: Provides specific error details for easy troubleshooting / 清晰错误信息：提供具体错误详情便于故障排查s.io/badge/license-MIT-green)](LICENSE)
+## Technology Stack / 技术栈
 
-## Tech stack / 技术栈
-Python 3.10+。
+- **Python 3.10+**: Core runtime environment / 核心运行环境
+- **Playwright (Chromium)**: Browser automation for reliable web scraping / 浏览器自动化，可靠的网页抓取
+- **CSV**: Simple, auditable data storage format / 简单、可审计的数据存储格式
+- **SMTP**: Email notification system with connection pooling / 邮件通知系统，支持连接池
+- **Watchdog**: Real-time file monitoring for hot configuration reload / 实时文件监控，支持热配置重载
+- **HTML/CSS/JavaScript**: Modern responsive web interface with real-time updates / 现代响应式Web界面，支持实时更新
+- **Security**: Rate limiting, file access control, CAPTCHA protection / 安全：频率限制、文件访问控制、验证码保护
 
-Playwright (Chromium) for browser automation (headless by default).
-使用 Playwright (Chromium) 进行浏览器自动化（默认无头）。
+## Quick Start / 快速开始
 
-CSV-based I/O using Python's stdlib (`csv`).
-使用 Python 标准库的 CSV（`csv`）进行输入输出。
+### Installation / 安装
 
-Basic logging to files under `logs/`（失败行归档至 `logs/fails/`）。
-基本日志写入 `logs/` 目录（失败行归档在 `logs/fails/`）。
+**Option 1: Using uv (Recommended) / 选项1：使用uv（推荐）**
 
-## What it does / 功能简介
-Generate visa application query codes and write them to a CSV for later querying.
-生成签证申请查询码并写入 CSV 以供后续查询。
+```bash
+# Install uv
+curl -LsSf https://astral.sh/uv/install.sh | sh
 
-Read a CSV of codes and query the Czech Immigration Office website per-row, then write normalized results back to the CSV immediately.
-读取包含查询码的 CSV，逐行查询捷克移民局网站，并将标准化结果立即写回 CSV。
+# Create and activate virtual environment
+uv venv
+source .venv/bin/activate  # Linux/macOS
+# source .venv/Scripts/activate  # Windows Git Bash
 
-Save failing rows after retries to daily failure files in `logs/fails/` for offline retry.
-在重试后仍失败的条目保存到 `logs/fails/` 的按日文件，便于离线重试。
+# Install dependencies
+uv pip install -r requirements.txt
 
-## Project structure (for contributors) / 项目结构（面向贡献者）
-- `visa_status.py` — CLI entrypoint and dispatcher that registers country modules and exposes commands.
-- `monitor/` — monitoring and user management modules (modular architecture):
-  - `core/` — core monitoring functionality:
-    - `scheduler.py` — priority-based monitoring scheduler with differential updates
-    - `config.py` — environment configuration management with hot reload support
-  - `server/` — HTTP server and API handling:
-    - `http_server.py` — static file server and API integration
-    - `api_handler.py` — user management API endpoints with email verification
-  - `notification/` — email notification system:
-    - `smtp_client.py` — SMTP client with connection pooling and hot reload
-    - `user_management.py` — user verification and management emails
-  - `utils/` — utility modules:
-    - `env_watcher.py` — .env file monitoring and hot reload with watchdog
-    - `logger.py` — rotating logger with automatic 2MB rotation and line preservation
-    - `signal_handler.py` — graceful shutdown handling for SIGINT/SIGTERM signals
-    - `service_manager.py` — systemd service management for Linux deployment
-- `query_modules/` — directory containing one module per country (e.g. `cz.py`). Each module implements a simple querying interface.
-- `site/` — static website files (HTML, CSS, JS) for user interface
-- `tools/generate_codes.py` — code generator utility.
-- `logs/` — run and fail logs; failing rows are appended to `logs/fails/YYYY-MM-DD_fails.csv`.
-- `requirements.txt` — Python dependencies (playwright; optional matplotlib; watchdog for .env hot reloading).
+# Install Playwright browsers
+playwright install chromium
+```
 
-设计说明：查询器为模块化设计——要添加新的国家支持，请在 `query_modules/<iso>.py` 下添加文件，按照 `PROJECT_OVERVIEW.md` 中描述的模块 API 实现并在 `visa_status.py` 中注册。用户管理功能通过新的模块化架构实现：`monitor/server/api_handler.py` 处理用户API，`monitor/notification/` 处理邮件通知，`monitor/core/scheduler.py` 提供优先级调度，`monitor/utils/env_watcher.py` 提供 .env 热更新支持。
+**Option 2: Using pip / 选项2：使用pip**
+
+```bash
+# Install dependencies
+pip install -r requirements.txt
+
+# Install Playwright browsers
+playwright install chromium
+```
+
+### Basic Usage / 基本使用
+
+**1. Generate Query Codes / 生成查询码**
+```bash
+# Generate codes for June 2025, 5 codes per day
+python visa_status.py gen -s 2025-06-01 -e 2025-06-30 -n 5
+
+# Exclude weekends and specific weekdays
+python visa_status.py gen -s 2025-06-01 -e 2025-06-14 --exclude 3,5
+```
+
+**2. Check Status (One-time) / 检查状态（一次性）**
+```bash
+# Basic query with default settings
+python visa_status.py cz
+
+# Show browser UI with 4 concurrent workers
+python visa_status.py cz --headless False --workers 4
+```
+
+**3. Start Monitoring Service / 启动监控服务**
+```bash
+# Create configuration file
+cp .env.example .env
+# Edit .env with your SMTP settings and query codes
+
+# Start monitoring daemon
+python visa_status.py monitor
+
+# Or run once
+python visa_status.py monitor --once
+```
 
 ## Quick start (uv) / 快速开始（推荐使用 uv）
 
@@ -338,12 +371,36 @@ Increase `--retries` for flaky network conditions or re-run only the `logs/fails
 对网络不稳定情况可增加 `--retries`，或对 `logs/fails/YYYY-MM-DD_fails.csv` 中的条目稍后重试。
 
 ## Contributing / 贡献指南
-Add a country module in `query_modules/` following the module API in `PROJECT_OVERVIEW.md` and open a PR.
-在 `query_modules/` 下添加国家模块，遵循 `PROJECT_OVERVIEW.md` 中的模块 API，并提交 PR。
+
+We welcome contributions to improve the Czech Visa Application Status Check tool! Here's how you can contribute:
+
+欢迎为捷克签证状态检查工具做出贡献！以下是贡献方式：
+
+### Adding New Country Modules / 添加新国家模块
+Add a country module in `query_modules/` following the existing module patterns and open a PR.
+在 `query_modules/` 下添加国家模块，遵循现有模块模式，并提交 PR。
+
+### Security Improvements / 安全改进
+- Report security vulnerabilities through GitHub Issues / 通过 GitHub Issues 报告安全漏洞
+- Contribute to rate limiting, authentication, and access control features / 为频率限制、身份验证和访问控制功能做贡献
+- Enhance error handling and logging mechanisms / 增强错误处理和日志记录机制
+
+### Feature Enhancements / 功能增强
+- Web interface improvements / Web界面改进
+- Monitoring and notification features / 监控和通知功能
+- Performance optimizations / 性能优化
+- Documentation updates / 文档更新
+
+### Development Guidelines / 开发指南
+- Follow existing code patterns and architecture / 遵循现有代码模式和架构
+- Include comprehensive tests for new features / 为新功能包含全面测试
+- Update documentation for any changes / 为任何更改更新文档
+- Ensure security best practices / 确保安全最佳实践
 
 ## Links / 相关链接
-- Project overview (developer guide): [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md)
-- 项目概览（开发者指南）：[PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md)
+- GitHub Repository: https://github.com/yuanweize/Czech-Visa-Application-Status-Check
+- Issues & Bug Reports: https://github.com/yuanweize/Czech-Visa-Application-Status-Check/issues
+- Feature Requests: https://github.com/yuanweize/Czech-Visa-Application-Status-Check/discussions
 
 ## Monitor & User Management / 监控与用户管理
 - Sequential queries; during each cycle a Chromium browser/context/page is created and closed after the cycle to keep idle CPU usage low. 更稳定；每一轮查询才启动 Chromium，完成后立即关闭，空闲时几乎不占用 CPU。
@@ -364,12 +421,13 @@ The system now includes a user-friendly interface for public users to add and ma
 
 **Architecture / 架构:**
 - **Modular Design**: API functionality is organized in `monitor/server/api_handler.py` module with HTTP server in `monitor/server/http_server.py` / 模块化设计：API功能组织在`monitor/server/api_handler.py`模块中，HTTP服务器在`monitor/server/http_server.py`中
+- **Security Layer**: Comprehensive security with rate limiting (100 req/min), file access control, and unified error handling / 安全层：全面安全保护，包括频率限制（100请求/分钟）、文件访问控制和统一错误处理
 - **Priority Scheduler**: Enhanced scheduler with differential code processing in `monitor/core/scheduler.py` / 优先级调度器：在`monitor/core/scheduler.py`中增强的调度器，支持差异化代码处理
 - **Email System**: Comprehensive notification system in `monitor/notification/` with SMTP pooling / 邮件系统：位于`monitor/notification/`的全面通知系统，支持SMTP连接池
 - **Hot Reload Engine**: Real-time configuration monitoring in `monitor/utils/env_watcher.py` / 热更新引擎：位于`monitor/utils/env_watcher.py`的实时配置监控
 - **Configuration Control**: Use `SERVE=true/false` to enable/disable web interface / 配置控制：使用`SERVE=true/false`启用/禁用Web界面
 - **Clean Structure**: All monitoring-related modules are contained in `monitor/` folder with organized submodules / 清晰结构：所有监控相关模块都包含在`monitor/`文件夹中，具有组织化的子模块
-- **Simplified Duplicate Handling**: Direct startup rejection approach replaces complex merging strategies for reliability / 简化重复处理：直接启动拒绝方式替代复杂合并策略以提高可靠性
+- **Error Management**: Unified error redirects to `https://error.eurun.top/` with comprehensive logging / 错误管理：统一错误重定向到`https://error.eurun.top/`并提供全面日志记录
 
 **Quick Start / 快速开始:**
 ```bash
@@ -391,6 +449,29 @@ SERVE=false  # Disable web interface / 禁用Web界面
 - Main Website: http://localhost:8000 (when SERVE=true) / 主网站：http://localhost:8000（当SERVE=true时）
 - User Management: Built into main website toolbar / 用户管理：集成在主网站工具栏中
 - Pure Monitoring: No web interface (when SERVE=false) / 纯监控：无Web界面（当SERVE=false时）
+
+### Security Features / 安全功能
+
+The system includes comprehensive security measures to protect against abuse and ensure data integrity:
+
+系统包含全面的安全措施，防止滥用并确保数据完整性：
+
+**API Security / API安全:**
+- **Rate Limiting**: 100 requests per minute per IP address with automatic blocking / 频率限制：每个IP地址每分钟100个请求，自动阻止超限
+- **File Access Control**: Whitelist-based file blocking prevents access to sensitive files / 文件访问控制：基于白名单的文件阻止，防止访问敏感文件
+- **Unified Error Handling**: All errors redirect to secure error page at `https://error.eurun.top/` / 统一错误处理：所有错误重定向到安全错误页面`https://error.eurun.top/`
+- **Security Headers**: Proper rate limit headers and status codes for API clients / 安全头部：为API客户端提供适当的频率限制头部和状态码
+
+**User Verification / 用户验证:**
+- **Email Verification**: 10-minute time-limited verification links for secure code additions / 邮件验证：10分钟限时验证链接，安全添加代码
+- **CAPTCHA Protection**: Simple math questions prevent automated bot submissions / 验证码保护：简单数学题防止自动化机器人提交
+- **Session Management**: 7-day persistent sessions with automatic cleanup / 会话管理：7天持久会话，自动清理
+- **Duplicate Detection**: Prevents duplicate code submissions across all users / 重复检测：防止所有用户重复提交代码
+
+**Monitoring & Logging / 监控与日志:**
+- **Security Logging**: Comprehensive logging of all security events and rate limit violations / 安全日志：全面记录所有安全事件和频率限制违规
+- **Error Tracking**: Detailed error logging with client IP and request details / 错误跟踪：详细错误日志，包含客户端IP和请求详情
+- **Performance Monitoring**: Request timing and throughput monitoring for anomaly detection / 性能监控：请求时间和吞吐量监控，用于异常检测
 **Hot reloading / .env 热更新**
 
 The monitor supports comprehensive automatic hot reloading of the `.env` configuration file through an advanced file watching system. When enabled, any changes to `.env` are detected in real-time and the configuration is reloaded without restarting the service.
@@ -405,7 +486,8 @@ The monitor supports comprehensive automatic hot reloading of the `.env` configu
 - **Automatic Status Updates**: Real-time updates to status.json when notification channels change / 自动状态更新：通知渠道变更时实时更新 status.json
 - **Empty Channel Support**: Set `CHANNEL_X=` (empty) to disable notifications for specific codes / 空通道支持：设置 `CHANNEL_X=`（空）来禁用特定代码的通知
 - **Thread Safety**: Configuration reload with lock mechanism ensures data consistency / 线程安全：配置重载使用锁机制确保数据一致性
-- **Comprehensive Coverage**: Supports all environment variables including base config, SMTP, and query codes / 全面覆盖：支持所有环境变量，包括基础配置、SMTP和查询码
+- **Security Configuration**: Hot reload includes rate limiting and file access control settings / 安全配置：热更新包括频率限制和文件访问控制设置
+- **Comprehensive Coverage**: Supports all environment variables including base config, SMTP, security, and query codes / 全面覆盖：支持所有环境变量，包括基础配置、SMTP、安全和查询码
 
 **Supported Configuration Types / 支持的配置类型:**
 - **Base Configuration**: `HEADLESS`, `SITE_DIR`, `LOG_DIR`, `SERVE`, `SITE_PORT`, `DEFAULT_FREQ_MINUTES`

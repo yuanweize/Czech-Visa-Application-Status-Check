@@ -34,6 +34,67 @@ def _now_iso() -> str:
     return datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
 
 
+# Simple in-memory rate limiter
+class RateLimiter:
+    """Simple rate limiter using sliding window"""
+    
+    def __init__(self, max_requests: int = 60, window_seconds: int = 60):
+        self.max_requests = max_requests
+        self.window_seconds = window_seconds
+        self.requests = {}  # {client_ip: [timestamp, ...]}
+        self._lock = threading.Lock()
+    
+    def is_allowed(self, client_ip: str) -> bool:
+        """Check if request from client_ip is allowed"""
+        now = time.time()
+        
+        with self._lock:
+            # Clean old requests
+            if client_ip in self.requests:
+                self.requests[client_ip] = [
+                    req_time for req_time in self.requests[client_ip]
+                    if now - req_time < self.window_seconds
+                ]
+            else:
+                self.requests[client_ip] = []
+            
+            # Check if limit exceeded
+            if len(self.requests[client_ip]) >= self.max_requests:
+                return False
+            
+            # Add current request
+            self.requests[client_ip].append(now)
+            return True
+    
+    def get_stats(self, client_ip: str) -> dict:
+        """Get rate limiting stats for client"""
+        now = time.time()
+        
+        with self._lock:
+            if client_ip not in self.requests:
+                return {
+                    'requests': 0, 
+                    'remaining': self.max_requests,
+                    'reset_time': int(now + self.window_seconds)
+                }
+            
+            # Clean old requests
+            recent_requests = [
+                req_time for req_time in self.requests[client_ip]
+                if now - req_time < self.window_seconds
+            ]
+            
+            return {
+                'requests': len(recent_requests),
+                'remaining': max(0, self.max_requests - len(recent_requests)),
+                'reset_time': int(now + self.window_seconds)
+            }
+
+
+# Global rate limiter instance
+_rate_limiter = RateLimiter(max_requests=100, window_seconds=60)  # 100 requests per minute
+
+
 class APIHandler(BaseHTTPRequestHandler):
     def __init__(self, *args, config_path='.env', site_dir='site', **kwargs):
         self.config_path = config_path
@@ -46,12 +107,57 @@ class APIHandler(BaseHTTPRequestHandler):
         if self.path.startswith('/api/'):
             print(f"[{_now_iso()}] API {format % args}")
     
+    def _check_rate_limit(self) -> bool:
+        """Check if request should be rate limited"""
+        client_ip = self.client_address[0]
+        
+        # Always get stats and add headers
+        stats = _rate_limiter.get_stats(client_ip)
+        self._rate_limit_headers = {
+            'X-RateLimit-Limit': str(_rate_limiter.max_requests),
+            'X-RateLimit-Remaining': str(stats['remaining']),
+            'X-RateLimit-Reset': str(stats['reset_time'])
+        }
+        
+        # Allow localhost/development without actual rate limiting
+        if client_ip in ['127.0.0.1', '::1', 'localhost']:
+            return True
+            
+        if not _rate_limiter.is_allowed(client_ip):
+            stats = _rate_limiter.get_stats(client_ip)
+            print(f"[{_now_iso()}] RATE_LIMIT: Blocked {client_ip} - {stats['requests']} requests")
+            
+            # Send 429 Too Many Requests
+            self.send_response(429)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Retry-After', '60')
+            self.send_header('X-RateLimit-Limit', str(_rate_limiter.max_requests))
+            self.send_header('X-RateLimit-Remaining', '0')
+            self.send_header('X-RateLimit-Reset', str(stats['reset_time']))
+            self.end_headers()
+            
+            response = {
+                'error': 'Rate limit exceeded',
+                'message': f'Maximum {_rate_limiter.max_requests} requests per {_rate_limiter.window_seconds} seconds',
+                'retry_after': 60
+            }
+            self.wfile.write(json.dumps(response).encode('utf-8'))
+            return False
+        
+        return True
+    
     def _send_json_response(self, status_code: int, data: dict):
         self.send_response(status_code)
         self.send_header('Content-Type', 'application/json')
         self.send_header('Access-Control-Allow-Origin', '*')
         self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
         self.send_header('Access-Control-Allow-Headers', 'Content-Type')
+        
+        # Add rate limit headers if available
+        if hasattr(self, '_rate_limit_headers'):
+            for header, value in self._rate_limit_headers.items():
+                self.send_header(header, value)
+        
         self.end_headers()
         response = json.dumps(data, ensure_ascii=False).encode('utf-8')
         self.wfile.write(response)
@@ -277,6 +383,10 @@ FREQ_MINUTES_{new_idx}=60
         self.end_headers()
     
     def do_POST(self):
+        # Check rate limit first
+        if not self._check_rate_limit():
+            return
+            
         parsed_path = urlparse(self.path)
         path = parsed_path.path
         
@@ -306,6 +416,10 @@ FREQ_MINUTES_{new_idx}=60
             self._send_json_response(404, {'error': 'API endpoint not found'})
     
     def do_GET(self):
+        # Check rate limit first for API requests
+        if self.path.startswith('/api/') and not self._check_rate_limit():
+            return
+            
         parsed_path = urlparse(self.path)
         path = parsed_path.path
         
@@ -313,9 +427,12 @@ FREQ_MINUTES_{new_idx}=60
         if path.startswith('/api/verify-add/'):
             token = path.replace('/api/verify-add/', '')
             self._handle_verify_add(token)
+        elif path == '/api/public-status':
+            # Safe public status endpoint without sensitive data
+            self._handle_public_status()
         elif path.startswith('/api/'):
-            # Other API endpoints should be POST
-            self._send_json_response(405, {'error': 'Method not allowed'})
+            # Other API endpoints should be POST - redirect non-business logic error
+            self._send_error_redirect(405, 'Method not allowed')
         else:
             # Handle static files
             self._serve_static_file()
@@ -333,6 +450,20 @@ FREQ_MINUTES_{new_idx}=60
         # Default to index.html for root
         if not file_path or file_path == '/':
             file_path = 'index.html'
+        
+        # SECURITY: Block access to sensitive files
+        blocked_files = {
+            'status.json',      # Contains session data and sensitive information
+            '.env',             # Environment configuration
+            'config.json',      # Configuration files
+            'backup.json',      # Backup files
+        }
+        
+        # Also block any hidden files or files starting with dot
+        if file_path in blocked_files or file_path.startswith('.') or '/.env' in file_path or '/status.json' in file_path:
+            print(f"[{_now_iso()}] SECURITY: Blocked access to sensitive file: {file_path}")
+            self._send_error_redirect(403, "Access denied")
+            return
         
         # Build full file path
         full_path = Path(self.site_dir) / file_path
@@ -354,22 +485,26 @@ FREQ_MINUTES_{new_idx}=60
                 self.end_headers()
                 self.wfile.write(content)
             else:
-                self.send_error(404, 'File not found')
+                self._send_error_redirect(404, 'File not found')
         except Exception as e:
-            self.send_error(500, f'Internal server error: {e}')
+            self._send_error_redirect(500, f'Internal server error: {e}')
     
     def _handle_add_code(self, data):
         code = data.get('code', '').strip().upper()
         email = data.get('email', '').strip().lower()
         captcha_answer = data.get('captcha_answer')
         
+        print(f"[{_now_iso()}] API request: add-code for {code} to {email}")
+        
         # Validate input
         if not code or not email:
+            print(f"[{_now_iso()}] API error: Missing code or email")
             self._send_json_response(400, {'error': 'Code and email are required'})
             return
         
         # Validate code format
         if not re.match(r'^[A-Z]{4}\d{12}$', code):
+            print(f"[{_now_iso()}] API error: Invalid code format: {code}")
             self._send_json_response(400, {'error': 'Invalid visa code format'})
             return
         
@@ -433,12 +568,20 @@ FREQ_MINUTES_{new_idx}=60
         }
         
         self._save_status_data(status_data)
+        print(f"[{_now_iso()}] Generated verification token for {email}")
         
         # Generate verification URL using cached base_url
         verification_url = f"{self.base_url}/api/verify-add/{token}"
         
         # Prepare SMTP configuration
         config = self._load_config()
+        
+        # Validate SMTP configuration
+        if not config.smtp_host:
+            print(f"[{_now_iso()}] SMTP error: No SMTP host configured")
+            self._send_json_response(500, {'error': 'Email service not configured'})
+            return
+        
         smtp_config = {
             'host': config.smtp_host,
             'port': config.smtp_port,
@@ -447,12 +590,19 @@ FREQ_MINUTES_{new_idx}=60
             'from': config.smtp_from
         }
         
-        success, error = send_verification_email(email, code, verification_url, self.base_url, smtp_config, self.config_path)
-        
-        if success:
-            self._send_json_response(200, {'message': 'Verification email sent successfully'})
-        else:
-            self._send_json_response(500, {'error': f'Failed to send email: {error}'})
+        print(f"[{_now_iso()}] Sending verification email to {email}")
+        try:
+            success, error = send_verification_email(email, code, verification_url, self.base_url, smtp_config, self.config_path)
+            
+            if success:
+                print(f"[{_now_iso()}] Email sent successfully to {email}")
+                self._send_json_response(200, {'message': 'Verification email sent successfully'})
+            else:
+                print(f"[{_now_iso()}] Email sending failed to {email}: {error}")
+                self._send_json_response(500, {'error': f'Failed to send email: {error}'})
+        except Exception as e:
+            print(f"[{_now_iso()}] Email sending exception for {email}: {e}")
+            self._send_json_response(500, {'error': f'Email service error: {str(e)}'})
     
     def _handle_verify_add(self, token):
         status_data = self._load_status_data()
@@ -488,14 +638,27 @@ FREQ_MINUTES_{new_idx}=60
         # Add to status.json
         status_data.setdefault('items', {})[code] = {
             'code': code,
-            'status': None,
+            'status': 'Pending/等待查询',  # Set initial status instead of None
             'last_checked': None,
             'last_changed': None,
             'channel': 'Email',
             'target': email,
             'added_at': _now_iso(),
-            'added_by': email
+            'added_by': email,
+            'first_check': True  # Flag for first-time query notification
         }
+        
+        # Create a session for this user to enable seamless management
+        session_id = secrets.token_urlsafe(32)
+        session_data = {
+            'email': email,
+            'created_at': _now_iso(),
+            'expires_at': (datetime.now() + timedelta(days=7)).isoformat(),
+            'last_used': _now_iso()
+        }
+        
+        # Store session
+        status_data.setdefault('user_management', {}).setdefault('sessions', {})[session_id] = session_data
         
         # Remove from pending
         del status_data['user_management']['pending_additions'][token]
@@ -515,18 +678,24 @@ FREQ_MINUTES_{new_idx}=60
             self._send_html_response(500, error_html)
             return
         
-        # Success - return HTML page
+        print(f"[{_now_iso()}] Successfully added code {code} for {email}, session created: {session_id[:8]}...")
+        
+        # Success - return HTML page with embedded session
         success_html = build_success_page(
             code=code,
             message=f"Code {code} has been successfully added to the monitoring system. You will receive email notifications when the status changes.",
-            base_url=self.base_url
+            base_url=self.base_url,
+            session_id=session_id  # Pass session to success page
         )
         self._send_html_response(200, success_html)
     
     def _handle_send_manage_code(self, data):
         email = data.get('email', '').strip().lower()
         
+        print(f"[{_now_iso()}] API request: send-manage-code for {email}")
+        
         if not email:
+            print(f"[{_now_iso()}] API error: Missing email")
             self._send_json_response(400, {'error': 'Email is required'})
             return
         
@@ -536,6 +705,7 @@ FREQ_MINUTES_{new_idx}=60
         user_codes = [item for item in items.values() if item.get('added_by') == email]
         
         if not user_codes:
+            print(f"[{_now_iso()}] API error: No codes found for {email}")
             self._send_json_response(404, {'error': 'No codes found for this email address'})
             return
         
@@ -550,9 +720,17 @@ FREQ_MINUTES_{new_idx}=60
         }
         
         self._save_status_data(status_data)
+        print(f"[{_now_iso()}] Generated management code for {email}")
         
         # Prepare SMTP configuration
         config = self._load_config()
+        
+        # Validate SMTP configuration
+        if not config.smtp_host:
+            print(f"[{_now_iso()}] SMTP error: No SMTP host configured")
+            self._send_json_response(500, {'error': 'Email service not configured'})
+            return
+        
         smtp_config = {
             'host': config.smtp_host,
             'port': config.smtp_port,
@@ -561,12 +739,19 @@ FREQ_MINUTES_{new_idx}=60
             'from': config.smtp_from
         }
         
-        success, error = send_management_code_email(email, verification_code, smtp_config, self.config_path)
-        
-        if success:
-            self._send_json_response(200, {'message': 'Verification code sent successfully'})
-        else:
-            self._send_json_response(500, {'error': f'Failed to send email: {error}'})
+        print(f"[{_now_iso()}] Sending management code email to {email}")
+        try:
+            success, error = send_management_code_email(email, verification_code, smtp_config, self.config_path)
+            
+            if success:
+                print(f"[{_now_iso()}] Management code email sent successfully to {email}")
+                self._send_json_response(200, {'message': 'Verification code sent successfully'})
+            else:
+                print(f"[{_now_iso()}] Management code email failed to {email}: {error}")
+                self._send_json_response(500, {'error': f'Failed to send email: {error}'})
+        except Exception as e:
+            print(f"[{_now_iso()}] Management code email exception for {email}: {e}")
+            self._send_json_response(500, {'error': f'Email service error: {str(e)}'})
     
     def _handle_verify_manage(self, data):
         # Support both verification code and session authentication
@@ -586,7 +771,7 @@ FREQ_MINUTES_{new_idx}=60
                 return
             
             # Check expiration
-            expires = datetime.fromisoformat(session['expires'])
+            expires = datetime.fromisoformat(session['expires_at'])
             if datetime.now() > expires:
                 del sessions[session_id]
                 self._save_status_data(status_data)
@@ -618,6 +803,24 @@ FREQ_MINUTES_{new_idx}=60
             if stored['code'] != verification_code:
                 self._send_json_response(400, {'error': 'Invalid verification code'})
                 return
+            
+            # Create session for this user for seamless management
+            session_id = secrets.token_urlsafe(32)
+            session_data = {
+                'email': email,
+                'created_at': _now_iso(),
+                'expires_at': (datetime.now() + timedelta(days=7)).isoformat(),
+                'last_used': _now_iso()
+            }
+            
+            # Store session
+            status_data.setdefault('user_management', {}).setdefault('sessions', {})[session_id] = session_data
+            
+            # Remove used verification code
+            del status_data['user_management']['verification_codes'][email]
+            
+            print(f"[{_now_iso()}] Created management session for {email}: {session_id[:8]}...")
+            
         else:
             self._send_json_response(400, {'error': 'Email and verification code, or session ID required'})
             return
@@ -637,7 +840,15 @@ FREQ_MINUTES_{new_idx}=60
                     'note': item.get('note')
                 })
         
-        self._send_json_response(200, {'codes': user_codes})
+        # Save session and return response with session info
+        self._save_status_data(status_data)
+        
+        response_data = {'codes': user_codes}
+        # Include session_id in response if we just created one
+        if 'session_id' in locals():
+            response_data['session_id'] = session_id
+            
+        self._send_json_response(200, response_data)
     
     def _handle_delete_code(self, data):
         email = data.get('email', '').strip().lower()
@@ -661,7 +872,7 @@ FREQ_MINUTES_{new_idx}=60
                 return
             
             # Check expiration
-            expires = datetime.fromisoformat(session['expires'])
+            expires = datetime.fromisoformat(session['expires_at'])
             if datetime.now() > expires:
                 del sessions[session_id]
                 self._save_status_data(status_data)
@@ -782,7 +993,7 @@ FREQ_MINUTES_{new_idx}=60
             return
         
         # Check expiration
-        expires = datetime.fromisoformat(session['expires'])
+        expires = datetime.fromisoformat(session['expires_at'])
         if datetime.now() > expires:
             del sessions[session_id]
             self._save_status_data(status_data)
@@ -796,8 +1007,52 @@ FREQ_MINUTES_{new_idx}=60
         self._send_json_response(200, {
             'valid': True,
             'email': session['email'],
-            'expires': session['expires']
+            'expires': session['expires_at']
         })
+
+    def _handle_public_status(self):
+        """Get public status data without sensitive information"""
+        try:
+            status_data = self._load_status_data()
+            
+            # Create a safe copy with only public information
+            public_data = {
+                'generated_at': status_data.get('generated_at'),
+                'items': {}
+            }
+            
+            # Filter out sensitive information from items
+            for code, item in status_data.get('items', {}).items():
+                public_item = {
+                    'code': item.get('code'),
+                    'status': item.get('status'),
+                    'last_checked': item.get('last_checked'),
+                    'last_changed': item.get('last_changed'),
+                    'next_check': item.get('next_check'),
+                    # Do NOT include: channel, target, note, added_by, or any other sensitive data
+                }
+                public_data['items'][code] = public_item
+            
+            self._send_json_response(200, public_data)
+            
+        except Exception as e:
+            print(f"[{_now_iso()}] Error getting public status: {e}")
+            self._send_json_response(500, {'error': 'Internal server error'})
+
+    def _send_error_redirect(self, error_code: int, error_message: str = ""):
+        """Send redirect to external error page for non-business logic errors"""
+        # Define which errors should be redirected
+        redirect_errors = {400, 401, 403, 404, 405, 429, 500, 502, 503, 504}
+        
+        if error_code in redirect_errors:
+            self.send_response(302)
+            self.send_header('Location', 'https://error.eurun.top/')
+            self.send_header('Cache-Control', 'no-cache')
+            self.end_headers()
+            print(f"[{_now_iso()}] REDIRECT: Error {error_code} ({error_message}) - redirected to error page")
+        else:
+            # For other errors, use standard error handling
+            self.send_error(error_code, error_message)
 
 
 # Background task to clean up expired data
@@ -841,7 +1096,7 @@ def cleanup_expired_data(site_dir='site'):
                 sessions = data.get('user_management', {}).get('sessions', {})
                 expired_sessions = []
                 for session_id, session_data in sessions.items():
-                    expires = datetime.fromisoformat(session_data['expires'])
+                    expires = datetime.fromisoformat(session_data['expires_at'])
                     if now > expires:
                         expired_sessions.append(session_id)
                 

@@ -9,6 +9,7 @@ including verification emails, management codes, and HTML page templates for web
 from typing import Tuple, Optional
 
 from .smtp_client import send_email_sync
+from ..utils.logger import get_email_logger
 
 
 def build_verification_email(code: str, email: str, verification_url: str, base_url: str) -> Tuple[str, str]:
@@ -143,8 +144,27 @@ def send_verification_email(to_email: str, code: str, verification_url: str, bas
     Returns:
         Tuple of (success: bool, error_message: str or None)
     """
-    subject, html_body = build_verification_email(code, to_email, verification_url, base_url)
-    return send_email_sync(to_email, subject, html_body, smtp_config, env_path)
+    logger = get_email_logger()
+    
+    # Log email attempt
+    log_id = logger.log_verification_email_attempt(to_email, code, verification_url, smtp_config)
+    
+    try:
+        subject, html_body = build_verification_email(code, to_email, verification_url, base_url)
+        success, error_or_response = send_email_sync(to_email, subject, html_body, smtp_config, env_path)
+        
+        # Log email result
+        if success:
+            logger.log_verification_email_result(log_id, True, smtp_response=error_or_response)
+        else:
+            logger.log_verification_email_result(log_id, False, error=error_or_response)
+        
+        return success, error_or_response
+        
+    except Exception as e:
+        error_msg = str(e)
+        logger.log_verification_email_result(log_id, False, error=error_msg)
+        return False, error_msg
 
 
 def send_management_code_email(to_email: str, verification_code: str, smtp_config: dict, env_path: str = ".env") -> Tuple[bool, Optional[str]]:
@@ -160,8 +180,27 @@ def send_management_code_email(to_email: str, verification_code: str, smtp_confi
     Returns:
         Tuple of (success: bool, error_message: str or None)
     """
-    subject, html_body = build_management_code_email(verification_code)
-    return send_email_sync(to_email, subject, html_body, smtp_config, env_path)
+    logger = get_email_logger()
+    
+    # Log email attempt
+    log_id = logger.log_management_email_attempt(to_email, verification_code, smtp_config)
+    
+    try:
+        subject, html_body = build_management_code_email(verification_code)
+        success, error_or_response = send_email_sync(to_email, subject, html_body, smtp_config, env_path)
+        
+        # Log email result
+        if success:
+            logger.log_management_email_result(log_id, True, smtp_response=error_or_response)
+        else:
+            logger.log_management_email_result(log_id, False, error=error_or_response)
+        
+        return success, error_or_response
+        
+    except Exception as e:
+        error_msg = str(e)
+        logger.log_management_email_result(log_id, False, error=error_msg)
+        return False, error_msg
 
 
 def _get_common_page_styles() -> str:
@@ -290,7 +329,7 @@ def _get_common_page_styles() -> str:
     """
 
 
-def build_success_page(code: str, message: str, base_url: str) -> str:
+def build_success_page(code: str, message: str, base_url: str, session_id: str = None) -> str:
     """
     Build success HTML page for verification responses
     
@@ -298,11 +337,21 @@ def build_success_page(code: str, message: str, base_url: str) -> str:
         code: Visa code that was processed
         message: Success message to display
         base_url: Base URL for navigation links
+        session_id: Optional session ID to auto-login user
         
     Returns:
         Complete HTML page as string
     """
     common_styles = _get_common_page_styles()
+    
+    # Add session JavaScript if session_id is provided
+    session_script = f"""
+        <script>
+            // Auto-set session for seamless experience
+            localStorage.setItem('visa_session_id', '{session_id}');
+            console.log('Session automatically set for user convenience');
+        </script>
+    """ if session_id else ""
     
     html_page = f"""
     <!DOCTYPE html>
@@ -330,6 +379,7 @@ def build_success_page(code: str, message: str, base_url: str) -> str:
                 Your visa code is now being monitored automatically.
             </div>
         </div>
+        {session_script}
     </body>
     </html>
     """

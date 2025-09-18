@@ -34,6 +34,7 @@ from ..notification import build_email_subject, build_email_body, should_send_no
 
 try:
     from ..notification import send_email
+    from ..utils.logger import get_email_logger
     EMAIL_AVAILABLE = True
 except ImportError:
     EMAIL_AVAILABLE = False
@@ -375,16 +376,16 @@ class PriorityScheduler:
         else:
             new_status = "Query Failed / 查询失败"
         
-        # 判断是否发生变化
+        # 判断是否发生变化和是否首次查询
         changed = old_status != new_status
-        first_time = 'status' not in old_item
+        is_first_check = old_item.get('first_check', False)
         
         # 计算下次检查时间
         freq_minutes = task.code_config.freq_minutes or self.config.default_freq_minutes
         next_check = datetime.now() + timedelta(minutes=freq_minutes)
         
         # 更新状态
-        self.status_data.setdefault('items', {})[code] = {
+        updated_item = {
             "code": code,
             "status": new_status,
             "last_checked": now,
@@ -398,6 +399,16 @@ class PriorityScheduler:
             "added_at": old_item.get("added_at")
         }
         
+        # Remove first_check flag after first successful query
+        if is_first_check and new_status != "Query Failed / 查询失败":
+            # First successful query completed, remove the flag
+            pass  # Don't include first_check in updated_item
+        elif is_first_check:
+            # Still waiting for first successful query
+            updated_item["first_check"] = True
+            
+        self.status_data.setdefault('items', {})[code] = updated_item
+        
         # 保存状态
         self.status_data["generated_at"] = now
         self.save_status_data(self.status_data)
@@ -405,9 +416,9 @@ class PriorityScheduler:
         self._log(f"Status updated: {code} -> {new_status} (changed: {changed})")
         
         # 发送邮件通知（如果需要）
-        await self._send_email_notification(task, result, changed, old_status)
+        await self._send_email_notification(task, result, changed, old_status, is_first_check)
     
-    async def _send_email_notification(self, task: ScheduledTask, result: Dict[str, Any], changed: bool, old_status: Optional[str]):
+    async def _send_email_notification(self, task: ScheduledTask, result: Dict[str, Any], changed: bool, old_status: Optional[str], is_first_check: bool = False):
         """发送邮件通知"""
         if not EMAIL_AVAILABLE or not self._is_email_configured(task.code_config):
             return
@@ -416,12 +427,27 @@ class PriorityScheduler:
         new_status = result.get('status', 'Unknown')
         
         # 判断是否应该发送通知
-        first_time = old_status is None
-        should_notify, notif_label = should_send_notification(old_status, new_status, first_time)
+        should_notify, notif_label = should_send_notification(old_status, new_status, is_first_check)
         
         if not should_notify:
             return
-            
+        
+        logger = get_email_logger()
+        
+        # 准备SMTP配置
+        smtp_config = {
+            'host': self.config.smtp_host,
+            'port': self.config.smtp_port,
+            'user': self.config.smtp_user,
+            'pass': self.config.smtp_pass,
+            'from': self.config.smtp_from
+        }
+        
+        # Log email attempt
+        log_id = logger.log_notification_email_attempt(
+            task.code_config.target, code, old_status or "None", new_status, is_first_check, smtp_config
+        )
+        
         try:
             # 构建邮件内容
             subject = build_email_subject(new_status, code)
@@ -439,18 +465,16 @@ class PriorityScheduler:
                 to_email=task.code_config.target,
                 subject=subject,
                 body=body,
-                smtp_config={
-                    'host': self.config.smtp_host,
-                    'port': self.config.smtp_port,
-                    'user': self.config.smtp_user,
-                    'pass': self.config.smtp_pass,
-                    'from': self.config.smtp_from
-                }
+                smtp_config=smtp_config
             )
             
+            # Log successful notification
+            logger.log_notification_email_result(log_id, True, smtp_response="Notification sent successfully")
             self._log(f"Email notification sent to {task.code_config.target} for {code}")
             
         except Exception as e:
+            error_msg = str(e)
+            logger.log_notification_email_result(log_id, False, error=error_msg)
             self._log(f"Failed to send email notification for {code}: {e}")
     
     def reload_config(self):

@@ -14,6 +14,7 @@ from email.utils import formataddr
 from typing import Optional, Tuple
 
 from ..core.config import MonitorConfig, load_env_config
+from ..utils.logger import get_email_logger
 
 # SMTP connection pool to prevent too many AUTH commands
 class SMTPConnectionPool:
@@ -27,6 +28,8 @@ class SMTPConnectionPool:
 
     def get_connection(self, cfg: MonitorConfig) -> smtplib.SMTP:
         """Get an active SMTP connection, reusing existing one if possible"""
+        logger = get_email_logger()
+        
         with self._lock:
             current_time = time.time()
             
@@ -36,18 +39,29 @@ class SMTPConnectionPool:
                 current_time = time.time()
             
             # Check if we can reuse existing connection
+            connection_reused = False
             if (self._connection and 
                 (current_time - self._last_used) < self._max_idle_time):
                 try:
                     # Test connection with NOOP command
                     self._connection.noop()
                     self._last_used = current_time
+                    connection_reused = True
+                    
+                    # Log successful connection reuse
+                    log_id = logger.log_smtp_connection_attempt(cfg.smtp_host, cfg.smtp_port, cfg.smtp_user or "")
+                    logger.log_smtp_connection_result(log_id, True, connection_reused=True)
+                    
                     return self._connection
-                except (smtplib.SMTPException, OSError):
+                except (smtplib.SMTPException, OSError) as e:
                     # Connection is dead, close it
+                    log_id = logger.log_smtp_connection_attempt(cfg.smtp_host, cfg.smtp_port, cfg.smtp_user or "")
+                    logger.log_smtp_connection_result(log_id, False, f"Connection test failed: {e}", connection_reused=True)
                     self.close()
             
             # Create new connection
+            log_id = logger.log_smtp_connection_attempt(cfg.smtp_host, cfg.smtp_port, cfg.smtp_user or "")
+            
             try:
                 # Create context for SSL/TLS
                 context = ssl.create_default_context()
@@ -62,16 +76,28 @@ class SMTPConnectionPool:
                 
                 # Login if credentials provided
                 if cfg.smtp_user and cfg.smtp_pass:
-                    server.login(cfg.smtp_user, cfg.smtp_pass)
-                    self._last_auth_time = current_time
+                    auth_log_id = logger.log_smtp_auth_attempt(cfg.smtp_host, cfg.smtp_user)
+                    try:
+                        server.login(cfg.smtp_user, cfg.smtp_pass)
+                        self._last_auth_time = current_time
+                        logger.log_smtp_auth_result(auth_log_id, True)
+                    except Exception as auth_e:
+                        logger.log_smtp_auth_result(auth_log_id, False, str(auth_e))
+                        raise auth_e
                 
                 self._connection = server
                 self._last_used = current_time
+                
+                # Log successful connection
+                logger.log_smtp_connection_result(log_id, True)
+                
                 return server
                 
             except Exception as e:
                 self._connection = None
-                raise Exception(f"Failed to create SMTP connection: {e}")
+                error_msg = f"Failed to create SMTP connection: {e}"
+                logger.log_smtp_connection_result(log_id, False, error_msg)
+                raise Exception(error_msg)
 
     def close(self):
         """Close current SMTP connection"""
@@ -89,6 +115,9 @@ _smtp_pool = SMTPConnectionPool()
 
 
 def send_email(cfg, to_addr: str, subject: str, html_body: str):
+    """Send email with detailed logging"""
+    logger = get_email_logger()
+    
     # Validate configuration first
     if not cfg.smtp_host:
         return False, "SMTP host not configured"
@@ -105,9 +134,21 @@ def send_email(cfg, to_addr: str, subject: str, html_body: str):
 
         # Use connection pool to reuse SMTP connections
         conn = _smtp_pool.get_connection(cfg)
-        conn.send_message(msg)
         
-        return True, None
+        # Send the email and capture any response
+        smtp_response = None
+        try:
+            send_result = conn.send_message(msg)
+            # send_message returns a dict of failed recipients, empty dict means success
+            if isinstance(send_result, dict) and len(send_result) == 0:
+                smtp_response = "Message sent successfully"
+            else:
+                smtp_response = f"Send result: {send_result}"
+        except Exception as send_e:
+            raise send_e
+        
+        return True, smtp_response
+        
     except Exception as e:
         # On error, close the connection to force reconnection next time
         _smtp_pool.close()
