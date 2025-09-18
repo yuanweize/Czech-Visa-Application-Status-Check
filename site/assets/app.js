@@ -178,7 +178,15 @@ function render(data) {
     timeContainer.appendChild(nextCheckDiv);
     tdTime.appendChild(timeContainer);
     
-    const tdLCh = document.createElement('td'); tdLCh.textContent = it.last_changed || '';
+    const tdLCh = document.createElement('td'); 
+    tdLCh.className = 'last-changed-cell';
+    if (it.last_changed) {
+      const lastChangedTime = new Date(it.last_changed);
+      tdLCh.textContent = lastChangedTime.toLocaleString();
+      tdLCh.title = `Last changed: ${lastChangedTime.toLocaleString()}`;
+    } else {
+      tdLCh.textContent = 'Never';
+    }
     tr.appendChild(tdCode); tr.appendChild(tdStatus); tr.appendChild(tdTime); tr.appendChild(tdLCh);
     tb.appendChild(tr);
   }

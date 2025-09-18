@@ -202,9 +202,24 @@ class APIHandler(BaseHTTPRequestHandler):
         status_path = os.path.join(self.site_dir, "status.json")
         try:
             with open(status_path, 'r', encoding='utf-8') as f:
-                return json.load(f)
+                content = f.read().strip()
+                if not content:
+                    # Empty file, create default and save
+                    default_data = {
+                        "generated_at": _now_iso(),
+                        "items": {},
+                        "user_management": {
+                            "verification_codes": {},
+                            "pending_additions": {},
+                            "sessions": {}
+                        }
+                    }
+                    self._save_status_data(default_data)
+                    return default_data
+                return json.loads(content)
         except Exception:
-            return {
+            # File doesn't exist or is corrupted, create default and save
+            default_data = {
                 "generated_at": _now_iso(),
                 "items": {},
                 "user_management": {
@@ -213,6 +228,8 @@ class APIHandler(BaseHTTPRequestHandler):
                     "sessions": {}
                 }
             }
+            self._save_status_data(default_data)
+            return default_data
     
     def _save_status_data(self, data):
         """Save status data to status.json"""
@@ -1126,7 +1143,12 @@ def cleanup_expired_data(site_dir='site'):
             status_path = os.path.join(site_dir, "status.json")
             if os.path.exists(status_path):
                 with open(status_path, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
+                    content = f.read().strip()
+                    if not content:
+                        # Empty file, skip cleanup
+                        time.sleep(300)
+                        continue
+                    data = json.loads(content)
                 
                 now = datetime.now()
                 changed = False

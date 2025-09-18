@@ -33,7 +33,7 @@ from ..server import create_server_thread
 from ..notification import build_email_subject, build_email_body, should_send_notification
 
 try:
-    from ..notification import send_email
+    from ..notification import send_email_async
     from ..utils.logger import get_email_logger
     EMAIL_AVAILABLE = True
 except ImportError:
@@ -143,7 +143,7 @@ class PriorityScheduler:
         self.env_path = env_path  # 保存env_path用于配置重载
         self.task_queue: List[ScheduledTask] = []
         self.browser_manager = BrowserManager()
-        self.status_data = {}
+        
         self.running = False
         self.stop_event = asyncio.Event()
         
@@ -161,6 +161,9 @@ class PriorityScheduler:
         
         # 创建日志记录器
         self.logger = create_logger(config.log_dir, "priority_scheduler")
+        
+        # 初始化状态数据 - 确保status.json存在
+        self.status_data = self.load_status_data()
         
         # 配置重载相关
         self.config_lock = threading.Lock()
@@ -194,11 +197,14 @@ class PriorityScheduler:
         if os.path.exists(status_path):
             try:
                 with open(status_path, 'r', encoding='utf-8') as f:
-                    return json.load(f)
+                    content = f.read().strip()
+                    if content:
+                        return json.loads(content)
             except Exception as e:
                 self._log(f"Error loading status data: {e}")
         
-        return {
+        # 创建默认结构并立即保存
+        default_data = {
             "generated_at": self._now_iso(),
             "items": {},
             "user_management": {
@@ -207,6 +213,12 @@ class PriorityScheduler:
                 "sessions": {}
             }
         }
+        
+        # 立即保存默认结构
+        self.save_status_data(default_data)
+        self._log("Created initial status.json with default structure")
+        
+        return default_data
     
     def save_status_data(self, data: Dict[str, Any]):
         """保存状态数据"""
@@ -219,15 +231,78 @@ class PriorityScheduler:
         except Exception as e:
             self._log(f"Error saving status data: {e}")
     
+    def _initialize_codes_to_status(self, codes_to_add):
+        """将新的codes初始化到status.json中"""
+        try:
+            current_time = self._now_iso()
+            
+            # 确保items字典存在
+            if 'items' not in self.status_data:
+                self.status_data['items'] = {}
+            
+            # 为每个新代码创建初始条目
+            for code in codes_to_add:
+                # 查找对应的配置
+                code_config = None
+                for cfg in self.config.codes:
+                    if cfg.code == code:
+                        code_config = cfg
+                        break
+                
+                if code_config:
+                    # 检查邮件是否正确配置
+                    email_configured = (
+                        code_config.channel == "email" and 
+                        code_config.target and 
+                        self.config.smtp_host and 
+                        self.config.smtp_user and 
+                        self.config.smtp_pass
+                    )
+                    
+                    self.status_data['items'][code] = {
+                        "code": code,
+                        "status": "Pending/等待查询",  # 初始状态设置为等待查询
+                        "last_checked": None,
+                        "last_changed": None,
+                        "next_check": current_time,  # 立即进行首次查询
+                        "first_check": True,
+                        "channel": "Email" if email_configured else "",
+                        "target": code_config.target or "",
+                        "freq_minutes": code_config.freq_minutes,
+                        "note": getattr(code_config, 'note', '') or ""
+                    }
+                    self._log(f"Initialized code {code} in status.json")
+            
+            # 更新生成时间并保存
+            self.status_data["generated_at"] = current_time
+            self.save_status_data(self.status_data)
+            
+        except Exception as e:
+            self._log(f"Error initializing codes to status: {e}")
+    
     def rebuild_queue_from_status(self):
         """从状态文件重建队列（程序重启恢复）"""
         self.status_data = self.load_status_data()
         current_time = datetime.now()
         skipped_granted = 0
         
+        # 检查是否需要初始化codes到status.json
+        status_items = self.status_data.get('items', {})
+        config_codes = {cfg.code for cfg in self.config.codes}
+        existing_codes = set(status_items.keys())
+        
+        # 如果status.json中没有任何来自配置的codes，或者有新的codes，则初始化
+        missing_codes = config_codes - existing_codes
+        if missing_codes:
+            self._log(f"Initializing {len(missing_codes)} new codes to status.json: {missing_codes}")
+            self._initialize_codes_to_status(missing_codes)
+            # 重新加载状态数据
+            self.status_data = self.load_status_data()
+            status_items = self.status_data.get('items', {})
+        
         for code_config in self.config.codes:
             code = code_config.code
-            item = self.status_data.get('items', {}).get(code)
+            item = status_items.get(code)
             
             # 检查是否为已通过状态，如果是则跳过
             if item and item.get('status'):
@@ -489,16 +564,21 @@ class PriorityScheduler:
             )
             
             # 发送邮件
-            await send_email(
+            success, error = await send_email_async(
                 to_email=task.code_config.target,
                 subject=subject,
-                body=body,
+                html_body=body,
                 smtp_config=smtp_config
             )
             
-            # Log successful notification
-            logger.log_notification_email_result(log_id, True, smtp_response="Notification sent successfully")
-            self._log(f"Email notification sent to {task.code_config.target} for {code}")
+            if success:
+                # Log successful notification
+                logger.log_notification_email_result(log_id, True, smtp_response="Notification sent successfully")
+                self._log(f"Email notification sent to {task.code_config.target} for {code}")
+            else:
+                # Log failed notification
+                logger.log_notification_email_result(log_id, False, error=error)
+                self._log(f"Failed to send email notification for {code}: {error}")
             
         except Exception as e:
             error_msg = str(e)
@@ -555,7 +635,8 @@ class PriorityScheduler:
                     old_c, new_c = old_codes[code], new_codes[code]
                     if (old_c.channel != new_c.channel or 
                         old_c.target != new_c.target or 
-                        old_c.freq_minutes != new_c.freq_minutes):
+                        old_c.freq_minutes != new_c.freq_minutes or
+                        getattr(old_c, 'note', '') != getattr(new_c, 'note', '')):
                         modified_codes.append(code)
                 
                 # 更新配置
@@ -563,6 +644,9 @@ class PriorityScheduler:
                 
                 # 处理新增代码
                 if added_codes:
+                    # 立即初始化新代码到status.json
+                    self._initialize_codes_to_status(added_codes)
+                    
                     for code_config in self.config.codes:
                         if code_config.code in added_codes:
                             self.new_codes_to_check.append(code_config)
@@ -600,7 +684,11 @@ class PriorityScheduler:
             site_json_path = os.path.join(self.config.site_dir, "status.json")
             if os.path.exists(site_json_path):
                 with open(site_json_path, "r", encoding="utf-8") as f:
-                    status_data = json.load(f)
+                    content = f.read().strip()
+                    if not content:
+                        # Empty file, skip update
+                        return
+                    status_data = json.loads(content)
                 
                 # 删除已移除的代码
                 for code in removed_codes:
@@ -625,6 +713,7 @@ class PriorityScheduler:
                         status_data["items"][code]["channel"] = "Email" if email_configured else ""
                         status_data["items"][code]["target"] = new_code_cfg.target or ""
                         status_data["items"][code]["freq_minutes"] = new_code_cfg.freq_minutes
+                        status_data["items"][code]["note"] = getattr(new_code_cfg, 'note', '') or ""
                         self._log(f"Updated notification config for code {code}")
                 
                 # 更新生成时间

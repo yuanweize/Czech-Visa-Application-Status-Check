@@ -163,16 +163,16 @@ th {
   z-index: 2;
   border-bottom: 2px solid #e5e7eb;
 }
-/* Dynamic column widths that fit content */
+/* Dynamic column widths that fit content - optimized for space efficiency */
 th:nth-child(1), td:nth-child(1) { /* Code */
   width: auto;
   min-width: fit-content;
-  max-width: 30%;
+  max-width: 200px; /* 减少最大宽度，更紧凑 */
 }
 th:nth-child(2), td:nth-child(2) { /* Status */
   width: auto;
   min-width: fit-content;
-  max-width: 25%;
+  max-width: 150px; /* 减少最大宽度，状态标签不需要太宽 */
 }
 th:nth-child(3), td:nth-child(3) { /* Check Status */
   width: auto;
@@ -209,7 +209,7 @@ tr:last-child td {
 .status-tag { 
   padding: 4px 10px; 
   border-radius: 20px; 
-  font-size: 12px; 
+  font-size: 13px; /* 适中的状态标签字体 */
   font-weight: 600;
   letter-spacing: .3px;
 }
@@ -533,6 +533,7 @@ footer {
   color: #374151;
   line-height: 1.1;
   margin: 0;
+  font-size: 15px; /* 调大代码字体 */
 }
 
 .code-note {
@@ -629,7 +630,7 @@ tr:has(.status-granted) .code-note {
     font-size: 12px;
   }
   .status-tag {
-    font-size: 11px;
+    font-size: 12px; /* 移动端状态标签也调大 */
     padding: 3px 8px;
   }
   .footer-main {
@@ -697,22 +698,22 @@ tr:has(.status-granted) .code-note {
   }
   th:nth-child(1), td:nth-child(1) { /* Code - priority */
     width: auto;
-    min-width: 140px;
-    max-width: 180px;
+    min-width: 120px; /* 减少Code列宽度 */
+    max-width: 160px;
   }
   th:nth-child(2), td:nth-child(2) { /* Status - priority */
     width: auto;
-    min-width: 120px;
-    max-width: 160px;
-  }
-  th:nth-child(3), td:nth-child(3) { /* Last Checked */
-    width: auto;
-    min-width: 100px;
+    min-width: 100px; /* 减少Status列宽度 */
     max-width: 140px;
+  }
+  th:nth-child(3), td:nth-child(3) { /* Check Status - 确保时间显示完整 */
+    width: auto;
+    min-width: 130px; /* 增加最小宽度以显示完整时间 */
+    max-width: 160px;
   }
   th:nth-child(4), td:nth-child(4) { /* Last Changed */
     width: auto;
-    min-width: 100px;
+    min-width: 110px; /* 稍微增加Last Changed宽度 */
     max-width: 140px;
   }
 }
@@ -748,6 +749,15 @@ tr:has(.status-granted) .code-note {
   font-weight: 700;
 }
 
+/* Last Changed column styling - matching Check Status */
+.last-changed-cell {
+  padding: 4px 6px !important;
+  vertical-align: middle;
+  color: #4b5563;
+  font-weight: 500;
+  font-size: 15px; /* 调大字体，因为只有一行 */
+}
+
 /* Responsive adjustments for time display */
 @media (max-width: 768px) {
   .time-container {
@@ -756,16 +766,25 @@ tr:has(.status-granted) .code-note {
   }
   
   .last-checked {
-    font-size: 11px;
+    font-size: 12px; /* 稍微调大移动端时间字体 */
   }
   
   .next-check {
-    font-size: 10px;
+    font-size: 11px; /* 稍微调大移动端时间字体 */
   }
   
   .time-cell {
     padding: 3px 4px !important;
     min-width: 85px;
+  }
+  
+  .last-changed-cell {
+    font-size: 14px; /* 移动端也调大 */
+    padding: 3px 4px !important;
+  }
+  
+  .code-text {
+    font-size: 14px; /* 移动端稍微小一点 */
   }
 }
 
@@ -777,8 +796,8 @@ th:nth-child(3), td:nth-child(3) { /* Check Status */
 }
 
 @media (max-width: 768px) {
-  th:nth-child(3), td:nth-child(3) { /* Check Status on mobile */
-    min-width: 100px;
-    max-width: 120px;
+  th:nth-child(3), td:nth-child(3) { /* Check Status on mobile - 确保时间显示完整 */
+    min-width: 130px; /* 增加最小宽度 */
+    max-width: 150px;
   }
 }
