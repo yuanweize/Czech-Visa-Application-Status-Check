@@ -162,3 +162,272 @@ def send_management_code_email(to_email: str, verification_code: str, smtp_confi
     """
     subject, html_body = build_management_code_email(verification_code)
     return send_email_sync(to_email, subject, html_body, smtp_config, env_path)
+
+
+def build_success_page(code: str, message: str, base_url: str) -> str:
+    """
+    Build success HTML page for verification responses
+    
+    Args:
+        code: Visa code that was processed
+        message: Success message to display
+        base_url: Base URL for navigation links
+        
+    Returns:
+        Complete HTML page as string
+    """
+    html_page = f"""
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Success - Czech Visa Monitor</title>
+        <style>
+            body {{
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                background: linear-gradient(135deg, #e3f2fd, #bbdefb);
+                margin: 0;
+                padding: 2rem;
+                min-height: 100vh;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            }}
+            .container {{
+                background: white;
+                border-radius: 16px;
+                box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+                max-width: 500px;
+                width: 100%;
+                padding: 3rem 2rem;
+                text-align: center;
+            }}
+            .success-icon {{
+                background: linear-gradient(135deg, #4caf50, #45a049);
+                color: white;
+                width: 80px;
+                height: 80px;
+                border-radius: 50%;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-size: 2.5rem;
+                margin: 0 auto 2rem;
+            }}
+            h1 {{
+                color: #2e7d32;
+                margin-bottom: 1rem;
+                font-size: 1.8rem;
+            }}
+            .code-box {{
+                background: #f8f9fa;
+                border: 2px solid #4caf50;
+                border-radius: 8px;
+                padding: 1rem;
+                margin: 1.5rem 0;
+                font-family: 'Courier New', monospace;
+                font-size: 1.1rem;
+                font-weight: bold;
+                color: #2e7d32;
+            }}
+            .message {{
+                color: #555;
+                font-size: 1.1rem;
+                margin-bottom: 2rem;
+                line-height: 1.6;
+            }}
+            .actions {{
+                display: flex;
+                gap: 1rem;
+                justify-content: center;
+                flex-wrap: wrap;
+            }}
+            .btn {{
+                padding: 0.75rem 1.5rem;
+                border: none;
+                border-radius: 8px;
+                text-decoration: none;
+                font-weight: 500;
+                cursor: pointer;
+                transition: all 0.3s ease;
+                display: inline-block;
+            }}
+            .btn-primary {{
+                background: linear-gradient(135deg, #007bff, #0056b3);
+                color: white;
+            }}
+            .btn-secondary {{
+                background: #f8f9fa;
+                color: #6c757d;
+                border: 1px solid #dee2e6;
+            }}
+            .btn:hover {{
+                transform: translateY(-2px);
+                box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            }}
+            .footer {{
+                margin-top: 2rem;
+                padding-top: 1rem;
+                border-top: 1px solid #dee2e6;
+                color: #6c757d;
+                font-size: 0.9rem;
+            }}
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="success-icon">✅</div>
+            <h1>Success!</h1>
+            <div class="code-box">{code}</div>
+            <p class="message">{message}</p>
+            <div class="actions">
+                <a href="{base_url}" class="btn btn-primary">Return to Main Site</a>
+                <a href="{base_url}#manage" class="btn btn-secondary">Manage My Codes</a>
+            </div>
+            <div class="footer">
+                <strong>Czech Republic Visa Monitor</strong><br>
+                Your visa code is now being monitored automatically.
+            </div>
+        </div>
+    </body>
+    </html>
+    """
+    
+    return html_page
+
+
+def build_error_page(error_title: str, error_message: str, base_url: str, details: str = None) -> str:
+    """
+    Build error HTML page for verification responses
+    
+    Args:
+        error_title: Main error title
+        error_message: Error message to display
+        base_url: Base URL for navigation links
+        details: Optional additional details
+        
+    Returns:
+        Complete HTML page as string
+    """
+    details_html = f"<p class='details'>{details}</p>" if details else ""
+    
+    html_page = f"""
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Error - Czech Visa Monitor</title>
+        <style>
+            body {{
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                background: linear-gradient(135deg, #ffebee, #ffcdd2);
+                margin: 0;
+                padding: 2rem;
+                min-height: 100vh;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            }}
+            .container {{
+                background: white;
+                border-radius: 16px;
+                box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+                max-width: 500px;
+                width: 100%;
+                padding: 3rem 2rem;
+                text-align: center;
+            }}
+            .error-icon {{
+                background: linear-gradient(135deg, #f44336, #d32f2f);
+                color: white;
+                width: 80px;
+                height: 80px;
+                border-radius: 50%;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-size: 2.5rem;
+                margin: 0 auto 2rem;
+            }}
+            h1 {{
+                color: #c62828;
+                margin-bottom: 1rem;
+                font-size: 1.8rem;
+            }}
+            .message {{
+                color: #555;
+                font-size: 1.1rem;
+                margin-bottom: 1rem;
+                line-height: 1.6;
+            }}
+            .details {{
+                background: #fff3e0;
+                border-left: 4px solid #ff9800;
+                padding: 1rem;
+                margin: 1.5rem 0;
+                text-align: left;
+                border-radius: 0 8px 8px 0;
+                color: #e65100;
+                font-size: 0.95rem;
+            }}
+            .actions {{
+                display: flex;
+                gap: 1rem;
+                justify-content: center;
+                flex-wrap: wrap;
+                margin-top: 2rem;
+            }}
+            .btn {{
+                padding: 0.75rem 1.5rem;
+                border: none;
+                border-radius: 8px;
+                text-decoration: none;
+                font-weight: 500;
+                cursor: pointer;
+                transition: all 0.3s ease;
+                display: inline-block;
+            }}
+            .btn-primary {{
+                background: linear-gradient(135deg, #007bff, #0056b3);
+                color: white;
+            }}
+            .btn-secondary {{
+                background: #f8f9fa;
+                color: #6c757d;
+                border: 1px solid #dee2e6;
+            }}
+            .btn:hover {{
+                transform: translateY(-2px);
+                box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            }}
+            .footer {{
+                margin-top: 2rem;
+                padding-top: 1rem;
+                border-top: 1px solid #dee2e6;
+                color: #6c757d;
+                font-size: 0.9rem;
+            }}
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="error-icon">❌</div>
+            <h1>{error_title}</h1>
+            <p class="message">{error_message}</p>
+            {details_html}
+            <div class="actions">
+                <a href="{base_url}" class="btn btn-primary">Return to Main Site</a>
+                <a href="{base_url}#add" class="btn btn-secondary">Try Again</a>
+            </div>
+            <div class="footer">
+                <strong>Czech Republic Visa Monitor</strong><br>
+                Need help? Please contact support.
+            </div>
+        </div>
+    </body>
+    </html>
+    """
+    
+    return html_page

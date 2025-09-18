@@ -24,7 +24,9 @@ from monitor.notification import (
     build_verification_email,
     build_management_code_email,
     send_verification_email,
-    send_management_code_email
+    send_management_code_email,
+    build_success_page,
+    build_error_page
 )
 
 
@@ -53,6 +55,14 @@ class APIHandler(BaseHTTPRequestHandler):
         self.end_headers()
         response = json.dumps(data, ensure_ascii=False).encode('utf-8')
         self.wfile.write(response)
+    
+    def _send_html_response(self, status_code: int, html_content: str):
+        """Send HTML response for web page responses"""
+        self.send_response(status_code)
+        self.send_header('Content-Type', 'text/html; charset=utf-8')
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.end_headers()
+        self.wfile.write(html_content.encode('utf-8'))
     
     def _load_config(self):
         """Load configuration from .env file"""
@@ -449,10 +459,13 @@ FREQ_MINUTES_{new_idx}=60
         pending = status_data.get('user_management', {}).get('pending_additions', {}).get(token)
         
         if not pending:
-            self._send_json_response(400, {
-                'error': 'Invalid verification link',
-                'message': 'This verification link is invalid or has already been used.'
-            })
+            error_html = build_error_page(
+                error_title="Invalid Verification Link",
+                error_message="This verification link is invalid or has already been used.",
+                base_url=self.base_url,
+                details="The link may have expired or been used already. Please submit a new request from the main site."
+            )
+            self._send_html_response(400, error_html)
             return
         
         # Check expiry
@@ -460,10 +473,13 @@ FREQ_MINUTES_{new_idx}=60
         if datetime.now() > expires:
             del status_data['user_management']['pending_additions'][token]
             self._save_status_data(status_data)
-            self._send_json_response(400, {
-                'error': 'Link expired',
-                'message': 'This verification link has expired. Please submit a new request.'
-            })
+            error_html = build_error_page(
+                error_title="Link Expired",
+                error_message="This verification link has expired.",
+                base_url=self.base_url,
+                details="Verification links expire after 10 minutes for security reasons. Please submit a new request from the main site."
+            )
+            self._send_html_response(400, error_html)
             return
         
         code = pending['code']
@@ -490,13 +506,22 @@ FREQ_MINUTES_{new_idx}=60
             self._add_to_env_config(code, email)
         except Exception as e:
             print(f"[{_now_iso()}] Failed to add to .env: {e}")
+            error_html = build_error_page(
+                error_title="Configuration Error",
+                error_message="Failed to add code to monitoring configuration.",
+                base_url=self.base_url,
+                details="The code was recorded but may not be monitored until the configuration is updated. Please contact support."
+            )
+            self._send_html_response(500, error_html)
+            return
         
-        self._send_json_response(200, {
-            'success': True,
-            'message': f'Code {code} has been successfully added to monitoring system',
-            'code': code,
-            'base_url': self.base_url
-        })
+        # Success - return HTML page
+        success_html = build_success_page(
+            code=code,
+            message=f"Code {code} has been successfully added to the monitoring system. You will receive email notifications when the status changes.",
+            base_url=self.base_url
+        )
+        self._send_html_response(200, success_html)
     
     def _handle_send_manage_code(self, data):
         email = data.get('email', '').strip().lower()
