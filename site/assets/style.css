@@ -530,9 +530,8 @@ footer {
 }
 
 .code-text {
-  font-family: 'Courier New', monospace;
-  font-weight: 500;
-  color: #2c3e50;
+  font-weight: 600;
+  color: #374151;
 }
 
 .code-note {

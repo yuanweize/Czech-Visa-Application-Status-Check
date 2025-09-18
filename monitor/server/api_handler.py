@@ -433,9 +433,28 @@ FREQ_MINUTES_{new_idx}=60
         elif path.startswith('/api/'):
             # Other API endpoints should be POST - redirect non-business logic error
             self._send_error_redirect(405, 'Method not allowed')
+        elif path.startswith('/.well-known/'):
+            # Handle well-known URIs (for Chrome DevTools, etc.) silently
+            self._handle_well_known_request(path)
         else:
             # Handle static files
             self._serve_static_file()
+    
+    def _handle_well_known_request(self, path):
+        """Handle .well-known requests silently to reduce log noise"""
+        # For Chrome DevTools and other development tools
+        if 'devtools' in path:
+            # Return empty JSON for DevTools
+            self.send_response(404)
+            self.send_header('Content-Type', 'application/json')
+            self.end_headers()
+            self.wfile.write(b'{}')
+        else:
+            # Other well-known requests - return 404 silently
+            self.send_response(404)
+            self.send_header('Content-Type', 'text/plain')
+            self.end_headers()
+            self.wfile.write(b'Not Found')
     
     def _serve_static_file(self):
         """Serve static files from site directory"""
@@ -459,9 +478,26 @@ FREQ_MINUTES_{new_idx}=60
             'backup.json',      # Backup files
         }
         
+        # Common browser/dev tool requests that should be silently blocked
+        silent_blocked_patterns = [
+            '.well-known/',
+            'favicon.ico',
+            'robots.txt',
+            'sitemap.xml',
+            'manifest.json',
+            '.git/',
+            '.vscode/',
+            '__pycache__/',
+            'node_modules/',
+        ]
+        
+        # Check if this is a silent block (browser/dev tools)
+        is_silent_block = any(pattern in file_path for pattern in silent_blocked_patterns)
+        
         # Also block any hidden files or files starting with dot
         if file_path in blocked_files or file_path.startswith('.') or '/.env' in file_path or '/status.json' in file_path:
-            print(f"[{_now_iso()}] SECURITY: Blocked access to sensitive file: {file_path}")
+            if not is_silent_block:
+                print(f"[{_now_iso()}] SECURITY: Blocked access to sensitive file: {file_path}")
             self._send_error_redirect(403, "Access denied")
             return
         
@@ -485,7 +521,20 @@ FREQ_MINUTES_{new_idx}=60
                 self.end_headers()
                 self.wfile.write(content)
             else:
-                self._send_error_redirect(404, 'File not found')
+                # Check if this is a common browser request that should be handled silently
+                common_browser_files = [
+                    'favicon.ico', 'robots.txt', 'sitemap.xml', 'manifest.json',
+                    'apple-touch-icon.png', 'browserconfig.xml'
+                ]
+                
+                if file_path in common_browser_files:
+                    # Send 404 without logging to reduce noise
+                    self.send_response(404)
+                    self.send_header('Content-Type', 'text/plain')
+                    self.end_headers()
+                    self.wfile.write(b'Not Found')
+                else:
+                    self._send_error_redirect(404, 'File not found')
         except Exception as e:
             self._send_error_redirect(500, f'Internal server error: {e}')
     
@@ -1045,12 +1094,25 @@ FREQ_MINUTES_{new_idx}=60
         # Define which errors should be redirected
         redirect_errors = {400, 401, 403, 404, 405, 429, 500, 502, 503, 504}
         
+        # Reduce logging noise for common browser requests
+        should_log = True
+        if error_code == 404 and hasattr(self, 'path'):
+            # Don't log 404s for common browser/dev tool files
+            common_files = ['favicon.ico', 'robots.txt', 'manifest.json', '.well-known/', 'apple-touch-icon']
+            if any(file in self.path for file in common_files):
+                should_log = False
+        elif error_code == 403 and hasattr(self, 'path'):
+            # Reduce logging for blocked dev tool requests
+            if '.well-known/' in self.path or 'devtools' in self.path:
+                should_log = False
+        
         if error_code in redirect_errors:
             self.send_response(302)
             self.send_header('Location', 'https://error.eurun.top/')
             self.send_header('Cache-Control', 'no-cache')
             self.end_headers()
-            print(f"[{_now_iso()}] REDIRECT: Error {error_code} ({error_message}) - redirected to error page")
+            if should_log:
+                print(f"[{_now_iso()}] REDIRECT: Error {error_code} ({error_message}) - redirected to error page")
         else:
             # For other errors, use standard error handling
             self.send_error(error_code, error_message)
