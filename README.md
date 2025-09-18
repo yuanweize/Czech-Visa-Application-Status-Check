@@ -19,14 +19,33 @@ A comprehensive tool for generating visa application query codes and monitoring 
 - **Automated Monitoring**: Continuous background monitoring with configurable frequency / 自动监控：具有可配置频率的连续后台监控
 - **Email Notifications**: Smart email alerts for status changes with HTML formatting / 邮件通知：状态变更的智能邮件提醒，支持HTML格式
 - **Hot Configuration Reload**: Real-time configuration updates without service restart / 热配置重载：无需重启服务的实时配置更新
-- **Priority Scheduling**: Differential processing for optimal resource utilization / 优先级调度：差异化处理以优化资源利用
+- **Priority Scheduling**: Differential processing for optimal resource utilization with granted code optimization / 优先级调度：差异化处理以优化资源利用，已通过代码优化
+- **Performance Optimization**: Granted codes skip re-queuing to reduce system load / 性能优化：已通过代码跳过重新排队以减少系统负载
 
 ### User Management & Security / 用户管理与安全
-- **Web Interface**: User-friendly interface for public code management / Web界面：用户友好的公共代码管理界面
+- **Web Interface**: User-friendly interface for public code management with enhanced UI/UX / Web界面：用户友好的公共代码管理界面，具有增强的UI/UX
 - **Email Verification**: Secure 10-minute verification links for code additions / 邮件验证：代码添加的10分钟安全验证链接
 - **Advanced Security**: CAPTCHA protection, API rate limiting (100 req/min), and file access control / 高级安全：验证码保护、API频率限制（100请求/分钟）和文件访问控制
 - **Self-Service Management**: Users can view, add, and delete their own codes / 自助管理：用户可查看、添加和删除自己的代码
 - **Error Handling**: Unified error redirects and comprehensive security logging / 错误处理：统一错误重定向和全面安全日志记录
+- **Optimized Layout**: Compact table design with note display support and favicon integration / 优化布局：紧凑表格设计，支持备注显示和网站图标集成
+
+## Recent Improvements / 最新改进
+
+### UI/UX Enhancements (September 2025) / UI/UX 增强 (2025年9月)
+- **Compact Table Layout**: Optimized row height and spacing for better space utilization / 紧凑表格布局：优化行高和间距以更好地利用空间
+- **Note Display System**: Two-line code display with support for showing notes below query codes / 备注显示系统：两行代码显示，支持在查询码下方显示备注
+- **Channel Column Removal**: Removed unnecessary Channel column to provide more space for essential information / 移除通道列：移除不必要的通道列，为重要信息提供更多空间
+- **Favicon Integration**: Added logo.png as website favicon for better brand recognition / 网站图标集成：添加 logo.png 作为网站图标以提高品牌识别度
+
+### Performance Optimizations / 性能优化
+- **Granted Code Optimization**: Codes with "Granted/已通过" status no longer re-enter the monitoring queue, reducing system load / 已通过代码优化：状态为"已通过"的代码不再重新进入监控队列，降低系统负载
+- **Silent Request Handling**: Reduced log noise by handling browser/dev tool requests (favicon.ico, robots.txt, .well-known/) silently / 静默请求处理：通过静默处理浏览器/开发工具请求（favicon.ico、robots.txt、.well-known/）减少日志噪音
+
+### Code Quality Improvements / 代码质量改进
+- **Enhanced Scheduler Logic**: Improved queue management with granted status detection / 增强调度器逻辑：改进了队列管理，增加了已通过状态检测
+- **CSS Optimization**: Streamlined styling with better responsive design and reduced visual clutter / CSS 优化：简化样式，改进响应式设计并减少视觉混乱
+- **Error Handling**: Improved error handling for edge cases and better user experience / 错误处理：改进边缘情况的错误处理和用户体验
 
 ## Technology Stack / 技术栈
 

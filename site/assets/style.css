@@ -146,12 +146,13 @@ table {
   min-width: 600px; /* Minimum width to ensure readability */
 }
 th, td { 
-  padding: 14px 16px; 
+  padding: 8px 12px; 
   border-bottom: 1px solid #f1f5f9; 
   text-align: left;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  vertical-align: middle;
 }
 th { 
   background: linear-gradient(135deg, #f8fafc, #f1f5f9);
@@ -166,28 +167,24 @@ th {
 th:nth-child(1), td:nth-child(1) { /* Code */
   width: auto;
   min-width: fit-content;
-  max-width: 25%;
+  max-width: 30%;
 }
 th:nth-child(2), td:nth-child(2) { /* Status */
   width: auto;
   min-width: fit-content;
-  max-width: 30%;
+  max-width: 25%;
 }
-th:nth-child(3), td:nth-child(3) { /* Last Checked */
+th:nth-child(3), td:nth-child(3) { /* Check Status */
   width: auto;
   min-width: fit-content;
-  max-width: 20%;
+  max-width: 25%;
 }
 th:nth-child(4), td:nth-child(4) { /* Last Changed */
   width: auto;
   min-width: fit-content;
   max-width: 20%;
 }
-th:nth-child(5), td:nth-child(5) { /* Channel */
-  width: auto;
-  min-width: fit-content;
-  max-width: 15%;
-}
+
 tr:hover { 
   background: linear-gradient(135deg, #f8fafc, #f0f9ff); 
 }
@@ -526,20 +523,26 @@ footer {
 .code-container {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 0px;
+  padding: 0;
+  line-height: 1;
 }
 
 .code-text {
   font-weight: 600;
   color: #374151;
+  line-height: 1.1;
+  margin: 0;
 }
 
 .code-note {
-  font-size: 0.75rem;
+  font-size: 0.6rem;
   color: #6c757d;
   font-style: italic;
-  line-height: 1.2;
-  margin-top: 2px;
+  line-height: 0.9;
+  margin: 0;
+  padding: 0;
+  display: block;
 }
 
 /* Special styling for granted/completed codes */
@@ -564,6 +567,7 @@ tr:has(.status-granted) .code-note {
   header {
     padding: 20px 16px;
   }
+  
   h1 {
     font-size: 22px;
   }
@@ -711,36 +715,32 @@ tr:has(.status-granted) .code-note {
     min-width: 100px;
     max-width: 140px;
   }
-  th:nth-child(5), td:nth-child(5) { /* Channel */
-    width: auto;
-    min-width: 60px;
-    max-width: 80px;
-  }
 }
 
 /* Enhanced time display styles */
 .time-cell {
-  padding: 8px !important;
+  padding: 4px 6px !important;
+  vertical-align: middle;
 }
 
 .time-container {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 1px;
   font-size: 11px;
-  line-height: 1.2;
+  line-height: 1.1;
 }
 
 .last-checked {
   color: #4b5563;
   font-weight: 500;
-  font-size: 14px;
+  font-size: 13px;
 }
 
 .next-check {
   color: #059669;
   font-weight: 600;
-  font-size: 13px;
+  font-size: 12px;
 }
 
 .next-check.overdue {
@@ -752,20 +752,20 @@ tr:has(.status-granted) .code-note {
 @media (max-width: 768px) {
   .time-container {
     font-size: 10px;
-    gap: 1px;
+    gap: 0px;
   }
   
   .last-checked {
-    font-size: 12px;
-  }
-  
-  .next-check {
     font-size: 11px;
   }
   
+  .next-check {
+    font-size: 10px;
+  }
+  
   .time-cell {
-    padding: 6px !important;
-    min-width: 90px;
+    padding: 3px 4px !important;
+    min-width: 85px;
   }
 }
 

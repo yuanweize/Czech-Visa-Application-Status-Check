@@ -179,8 +179,7 @@ function render(data) {
     tdTime.appendChild(timeContainer);
     
     const tdLCh = document.createElement('td'); tdLCh.textContent = it.last_changed || '';
-    const tdCh = document.createElement('td'); tdCh.textContent = it.channel || '';
-    tr.appendChild(tdCode); tr.appendChild(tdStatus); tr.appendChild(tdTime); tr.appendChild(tdLCh); tr.appendChild(tdCh);
+    tr.appendChild(tdCode); tr.appendChild(tdStatus); tr.appendChild(tdTime); tr.appendChild(tdLCh);
     tb.appendChild(tr);
   }
   
