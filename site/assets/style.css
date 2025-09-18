@@ -522,6 +522,37 @@ footer {
   font-size: 0.9rem;
 }
 
+/* Code column with note support */
+.code-container {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.code-text {
+  font-family: 'Courier New', monospace;
+  font-weight: 500;
+  color: #2c3e50;
+}
+
+.code-note {
+  font-size: 0.75rem;
+  color: #6c757d;
+  font-style: italic;
+  line-height: 1.2;
+  margin-top: 2px;
+}
+
+/* Special styling for granted/completed codes */
+tr:has(.status-granted) .next-check {
+  color: #28a745;
+  font-weight: 500;
+}
+
+tr:has(.status-granted) .code-note {
+  color: #28a745;
+}
+
 .user-code-item .note {
   color: #6c757d;
   font-size: 0.85rem;

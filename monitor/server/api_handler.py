@@ -1029,7 +1029,8 @@ FREQ_MINUTES_{new_idx}=60
                     'last_checked': item.get('last_checked'),
                     'last_changed': item.get('last_changed'),
                     'next_check': item.get('next_check'),
-                    # Do NOT include: channel, target, note, added_by, or any other sensitive data
+                    'note': item.get('note'),  # Include note for display purposes
+                    # Do NOT include: channel, target, added_by, or any other sensitive data
                 }
                 public_data['items'][code] = public_item
             

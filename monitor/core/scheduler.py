@@ -223,10 +223,19 @@ class PriorityScheduler:
         """从状态文件重建队列（程序重启恢复）"""
         self.status_data = self.load_status_data()
         current_time = datetime.now()
+        skipped_granted = 0
         
         for code_config in self.config.codes:
             code = code_config.code
             item = self.status_data.get('items', {}).get(code)
+            
+            # 检查是否为已通过状态，如果是则跳过
+            if item and item.get('status'):
+                status = item.get('status', '')
+                if 'Granted' in status or '已通过' in status:
+                    skipped_granted += 1
+                    self._log(f"Skipping granted code from queue: {code} (status: {status})")
+                    continue
             
             if item and item.get('next_check'):
                 try:
@@ -248,7 +257,7 @@ class PriorityScheduler:
             )
             heapq.heappush(self.task_queue, task)
         
-        self._log(f"Rebuilt queue with {len(self.task_queue)} tasks")
+        self._log(f"Rebuilt queue with {len(self.task_queue)} tasks (skipped {skipped_granted} granted codes)")
     
     def add_new_code(self, code_config: CodeConfig):
         """添加新代码（高优先级，立即检查）"""
@@ -291,6 +300,15 @@ class PriorityScheduler:
     
     def reschedule_task(self, task: ScheduledTask, success: bool = True):
         """重新调度任务"""
+        # 检查当前状态是否为已通过，如果是则不再调度
+        code = task.code_config.code
+        current_item = self.status_data.get('items', {}).get(code)
+        if current_item and current_item.get('status'):
+            status = current_item.get('status', '')
+            if 'Granted' in status or '已通过' in status:
+                self._log(f"Code {code} is granted, not rescheduling for future checks")
+                return
+        
         if success:
             # 成功：计算下次检查时间
             freq_minutes = task.code_config.freq_minutes or self.config.default_freq_minutes
@@ -382,7 +400,14 @@ class PriorityScheduler:
         
         # 计算下次检查时间
         freq_minutes = task.code_config.freq_minutes or self.config.default_freq_minutes
-        next_check = datetime.now() + timedelta(minutes=freq_minutes)
+        
+        # 如果状态为已通过，则不设置下次检查时间
+        if 'Granted' in new_status or '已通过' in new_status:
+            next_check_iso = None
+            self._log(f"Code {code} is granted, no future checks scheduled")
+        else:
+            next_check = datetime.now() + timedelta(minutes=freq_minutes)
+            next_check_iso = next_check.isoformat()
         
         # 更新状态
         updated_item = {
@@ -390,7 +415,6 @@ class PriorityScheduler:
             "status": new_status,
             "last_checked": now,
             "last_changed": old_item.get("last_changed") if not changed else now,
-            "next_check": next_check.isoformat(),
             "channel": "Email" if self._is_email_configured(task.code_config) else "",
             "target": task.code_config.target or "",
             "freq_minutes": freq_minutes,
@@ -398,6 +422,10 @@ class PriorityScheduler:
             "added_by": old_item.get("added_by"),
             "added_at": old_item.get("added_at")
         }
+        
+        # 只有非已通过状态才设置next_check
+        if next_check_iso:
+            updated_item["next_check"] = next_check_iso
         
         # Remove first_check flag after first successful query
         if is_first_check and new_status != "Query Failed / 查询失败":

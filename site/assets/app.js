@@ -110,11 +110,35 @@ function render(data) {
     const hay = (it.code + ' ' + (it.status||'')).toLowerCase();
     if (q && !hay.includes(q)) continue;
     const tr = document.createElement('tr');
+    
+    // Code column with note support
     const tdCode = document.createElement('td'); 
-    tdCode.textContent = it.code || '';
+    
+    // Create code container with two lines (similar to time display)
+    const codeContainer = document.createElement('div');
+    codeContainer.className = 'code-container';
+    
+    // Main code line
+    const codeDiv = document.createElement('div');
+    codeDiv.className = 'code-text';
+    codeDiv.textContent = it.code || '';
     if (it.next_check) {
-      tdCode.title = `Next check: ${new Date(it.next_check).toLocaleString()}`;
+      codeDiv.title = `Next check: ${new Date(it.next_check).toLocaleString()}`;
     }
+    
+    // Note line (if exists)
+    if (it.note && it.note.trim()) {
+      const noteDiv = document.createElement('div');
+      noteDiv.className = 'code-note';
+      noteDiv.textContent = it.note.trim();
+      codeContainer.appendChild(codeDiv);
+      codeContainer.appendChild(noteDiv);
+    } else {
+      // No note, just add the code text directly
+      codeContainer.appendChild(codeDiv);
+    }
+    
+    tdCode.appendChild(codeContainer);
     const tdStatus = document.createElement('td');
     const span = document.createElement('span');
     span.className = 'status-tag ' + statusClass(it.status);
