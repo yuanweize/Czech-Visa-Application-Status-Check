@@ -150,13 +150,12 @@ class CodeStorageManager:
             result.append(ManagedCode(code=code, origin='env', config=c, item=stored_item))
         # user codes
         for code, rec in user_codes.items():
-            # Build a CodeConfig using stored user target (email)
-            target_email = rec.get('email') or rec.get('target')
+            # Build a CodeConfig using stored user target
+            target_email = rec.get('target')
             # Normalize missing fields in user record for downstream consumers
             if 'channel' not in rec or not rec.get('channel'):
                 rec['channel'] = 'email'
-            if not rec.get('target') and target_email:
-                rec['target'] = target_email
+            # Ensure target exists (it is the sole email address field we keep)
             freq_val = rec.get('freq_minutes')
             if isinstance(freq_val, str):
                 try:
@@ -178,21 +177,11 @@ class CodeStorageManager:
         else:
             users = self.load_users()
             codes = users.setdefault('codes', {})
-            # Ensure email is available for user code entries; keep existing if not provided
-            prev = codes.get(code) or {}
-            # Preserve existing email unless a non-empty email is explicitly provided
-            new_email = updated_item.get('email')
-            new_target = updated_item.get('target')
-            prev_email = prev.get('email')
-            if not new_email:
-                # Only adopt target as email if it's non-empty; otherwise keep previous email
-                if new_target:
-                    updated_item['email'] = new_target
-                elif prev_email:
-                    updated_item['email'] = prev_email
             # Normalize channel to lowercase 'email' for user-managed entries when notifications are enabled
             if updated_item.get('channel'):
                 updated_item['channel'] = str(updated_item['channel']).lower()
+            # Do not store separate 'email' field; rely solely on 'target'
+            updated_item.pop('email', None)
             codes[code] = updated_item
             users['generated_at'] = _now_iso()
             self.save_users(users)
@@ -217,7 +206,6 @@ class CodeStorageManager:
         codes = users.setdefault('codes', {})
         codes[code] = {
             'code': code,
-            'email': email,
             'channel': 'email',
             'target': email,
             'status': 'Pending/等待查询',

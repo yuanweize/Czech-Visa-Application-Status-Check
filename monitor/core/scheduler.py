@@ -705,20 +705,19 @@ class PriorityScheduler:
                 origin = m.origin
                 break
         # 写入对应存储
-        # 针对用户来源，确保channel/target/email规范
+        # 针对用户来源，确保channel/target规范（不再使用单独的email字段）
         if origin == 'user':
             updated_item['channel'] = 'email' if self._is_email_configured(task.code_config) else ''
             if not updated_item.get('target'):
                 try:
                     users_data = self.store.load_users()
                     rec = (users_data.get('codes') or {}).get(code)
-                    if isinstance(rec, dict) and rec.get('email'):
-                        updated_item['target'] = rec.get('email')
-                        updated_item['email'] = rec.get('email')
+                    if isinstance(rec, dict) and rec.get('target'):
+                        updated_item['target'] = rec.get('target')
                 except Exception:
                     pass
-            elif not updated_item.get('email'):
-                updated_item['email'] = updated_item.get('target')
+            # 确保不写入 email 键
+            updated_item.pop('email', None)
             # For user-managed entries, preserve metadata if it exists
             if old_item.get('added_by') is not None:
                 updated_item['added_by'] = old_item.get('added_by')
@@ -930,8 +929,6 @@ class PriorityScheduler:
                                 urec['next_check'] = (base_dt + timedelta(minutes=self._current_default_freq)).isoformat()
                                 if not urec.get('channel'):
                                     urec['channel'] = 'email'
-                                if not urec.get('target') and urec.get('email'):
-                                    urec['target'] = urec.get('email')
                                 to_reheap_codes.append(ccode)
                         users['generated_at'] = datetime.now().isoformat()
                         self.store.save_users(users)
@@ -943,8 +940,8 @@ class PriorityScheduler:
                                 targets_map[code] = new_codes[code]
                             else:
                                 rec = ucodes.get(code, {})
-                                email = rec.get('email') or rec.get('target')
-                                targets_map[code] = CodeConfig(code=code, channel='email', target=email, freq_minutes=self._current_default_freq)
+                                target_val = rec.get('target')
+                                targets_map[code] = CodeConfig(code=code, channel='email', target=target_val, freq_minutes=self._current_default_freq)
                         self._reschedule_queue_for_codes(to_reheap_codes, targets_map)
                     except Exception as e:
                         self._log(f"Error during default freq reschedule: {e}")
@@ -1290,7 +1287,7 @@ def schedule_user_code_immediately(code: str):
             users = CURRENT_SCHEDULER.store.load_users()
             rec = (users.get('codes') or {}).get(code)
             if isinstance(rec, dict):
-                target_email = rec.get('email') or rec.get('target') or None
+                target_email = rec.get('target') or None
                 f = rec.get('freq_minutes')
                 if isinstance(f, int):
                     freq = f

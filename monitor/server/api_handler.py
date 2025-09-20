@@ -459,7 +459,7 @@ class APIHandler(BaseHTTPRequestHandler):
         users_data = self.store.load_users()
         user_codes = users_data.get('codes', {})
         if code in user_codes:
-            existing_email = user_codes[code].get('email') or user_codes[code].get('target', 'unknown')
+            existing_email = user_codes[code].get('target', 'unknown')
             if existing_email == email:
                 self._send_json_response(400, {'error': 'This code is already being monitored for this email'})
                 return
@@ -591,7 +591,7 @@ class APIHandler(BaseHTTPRequestHandler):
         # Check if this email has any codes (users.json)
         users_data = self.store.load_users()
         items = users_data.get('codes', {})
-        user_codes = [item for item in items.values() if item.get('email') == email]
+        user_codes = [item for item in items.values() if item.get('target') == email]
         
         if not user_codes:
             print(f"[{_now_iso()}] API error: No codes found for {email}")
@@ -703,10 +703,9 @@ class APIHandler(BaseHTTPRequestHandler):
         # Get user codes from users.json
         user_codes = []
         for c, rec in users_data.get('codes', {}).items():
-            if rec.get('email') == email:
+            if rec.get('target') == email:
                 user_codes.append({
                     'code': c,
-                    'email': email,
                     'status': rec.get('status'),
                     'last_checked': rec.get('last_checked'),
                     'next_check': rec.get('next_check'),
@@ -778,7 +777,7 @@ class APIHandler(BaseHTTPRequestHandler):
 
         # Remove from users.json if owned by email
         codes = users_data.get('codes', {})
-        if code in codes and (codes[code].get('email') == email):
+        if code in codes and (codes[code].get('target') == email):
             self.store.remove_user_code(code)
             self._send_json_response(200, {'message': 'Code deleted successfully'})
         else:
