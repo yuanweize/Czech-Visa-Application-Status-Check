@@ -754,6 +754,17 @@ class PriorityScheduler:
         
         # 判断是否应该发送通知
         should_notify, notif_label = should_send_notification(old_status, new_status, is_first_check)
+
+        # 用户新增的 code：首次查询时，即便是 "Not Found" 也发送一次通知（便于用户确认已接管监控）
+        try:
+            users = self.store.load_users()
+            is_user_code = code in (users.get('codes') or {})
+        except Exception:
+            is_user_code = False
+        if is_user_code and is_first_check:
+            if not ("Query Failed" in new_status or "查询失败" in new_status):
+                should_notify = True
+                notif_label = "首次查询"
         
         if not should_notify:
             return
