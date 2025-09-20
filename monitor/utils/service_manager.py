@@ -20,7 +20,7 @@ def _detect_python_exe() -> str:
             return c.as_posix()
     return sys.executable  # fallback
 
-def _unit_text(python_exe: str, env_path: str) -> str:
+def _unit_text(python_exe: str, env_path: str, service_name: str) -> str:
     proj = _root_dir()
     script = proj / "visa_status.py"
     return f"""[Unit]
@@ -31,10 +31,17 @@ Wants=network-online.target
 [Service]
 Type=simple
 WorkingDirectory={proj.as_posix()}
-ExecStart={python_exe} {script.as_posix()} monitor -e {Path(env_path).resolve().as_posix()}
+ExecStart={python_exe} -u {script.as_posix()} monitor -e {Path(env_path).resolve().as_posix()}
 Restart=always
 RestartSec=5
 Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONIOENCODING=UTF-8
+# Set UTF-8 locale to avoid mojibake in logs
+Environment=LANG=C.UTF-8
+Environment=LC_ALL=C.UTF-8
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier={service_name}
 
 [Install]
 WantedBy=multi-user.target
@@ -49,7 +56,7 @@ def install(env_path: str, service_name: Optional[str] = None, python_exe: Optio
     name = service_name or SERVICE_NAME
     unit_path = Path(f"/etc/systemd/system/{name}.service")
     py = python_exe or _detect_python_exe()
-    unit_path.write_text(_unit_text(py, env_path), encoding="utf-8")
+    unit_path.write_text(_unit_text(py, env_path, name), encoding="utf-8")
     subprocess.run(["systemctl", "daemon-reload"], check=True)
     subprocess.run(["systemctl", "enable", name], check=True)
     print(f"Installed systemd service: {unit_path} (python={py})")
@@ -84,6 +91,15 @@ def status(service_name: Optional[str] = None):
     name = service_name or SERVICE_NAME
     # Avoid interactive pager to prevent blocking in TTY
     subprocess.run(["systemctl", "--no-pager", "--full", "status", name], check=False)
+    # Also show the last 80 journal lines to surface early startup errors
+    try:
+        print("\n--- Recent logs (journalctl) ---")
+        subprocess.run([
+            "journalctl", "-u", name, "-n", "80", "--no-pager", "-o", "short-iso"
+        ], check=False)
+    except FileNotFoundError:
+        # journalctl may be unavailable on some minimal systems; ignore
+        pass
 
 def restart(service_name: Optional[str] = None):
     _need_root()
