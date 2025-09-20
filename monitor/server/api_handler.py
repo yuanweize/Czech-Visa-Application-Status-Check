@@ -129,6 +129,7 @@ class APIHandler(BaseHTTPRequestHandler):
             # Send 429 Too Many Requests
             self.send_response(429)
             self.send_header('Content-Type', 'application/json')
+            self.send_header('Cache-Control', 'no-store')
             self.send_header('Retry-After', '60')
             self.send_header('X-RateLimit-Limit', str(_rate_limiter.max_requests))
             self.send_header('X-RateLimit-Remaining', '0')
@@ -148,6 +149,7 @@ class APIHandler(BaseHTTPRequestHandler):
     def _send_json_response(self, status_code: int, data: dict, extra_headers: dict | None = None):
         self.send_response(status_code)
         self.send_header('Content-Type', 'application/json')
+        self.send_header('Cache-Control', 'no-store')
         self.send_header('Access-Control-Allow-Origin', '*')
         self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
         self.send_header('Access-Control-Allow-Headers', 'Content-Type')
