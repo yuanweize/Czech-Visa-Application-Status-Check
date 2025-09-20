@@ -281,7 +281,7 @@ class PriorityScheduler:
                 status = item.get('status', '')
                 if self._is_terminal_status(status):
                     skipped_granted += 1
-                    self._log(f"Skipping granted code from queue: {code} (status: {status})")
+                    self._log(f"Skipping terminal code from queue: {code} (status: {status})")
                     continue
             
             if item and item.get('next_check'):
@@ -360,6 +360,13 @@ class PriorityScheduler:
                 desired_note = getattr(cfg, 'note', '') or ''
 
                 changed = False
+                # Remove user-only metadata for env-managed items
+                if 'added_by' in item:
+                    item.pop('added_by', None)
+                    changed = True
+                if 'added_at' in item:
+                    item.pop('added_at', None)
+                    changed = True
                 if item.get('channel') != desired_channel:
                     item['channel'] = desired_channel
                     changed = True
@@ -373,9 +380,13 @@ class PriorityScheduler:
                     item['note'] = desired_note
                     changed = True
 
-                # Recompute next_check if not granted and we changed frequency or next_check is missing/invalid
+                # Recompute/clear next_check depending on terminal state
                 status_str = item.get('status', '')
-                if not self._is_granted_status(status_str):
+                if self._is_terminal_status(status_str):
+                    if 'next_check' in item:
+                        item.pop('next_check', None)
+                        changed = True
+                else:
                     need_recompute = changed or (not item.get('next_check'))
                     if need_recompute:
                         lc = item.get('last_checked')
@@ -664,9 +675,7 @@ class PriorityScheduler:
             "channel": "Email" if self._is_email_configured(task.code_config) else "",
             "target": task.code_config.target or "",
             "freq_minutes": freq_minutes,
-            "note": task.code_config.note,
-            "added_by": old_item.get("added_by"),
-            "added_at": old_item.get("added_at")
+            "note": task.code_config.note
         }
         
         # 只有非已通过状态才设置next_check
@@ -710,6 +719,15 @@ class PriorityScheduler:
                     pass
             elif not updated_item.get('email'):
                 updated_item['email'] = updated_item.get('target')
+            # For user-managed entries, preserve metadata if it exists
+            if old_item.get('added_by') is not None:
+                updated_item['added_by'] = old_item.get('added_by')
+            if old_item.get('added_at') is not None:
+                updated_item['added_at'] = old_item.get('added_at')
+        else:
+            # For env-managed entries, ensure user-only metadata is not present
+            updated_item.pop('added_by', None)
+            updated_item.pop('added_at', None)
         self.store.update_item(origin, code, updated_item)
         # 同步内存
         if origin == 'env':
