@@ -135,10 +135,20 @@ class PriorityScheduler:
 
     @staticmethod
     def _is_granted_status(status: Optional[str]) -> bool:
-        """Return True if status indicates Granted/已通过."""
+        """Return True if status indicates a terminal success/approval (Granted/已通过)."""
         if not status:
             return False
         return ('Granted' in status) or ('已通过' in status)
+
+    @staticmethod
+    def _is_terminal_status(status: Optional[str]) -> bool:
+        """Return True if status indicates no further checks are needed (Granted/已通过 or Rejected/被拒绝)."""
+        if not status:
+            return False
+        return (
+            ('Granted' in status) or ('已通过' in status) or
+            ('Rejected' in status) or ('被拒绝' in status)
+        )
 
     def _wake_event(self, event: asyncio.Event) -> None:
         """Safely set an asyncio.Event from any thread/context."""
@@ -266,10 +276,10 @@ class PriorityScheduler:
             code = code_config.code
             item = env_items.get(code) if managed.origin == 'env' else user_items.get(code)
             
-            # 检查是否为已通过状态，如果是则跳过
+            # 检查是否为终止状态（已通过/被拒绝），如果是则跳过
             if item and item.get('status'):
                 status = item.get('status', '')
-                if self._is_granted_status(status):
+                if self._is_terminal_status(status):
                     skipped_granted += 1
                     self._log(f"Skipping granted code from queue: {code} (status: {status})")
                     continue
@@ -485,13 +495,13 @@ class PriorityScheduler:
     
     def reschedule_task(self, task: ScheduledTask, success: bool = True):
         """重新调度任务"""
-        # 检查当前状态是否为已通过，如果是则不再调度
+        # 检查当前状态是否为终止状态（已通过/被拒绝），如果是则不再调度
         code = task.code_config.code
         current_item = self.status_data.get('items', {}).get(code)
         if current_item and current_item.get('status'):
             status = current_item.get('status', '')
-            if self._is_granted_status(status):
-                self._log(f"Code {code} is granted, not rescheduling for future checks")
+            if self._is_terminal_status(status):
+                self._log(f"Code {code} is terminal ({status}), not rescheduling for future checks")
                 return
         
         if success:
@@ -637,10 +647,10 @@ class PriorityScheduler:
         # 计算下次检查时间
         freq_minutes = task.code_config.freq_minutes or self.config.default_freq_minutes
         
-        # 如果状态为已通过，则不设置下次检查时间
-        if self._is_granted_status(new_status):
+        # 如果状态为终止（已通过/被拒绝），则不设置下次检查时间
+        if self._is_terminal_status(new_status):
             next_check_iso = None
-            self._log(f"Code {code} is granted, no future checks scheduled")
+            self._log(f"Code {code} is terminal ({new_status}), no future checks scheduled")
         else:
             next_check = datetime.now() + timedelta(minutes=freq_minutes)
             next_check_iso = next_check.isoformat()
@@ -996,7 +1006,7 @@ class PriorityScheduler:
                     # 若非已通过，基于 last_checked + 新频率 重新计算 next_check
                     try:
                         st = status_data["items"][code].get("status", "")
-                        if not ("Granted" in st or "已通过" in st):
+                        if not ("Granted" in st or "已通过" in st or "Rejected" in st or "被拒绝" in st):
                             lc = status_data["items"][code].get("last_checked")
                             base_dt = datetime.fromisoformat(lc) if lc else datetime.now()
                             freq = new_code_cfg.freq_minutes or self.config.default_freq_minutes
