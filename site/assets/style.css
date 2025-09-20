@@ -749,6 +749,20 @@ tr:has(.status-granted) .code-note {
   font-weight: 700;
 }
 
+/* Muted style for "Not scheduled" to reduce prominence */
+.next-check.muted {
+  color: #6b7280; /* neutral gray */
+  font-weight: 500;
+  opacity: 0.85;
+}
+
+/* Ensure muted state stays muted even for granted rows */
+tr:has(.status-granted) .next-check.muted {
+  color: #6b7280;
+  font-weight: 500;
+  opacity: 0.85;
+}
+
 /* Last Changed column styling - matching Check Status */
 .last-changed-cell {
   padding: 4px 6px !important;

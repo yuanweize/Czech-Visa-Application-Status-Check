@@ -8,7 +8,6 @@ Provides templates and logic for status change notification emails.
 
 from __future__ import annotations
 
-import datetime as dt
 from typing import Optional, Tuple
 
 
@@ -84,7 +83,7 @@ def build_email_body(
                 </table>
             </div>
             <div style="padding:12px 20px; background:#fafafa; color:#666; font-size:12px; border-top:1px solid #eee;">
-                说明：当首次查询或状态发生变化时会发送通知；若状态为"查询失败"，不会触发通知。
+                说明：当首次查询或状态发生变化时会发送通知；若状态为“查询失败”，不会触发通知。
                 <div style="margin-top:6px;">
                     查看实时状态：<a href="https://visa.eurun.top/" target="_blank" rel="noopener" style="color:#0b5ed7; text-decoration:none;">https://visa.eurun.top/</a>
                 </div>
@@ -115,8 +114,10 @@ def should_send_notification(
     if "查询失败" in new_status or "Query Failed" in new_status:
         return False, ""
     
-    # First check with valid status
+    # First check: do NOT notify if it's Not Found
     if is_first_check:
+        if ("Not Found" in new_status) or ("未找到" in new_status):
+            return False, ""
         return True, "首次查询"
     
     # Status has changed

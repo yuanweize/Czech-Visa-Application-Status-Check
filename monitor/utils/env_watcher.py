@@ -4,7 +4,6 @@ Environment file watcher module
 """
 from __future__ import annotations
 
-import os
 import time
 import threading
 from pathlib import Path

@@ -27,7 +27,6 @@ Usage:
 from .core import (
     PriorityScheduler, 
     ScheduledTask, 
-    BrowserManager, 
     run_priority_scheduler,
     MonitorConfig, 
     CodeConfig, 
@@ -69,7 +68,6 @@ __all__ = [
     # Core scheduler
     'PriorityScheduler',
     'ScheduledTask', 
-    'BrowserManager',
     'run_priority_scheduler',
     
     # Configuration

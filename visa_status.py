@@ -65,35 +65,7 @@ def main():
     mon_parser.add_argument('--restart', action='store_true', help='Restart systemd service')
     mon_parser.add_argument('--python-exe', help='Override python interpreter path for systemd service (defaults to .venv/bin/python if present)')
 
-    # 依赖提示（精简，仅记录 Playwright 与 matplotlib 提示）
-    def check_notes(logs_dir_name: str):
-        import datetime, os
-        logs_dir = os.path.join(os.getcwd(), logs_dir_name)
-        os.makedirs(logs_dir, exist_ok=True)
-        log_path = os.path.join(logs_dir, f"install_{datetime.date.today().isoformat()}.log")
-
-        def log(msg: str):
-            ts = datetime.datetime.now().isoformat(sep=' ', timespec='seconds')
-            with open(log_path, 'a', encoding='utf-8') as lf:
-                lf.write(f"[{ts}] {msg}\n")
-
-        try:
-            import playwright  # noqa: F401
-            log('playwright: present / playwright: 已安装')
-        except Exception:
-            log('playwright: missing (install with: pip install playwright; then python -m playwright install chromium) / playwright: 未安装（使用 pip install playwright；随后 python -m playwright install chromium）')
-
-        want_matplotlib = '--charts' in sys.argv and 'report' in sys.argv
-        try:
-            import matplotlib  # noqa: F401
-            log('matplotlib: present / matplotlib: 已安装')
-        except Exception:
-            if want_matplotlib:
-                log('matplotlib: missing (required for --charts) / matplotlib: 未安装（--charts 需要）')
-
-    # run dependency notes
-    _known_args, _ = parser.parse_known_args()
-    check_notes(logs_dir_name=_known_args.log_dir)
+    # 已移除依赖安装日志记录（install_YYYY-MM-DD.log）以避免冗余日志
 
     # 记录原始子命令 token（用于后续更可靠地切分参数）
     original_subcmd = None

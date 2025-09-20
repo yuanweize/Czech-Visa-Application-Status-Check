@@ -52,3 +52,4 @@ node_modules/
 # If you want to ignore local CSV test files, add a narrower pattern, e.g.:
 # *.local.csv
 site/status.json
+site/config

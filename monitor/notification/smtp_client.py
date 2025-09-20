@@ -24,7 +24,8 @@ class SMTPConnectionPool:
         self._lock = threading.Lock()
         self._max_idle_time = 300  # 5 minutes
         self._last_auth_time = 0
-        self._min_auth_interval = 10  # Minimum 10 seconds between auth attempts
+        self._min_auth_interval = 5  # Minimum 5 seconds between auth attempts to avoid rapid AUTH
+        self._socket_timeout = 15  # seconds
 
     def get_connection(self, cfg: MonitorConfig) -> smtplib.SMTP:
         """Get an active SMTP connection, reusing existing one if possible"""
@@ -68,10 +69,10 @@ class SMTPConnectionPool:
                 
                 if cfg.smtp_port == 465:
                     # SSL connection
-                    server = smtplib.SMTP_SSL(cfg.smtp_host, cfg.smtp_port, context=context)
+                    server = smtplib.SMTP_SSL(cfg.smtp_host, cfg.smtp_port, context=context, timeout=self._socket_timeout)
                 else:
                     # Regular connection with STARTTLS
-                    server = smtplib.SMTP(cfg.smtp_host, cfg.smtp_port)
+                    server = smtplib.SMTP(cfg.smtp_host, cfg.smtp_port, timeout=self._socket_timeout)
                     server.starttls(context=context)
                 
                 # Login if credentials provided
@@ -194,7 +195,6 @@ async def send_email_async(to_email: str, subject: str, html_body: str, smtp_con
         Tuple of (success: bool, error_message: str or None)
     """
     try:
-        import asyncio
         # Run the synchronous email sending in a thread pool
         cfg = _dict_to_config(smtp_config, env_path)
         loop = asyncio.get_event_loop()
@@ -225,8 +225,6 @@ def send_email_sync(to_email: str, subject: str, html_body: str, smtp_config: di
     Returns:
         Tuple of (success: bool, error_message: str or None)
     """
-    import asyncio
-    
     # Simple sync wrapper that runs the async version
     try:
         return asyncio.run(send_email_async(to_email, subject, html_body, smtp_config, env_path))

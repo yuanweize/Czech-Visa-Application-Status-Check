@@ -349,6 +349,13 @@ def build_success_page(code: str, message: str, base_url: str, session_id: str =
         <script>
             // Auto-set session for seamless experience
             localStorage.setItem('visa_session_id', '{session_id}');
+            // Also persist via cookie for 7 days
+            (function() {{
+                try {{
+                    var maxAge = 7 * 24 * 3600;
+                    document.cookie = 'visa_session_id=' + encodeURIComponent('{session_id}') + '; Path=/; Max-Age=' + maxAge + '; SameSite=Lax';
+                }} catch (e) {{}}
+            }})();
             console.log('Session automatically set for user convenience');
         </script>
     """ if session_id else ""

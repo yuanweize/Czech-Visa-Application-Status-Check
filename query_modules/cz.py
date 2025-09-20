@@ -229,7 +229,7 @@ async def _worker(name: str, browser, queue: asyncio.Queue, result_cb, retries: 
                 queue.task_done()
                 break
             idx, code = item
-            status = 'Query Failed / 查询失败'
+            status = 'Query Failed/查询失败'
             err = ''
             attempts_used = 0
             for attempt in range(1, retries + 1):
@@ -296,7 +296,7 @@ async def _worker(name: str, browser, queue: asyncio.Queue, result_cb, retries: 
                     if attempt < retries:
                         await asyncio.sleep(1.0 + 0.5 * attempt)
                     else:
-                        status = 'Query Failed / 查询失败'
+                        status = 'Query Failed/查询失败'
             # If an exception path occurred, timings may not exist
             try:
                 _t = timings
@@ -311,7 +311,7 @@ async def _worker(name: str, browser, queue: asyncio.Queue, result_cb, retries: 
             pass
 
 
-async def _run(csv_path: str, headless: bool, workers: int, retries: int, log_dir: str):
+async def _run(csv_path: str, headless: bool, workers: int, retries: int, log_dir: str, external_callback=None, suppress_cli: bool = False):
     from playwright.async_api import async_playwright
 
     if not os.path.exists(csv_path):
@@ -339,7 +339,7 @@ async def _run(csv_path: str, headless: bool, workers: int, retries: int, log_di
         while len(row) < len(header):
             row.append('')
         code = row[code_idx]
-        # 逻辑调整：如果状态为空或者为 Query Failed / 查询失败，则视为“未完成”需要重新查询。
+        # 逻辑调整：如果状态为空或者为 Query Failed/查询失败，则视为“未完成”需要重新查询。
         # 之前实现：只要非空就跳过，导致之前的失败记录无法重试。
         status_cell = str(row[status_idx]).strip() if row[status_idx] else ''
         if status_cell and 'query failed' not in status_cell.lower():
@@ -454,12 +454,29 @@ async def _run(csv_path: str, headless: bool, workers: int, retries: int, log_di
                     stats['retry_success'] += 1
             if attempts_used > 1:
                 stats['retry_needed'] += 1
-        print(f"{code} -> {status}")
+        
+        # CLI输出（可抑制，用于Monitor模式去重）
+        if not suppress_cli:
+            print(f"{code} -> {status}")
+        
+        # 外部回调 - 新增功能，不影响CLI
+        if external_callback:
+            try:
+                if asyncio.iscoroutinefunction(external_callback):
+                    await external_callback(code, status, err, attempts_used, timings)
+                else:
+                    external_callback(code, status, err, attempts_used, timings)
+            except Exception:
+                # 外部回调失败不影响主流程
+                pass
 
     # Launch browser and workers
     async with async_playwright() as p:
-        # Ensure Chromium is available; if missing the user should run: python -m playwright install chromium
-        browser = await p.chromium.launch(headless=headless)
+    # Ensure Chromium is available; if missing the user should run: python -m playwright install chromium
+        global _global_browser
+        if _global_browser is None or _global_browser.is_connected() == False:
+            _global_browser = await p.chromium.launch(headless=headless)
+        browser = _global_browser
         try:
             # Determine effective worker count: don't spawn more than pending codes
             pending = len(row_map)
@@ -470,7 +487,8 @@ async def _run(csv_path: str, headless: bool, workers: int, retries: int, log_di
             effective_workers = min(configured, pending)
             # Limit simultaneous navigations to reduce server pressure (cap=6)
             max_nav = min(6, effective_workers) if effective_workers > 1 else 1
-            print(f"[Init] pending={pending} configured_workers={configured} effective_workers={effective_workers} nav_cap={max_nav}")
+            if not suppress_cli:
+                print(f"[Init] pending={pending} configured_workers={configured} effective_workers={effective_workers} nav_cap={max_nav}")
             nav_sem = asyncio.Semaphore(max_nav)
             tasks = []
             # Start timing for worker phase
@@ -496,34 +514,34 @@ async def _run(csv_path: str, headless: bool, workers: int, retries: int, log_di
                 overall_rate = success / total * 100.0
                 retry_success_rate = (retry_success / retry_needed * 100.0) if retry_needed else 0.0
                 tps = (stats['total'] / elapsed) if elapsed > 0 else 0.0
-                print("\n===== Run Summary / 运行总结 =====")
-                print(f"Processed codes / 处理总数: {stats['total']}")
-                print(f"Success (final status not failed) / 成功: {success}")
-                print(f"Failed (still Query Failed) / 失败: {fail}")
-                print(f"Overall success rate / 总体成功率: {overall_rate:.2f}%")
-                print(f"Codes needing retries (>1 attempts) / 需要重试的代码数: {retry_needed}")
-                print(f"Retry success count / 重试后成功数: {retry_success}")
-                print(f"Retry success rate / 重试成功率: {retry_success_rate:.2f}%")
-                print(f"Average attempts per code / 平均尝试次数: {avg_attempts:.2f}")
-                print(f"Elapsed time / 运行用时: {elapsed:.2f}s")
-                print(f"Throughput / 吞吐量: {tps:.2f} codes/s")
-                # Phase timing summary
-                nav_avg_overall = (stats.get('nav_sum', 0.0) / stats.get('nav_count', 1))
-                fill_avg = (stats.get('fill_sum', 0.0) / stats.get('fill_count', 1))
-                read_avg = (stats.get('read_sum', 0.0) / stats.get('read_count', 1))
-                nav_avg_if_nav = (stats.get('nav_sum', 0.0) / stats.get('nav_events', 1)) if stats.get('nav_events', 0) else 0.0
-                print(f"Avg navigation time (overall) / 导航平均时间(总体): {nav_avg_overall:.3f}s")
-                print(f"Avg navigation time (when navigated) / 导航平均时间(发生导航): {nav_avg_if_nav:.3f}s (count={stats.get('nav_events', 0)})")
-                print(f"Avg fill+submit time / 填表+提交平均: {fill_avg:.3f}s")
-                print(f"Avg result wait time / 读结果平均: {read_avg:.3f}s")
-                print("================================\n")
+                if not suppress_cli:
+                    print("\n===== Run Summary / 运行总结 =====")
+                    print(f"Processed codes / 处理总数: {stats['total']}")
+                    print(f"Success (final status not failed) / 成功: {success}")
+                    print(f"Failed (still Query Failed) / 失败: {fail}")
+                    print(f"Overall success rate / 总体成功率: {overall_rate:.2f}%")
+                    print(f"Codes needing retries (>1 attempts) / 需要重试的代码数: {retry_needed}")
+                    print(f"Retry success count / 重试后成功数: {retry_success}")
+                    print(f"Retry success rate / 重试成功率: {retry_success_rate:.2f}%")
+                    print(f"Average attempts per code / 平均尝试次数: {avg_attempts:.2f}")
+                    print(f"Elapsed time / 运行用时: {elapsed:.2f}s")
+                    print(f"Throughput / 吞吐量: {tps:.2f} codes/s")
+                    # Phase timing summary
+                    nav_avg_overall = (stats.get('nav_sum', 0.0) / stats.get('nav_count', 1))
+                    fill_avg = (stats.get('fill_sum', 0.0) / stats.get('fill_count', 1))
+                    read_avg = (stats.get('read_sum', 0.0) / stats.get('read_count', 1))
+                    nav_avg_if_nav = (stats.get('nav_sum', 0.0) / stats.get('nav_events', 1)) if stats.get('nav_events', 0) else 0.0
+                    print(f"Avg navigation time (overall) / 导航平均时间(总体): {nav_avg_overall:.3f}s")
+                    print(f"Avg navigation time (when navigated) / 导航平均时间(发生导航): {nav_avg_if_nav:.3f}s (count={stats.get('nav_events', 0)})")
+                    print(f"Avg fill+submit time / 填表+提交平均: {fill_avg:.3f}s")
+                    print(f"Avg result wait time / 读结果平均: {read_avg:.3f}s")
+                    print("================================\n")
             except Exception:
                 pass
         finally:
-            try:
-                await browser.close()
-            except Exception:
-                pass
+            # 不再自动关闭浏览器 - 由外部调用cleanup_browser()管理
+            # Browser will be closed by external cleanup_browser() call
+            pass
 
 
 def update_csv_with_status(csv_path: str,
@@ -545,6 +563,11 @@ def update_csv_with_status(csv_path: str,
         asyncio.run(_run(csv_path, bool(headless), int(workers or 1), r, log_dir))
     except KeyboardInterrupt:
         print('\nInterrupted by user / 已中断')
+    except Exception as e:
+        # 完全静默socket相关的异常，避免噪音
+        error_msg = str(e).lower()
+        if 'socket' not in error_msg and 'connection' not in error_msg and 'closed' not in error_msg:
+            print(f'\nError: {e}')
 
 
 if __name__ == '__main__':
@@ -571,80 +594,91 @@ if __name__ == '__main__':
     update_csv_with_status(args.i, headless=headless_val, workers=args.workers, retries=args.retries)
 
 
-# --- Public API for single-code querying (used by monitor scheduler) ---
-async def query_code_with_browser(browser, code: str) -> tuple[str, dict]:
-    """Query a single code using an existing Playwright browser.
-
-    Returns (status, timings). Caller is responsible for browser lifecycle.
+# --- 第三方调用接口 - 专为Monitor等调用者设计 ---
+async def query_codes_async(codes: list[str], 
+                           headless: bool = True, 
+                           workers: int = 1, 
+                           retries: int = 3,
+                           result_callback=None,
+                           suppress_cli: bool = False) -> dict[str, dict]:
     """
-    # Lightweight context per query (isolated); reuse browser across loop
-    context = await browser.new_context()
-    # Block heavy resources
-    async def _route_handler(route):
-        try:
-            if route.request.resource_type in {"image", "font"}:
-                await route.abort()
-            else:
-                await route.continue_()
-        except Exception:
+    第三方调用接口 - 专为Monitor等调用者设计
+    
+    直接传递代码列表，复用现有_run函数的完整实现
+    通过临时CSV文件桥接，实现真正的实时回调
+    
+    Args:
+        codes: 查询代码列表  
+        headless: 是否无头模式
+        workers: worker数量
+        retries: 重试次数
+        result_callback: 实时结果回调 async def callback(code, status, error, attempts, timings)
+    
+    Returns:
+        dict: {code: {'status': str, 'error': str, 'attempts': int, 'timings': dict}}
+    """
+    if not codes:
+        return {}
+    
+    import tempfile
+    
+    # 创建临时CSV - 让现有_run函数处理所有浏览器管理
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False, encoding='utf-8', newline='') as f:
+        temp_csv_path = f.name
+        writer = csv.writer(f)
+        writer.writerow(['查询码/Code', '签证状态/Status'])
+        for code in codes:
+            writer.writerow([code, ''])
+    
+    # 结果收集
+    results = {}
+    results_lock = asyncio.Lock()
+    
+    # 实时回调包装器 - 收集结果并立即通知调用者
+    async def external_callback_wrapper(code: str, status: str, err: str, attempts_used: int, timings: dict):
+        """外部回调包装器 - 实现真正的实时通知"""
+        async with results_lock:
+            results[code] = {
+                'status': status,
+                'error': err,
+                'attempts': attempts_used,
+                'timings': timings
+            }
+        
+        # 立即调用外部回调，实现实时通知
+        if result_callback:
             try:
-                await route.continue_()
+                if asyncio.iscoroutinefunction(result_callback):
+                    await result_callback(code, status, err, attempts_used, timings)
+                else:
+                    result_callback(code, status, err, attempts_used, timings)
             except Exception:
-                pass
+                pass  # 回调失败不影响主流程
+    
     try:
-        try:
-            await context.route("**/*", _route_handler)
-        except Exception:
-            pass
-        page = await context.new_page()
-        try:
-            page.set_default_timeout(15000)
-            page.set_default_navigation_timeout(20000)
-        except Exception:
-            pass
-        # Single query doesn't need nav semaphore
-        status, timings = await _process_one(page, code, None)
-        return status, timings
+        # 直接复用现有_run函数 - 完整的浏览器管理架构，支持实时回调
+        await _run(temp_csv_path, headless, workers, retries, 'logs', external_callback_wrapper, suppress_cli=suppress_cli)
     finally:
+        # 清理临时文件
         try:
-            await context.close()
+            os.unlink(temp_csv_path)
         except Exception:
             pass
+    
+    return results
 
 
-async def query_single_code_async(code: str, headless: bool = True, retries: int = 2) -> tuple[str, dict]:
-    """Convenience: launch a temporary browser to query a code asynchronously.
+# 全局浏览器实例管理
+_global_browser = None
 
-    Retries a few times on transient errors.
-    """
-    from playwright.async_api import async_playwright
-    async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=headless)
+async def cleanup_browser():
+    """清理全局浏览器实例"""
+    global _global_browser
+    if _global_browser:
         try:
-            last_err = ''
-            for attempt in range(1, max(1, int(retries)) + 1):
-                try:
-                    return await query_code_with_browser(browser, code)
-                except Exception as e:
-                    last_err = str(e)
-                    if attempt < retries:
-                        await asyncio.sleep(0.5 * attempt)
-            # If all retries failed
-            return 'Query Failed / 查询失败', {'error': last_err}
+            await _global_browser.close()
+            print("Browser closed successfully")
+        except Exception as e:
+            print(f"Error closing browser: {e}")
         finally:
-            try:
-                await browser.close()
-            except Exception:
-                pass
-
-
-def query_single_code(code: str, headless: bool = True, retries: int = 2) -> tuple[str, dict]:
-    """Synchronous wrapper for single code query.
-
-    Example:
-        status, timings = query_single_code('PEKI202501010001')
-    """
-    try:
-        return asyncio.run(query_single_code_async(code, headless=headless, retries=retries))
-    except KeyboardInterrupt:
-        return 'Query Failed / 查询失败', {'error': 'Interrupted'}
+            _global_browser = None

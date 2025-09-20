@@ -4,7 +4,7 @@ Core business logic module
 """
 
 from .config import MonitorConfig, CodeConfig, load_env_config
-from .scheduler import PriorityScheduler, ScheduledTask, BrowserManager, run_priority_scheduler
+from .scheduler import PriorityScheduler, ScheduledTask, run_priority_scheduler
 
 __all__ = [
     'MonitorConfig',
@@ -12,6 +12,5 @@ __all__ = [
     'load_env_config',
     'PriorityScheduler',
     'ScheduledTask', 
-    'BrowserManager',
     'run_priority_scheduler'
 ]

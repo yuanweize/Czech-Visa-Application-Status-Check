@@ -22,6 +22,7 @@ class MonitorConfig:
     serve: bool
     site_port: int
     default_freq_minutes: int  # Global default frequency
+    workers: int  # Number of concurrent workers for queries
     smtp_host: Optional[str]
     smtp_port: Optional[int]
     smtp_user: Optional[str]
@@ -33,7 +34,12 @@ class MonitorConfig:
 def _parse_bool(v: Optional[str], default: bool) -> bool:
     if v is None:
         return default
-    return str(v).strip().lower() in ("1", "true", "yes", "on")
+    s = str(v).strip().lower()
+    if s in ("1", "true", "yes", "on", "t", "y"):
+        return True
+    if s in ("0", "false", "no", "off", "f", "n"):
+        return False
+    return default
 
 
 def load_env_config(env_path: str = ".env") -> MonitorConfig:
@@ -93,6 +99,7 @@ def load_env_config(env_path: str = ".env") -> MonitorConfig:
     serve = _parse_bool(env.get("SERVE"), False)
     site_port = int(env.get("SITE_PORT") or 8000)
     default_freq_minutes = int(env.get("DEFAULT_FREQ_MINUTES") or 60)  # Global default frequency
+    workers = int(env.get("WORKERS") or 1)  # Number of concurrent workers
 
     smtp_host = env.get("SMTP_HOST")
     smtp_port = int(env["SMTP_PORT"]) if env.get("SMTP_PORT") else None
@@ -184,6 +191,7 @@ def load_env_config(env_path: str = ".env") -> MonitorConfig:
         serve=serve,
         site_port=site_port,
         default_freq_minutes=default_freq_minutes,
+        workers=workers,
         smtp_host=smtp_host,
         smtp_port=smtp_port,
         smtp_user=smtp_user,

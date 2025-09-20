@@ -16,21 +16,28 @@ import asyncio
 import heapq
 import json
 import os
-import sys
-import time
 import threading
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Tuple, Any
-from dataclasses import dataclass, asdict
-from pathlib import Path
-
-
-from playwright.async_api import async_playwright, Browser, BrowserContext, Page
+from typing import Dict, List, Optional, Any
+from dataclasses import dataclass
 
 from .config import MonitorConfig, CodeConfig, load_env_config
+from .code_manager import CodeStorageManager, ManagedCode
 from ..utils import create_logger, create_env_watcher, create_signal_handler
 from ..server import create_server_thread
 from ..notification import build_email_subject, build_email_body, should_send_notification
+
+# 导入CZ查询器接口
+try:
+    # 添加项目根目录到路径以便导入CZ模块
+    import sys
+    _project_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+    if _project_root not in sys.path:
+        sys.path.append(_project_root)
+    from query_modules.cz import query_codes_async
+    CZ_AVAILABLE = True
+except ImportError:
+    CZ_AVAILABLE = False
 
 try:
     from ..notification import send_email_async
@@ -62,90 +69,18 @@ class ScheduledTask:
         return self.next_check < other.next_check
 
 
-class BrowserManager:
-    """浏览器会话管理器 - 汽车启停式复用"""
-    
-    def __init__(self, idle_timeout: int = 300):  # 5分钟空闲超时
-        self.browser: Optional[Browser] = None
-        self.playwright = None
-        self.last_used = datetime.now()
-        self.idle_timeout = idle_timeout
-        self.lock = asyncio.Lock()
-        self.is_busy = False
-        
-    async def get_browser(self) -> Browser:
-        """获取浏览器实例"""
-        async with self.lock:
-            now = datetime.now()
-            
-            # 检查是否需要重新创建
-            if (self.browser is None or 
-                (now - self.last_used).total_seconds() > self.idle_timeout):
-                await self._recreate_browser()
-            
-            self.last_used = now
-            self.is_busy = True
-            return self.browser
-    
-    def update_last_used(self):
-        """更新最后使用时间"""
-        self.last_used = datetime.now()
-        self.is_busy = False
-    
-    async def _recreate_browser(self):
-        """重新创建浏览器"""
-        # 关闭旧的
-        if self.browser:
-            try:
-                await self.browser.close()
-            except:
-                pass
-        
-        if self.playwright:
-            try:
-                await self.playwright.stop()
-            except:
-                pass
-        
-        # 创建新的
-        self.playwright = await async_playwright().start()
-        self.browser = await self.playwright.chromium.launch(headless=True)
-    
-    async def cleanup(self):
-        """清理资源"""
-        if self.browser:
-            try:
-                await self.browser.close()
-            except:
-                pass
-        
-        if self.playwright:
-            try:
-                await self.playwright.stop()
-            except:
-                pass
-    
-    def should_keep_alive(self) -> bool:
-        """判断是否应该保持浏览器活跃"""
-        if self.is_busy:
-            return True
-        
-        idle_time = (datetime.now() - self.last_used).total_seconds()
-        return idle_time < self.idle_timeout
-
-
-
 class PriorityScheduler:
-    """基于优先队列的智能调度器"""
+    """基于优先队列的智能调度器 - 使用CZ查询器的共享浏览器架构"""
     
-    def __init__(self, config: MonitorConfig, env_path: str = ".env"):
+    def __init__(self, config: MonitorConfig, env_path: str = ".env", use_signal_handler: bool = True):
         self.config = config
         self.env_path = env_path  # 保存env_path用于配置重载
         self.task_queue: List[ScheduledTask] = []
-        self.browser_manager = BrowserManager()
         
         self.running = False
         self.stop_event = asyncio.Event()
+        # Event loop reference for thread-safe wake-ups from file watcher threads
+        self.loop = None  # type: Optional[asyncio.AbstractEventLoop]
         
         # 负载控制
         self.max_concurrent = 3  # 最大并发数
@@ -155,24 +90,31 @@ class PriorityScheduler:
         # 统计信息
         self.stats = {
             'processed': 0,
-            'errors': 0,
-            'browser_recreates': 0
+            'errors': 0
         }
         
         # 创建日志记录器
         self.logger = create_logger(config.log_dir, "priority_scheduler")
-        
-        # 初始化状态数据 - 确保status.json存在
+
+        # 代码存储管理器（新架构：site/config/status.json & users.json）
+        self.store = CodeStorageManager(self.config.site_dir)
+        self.store.ensure_initialized()
+        # 初始化状态数据 - 从新路径加载
         self.status_data = self.load_status_data()
+        # 当前默认频率（用于检测 DEFAULT_FREQ_MINUTES 变更）
+        self._current_default_freq = self.config.default_freq_minutes
         
         # 配置重载相关
         self.config_lock = threading.Lock()
         self.env_watcher = None
         self.new_codes_to_check = []
+        self.new_codes_event = asyncio.Event()  # 新增：用于唤醒主循环
         
-        # 信号处理器
-        self.signal_handler = create_signal_handler()
-        self.signal_handler.add_shutdown_callback(self.graceful_shutdown)
+        # 信号处理器（可选，用于常驻模式）
+        self.signal_handler = None
+        if use_signal_handler:
+            self.signal_handler = create_signal_handler()
+            self.signal_handler.add_shutdown_callback(self.graceful_shutdown)
         
     def _now_iso(self) -> str:
         """当前时间ISO格式"""
@@ -190,44 +132,59 @@ class PriorityScheduler:
         os.makedirs(self.config.log_dir, exist_ok=True)
         with open(log_path, 'a', encoding='utf-8') as f:
             f.write(f"[{timestamp}] {message}\n")
+
+    @staticmethod
+    def _is_granted_status(status: Optional[str]) -> bool:
+        """Return True if status indicates Granted/已通过."""
+        if not status:
+            return False
+        return ('Granted' in status) or ('已通过' in status)
+
+    def _wake_event(self, event: asyncio.Event) -> None:
+        """Safely set an asyncio.Event from any thread/context."""
+        try:
+            if getattr(self, 'loop', None) and self.loop and getattr(self.loop, 'is_running', lambda: False)():
+                self.loop.call_soon_threadsafe(event.set)
+            else:
+                event.set()
+        except Exception:
+            try:
+                event.set()
+            except Exception:
+                pass
+
+    @staticmethod
+    def _format_eta(seconds: float) -> str:
+        """将秒转换为简洁的人类可读字符串，如 '31m 0s', '2h 5m', '1d 3h'"""
+        try:
+            total = int(max(0, round(seconds)))
+            mins, sec = divmod(total, 60)
+            hrs, mins = divmod(mins, 60)
+            days, hrs = divmod(hrs, 24)
+            if days > 0:
+                return f"{days}d {hrs}h"
+            if hrs > 0:
+                return f"{hrs}h {mins}m"
+            return f"{mins}m {sec}s"
+        except Exception:
+            return f"{seconds:.0f}s"
     
     def load_status_data(self) -> Dict[str, Any]:
         """加载状态数据"""
-        status_path = os.path.join(self.config.site_dir, "status.json")
-        if os.path.exists(status_path):
-            try:
-                with open(status_path, 'r', encoding='utf-8') as f:
-                    content = f.read().strip()
-                    if content:
-                        return json.loads(content)
-            except Exception as e:
-                self._log(f"Error loading status data: {e}")
-        
-        # 创建默认结构并立即保存
-        default_data = {
-            "generated_at": self._now_iso(),
-            "items": {},
-            "user_management": {
-                "verification_codes": {},
-                "pending_additions": {},
-                "sessions": {}
-            }
-        }
-        
-        # 立即保存默认结构
-        self.save_status_data(default_data)
-        self._log("Created initial status.json with default structure")
-        
-        return default_data
+        try:
+            data = self.store.load_status()
+            return data
+        except Exception as e:
+            self._log(f"Error loading status data: {e}")
+            data = {'generated_at': self._now_iso(), 'items': {}}
+            self.save_status_data(data)
+            return data
     
     def save_status_data(self, data: Dict[str, Any]):
         """保存状态数据"""
-        status_path = os.path.join(self.config.site_dir, "status.json")
-        os.makedirs(self.config.site_dir, exist_ok=True)
-        
         try:
-            with open(status_path, 'w', encoding='utf-8') as f:
-                json.dump(data, f, ensure_ascii=False, indent=2)
+            # 仅保存到 env 管理的 status.json（site/config/status.json）
+            self.store.save_status(data)
         except Exception as e:
             self._log(f"Error saving status data: {e}")
     
@@ -286,28 +243,33 @@ class PriorityScheduler:
         current_time = datetime.now()
         skipped_granted = 0
         
-        # 检查是否需要初始化codes到status.json
+        # 初始化缺失的 env codes 到 status.json（不影响用户 codes）
         status_items = self.status_data.get('items', {})
         config_codes = {cfg.code for cfg in self.config.codes}
         existing_codes = set(status_items.keys())
-        
-        # 如果status.json中没有任何来自配置的codes，或者有新的codes，则初始化
         missing_codes = config_codes - existing_codes
         if missing_codes:
             self._log(f"Initializing {len(missing_codes)} new codes to status.json: {missing_codes}")
             self._initialize_codes_to_status(missing_codes)
-            # 重新加载状态数据
             self.status_data = self.load_status_data()
             status_items = self.status_data.get('items', {})
-        
-        for code_config in self.config.codes:
+
+        # 合并 env 与 user codes 作为调度来源
+        managed_list: List[ManagedCode] = self.store.merge_codes(self.config)
+        # 建立查找映射以便从 item 获取
+        env_items = status_items
+        users = self.store.load_users()
+        user_items = users.get('codes', {})
+
+        for managed in managed_list:
+            code_config = managed.config
             code = code_config.code
-            item = status_items.get(code)
+            item = env_items.get(code) if managed.origin == 'env' else user_items.get(code)
             
             # 检查是否为已通过状态，如果是则跳过
             if item and item.get('status'):
                 status = item.get('status', '')
-                if 'Granted' in status or '已通过' in status:
+                if self._is_granted_status(status):
                     skipped_granted += 1
                     self._log(f"Skipping granted code from queue: {code} (status: {status})")
                     continue
@@ -334,6 +296,56 @@ class PriorityScheduler:
         
         self._log(f"Rebuilt queue with {len(self.task_queue)} tasks (skipped {skipped_granted} granted codes)")
     
+    def sync_status_with_config(self):
+        """One-way sync: ensure env-configured codes exist in status.json; DO NOT prune extra (user) codes."""
+        try:
+            status = self.store.load_status()
+            items = status.get('items', {}) or {}
+            cfg_codes = {c.code for c in self.config.codes}
+            missing = cfg_codes - set(items.keys())
+            if missing:
+                self._initialize_codes_to_status(missing)
+                status = self.store.load_status()
+            self.status_data = status
+        except Exception as e:
+            self._log(f"Error during status/config sync: {e}")
+
+    def _reschedule_queue_for_codes(self, codes_to_resched: List[str], new_codes_map: Dict[str, CodeConfig]):
+        """Recompute next_check and re-heap tasks for modified codes (e.g., freq_minutes change)."""
+        if not codes_to_resched:
+            return
+        now = datetime.now()
+        # remove existing entries for these codes
+        if self.task_queue:
+            self.task_queue = [t for t in self.task_queue if t.code_config.code not in codes_to_resched]
+            heapq.heapify(self.task_queue)
+        # push new entries with recomputed times
+        for code in codes_to_resched:
+            cfg = new_codes_map.get(code)
+            if not cfg:
+                continue
+            item = (self.status_data.get('items', {}) or {}).get(code, {})
+            status = item.get('status', '') if isinstance(item, dict) else ''
+            if self._is_granted_status(status):
+                continue
+            base_dt = None
+            lc = item.get('last_checked') if isinstance(item, dict) else None
+            if lc:
+                try:
+                    base_dt = datetime.fromisoformat(lc)
+                except Exception:
+                    base_dt = None
+            if base_dt is None:
+                base_dt = now
+            freq = cfg.freq_minutes or self.config.default_freq_minutes
+            next_check = base_dt + timedelta(minutes=freq)
+            priority = 1 if next_check <= now else 0
+            if next_check <= now:
+                next_check = now
+            heapq.heappush(self.task_queue, ScheduledTask(next_check=next_check, code_config=cfg, priority=priority))
+        # wake main loop to apply new ordering immediately
+        self._wake_event(self.new_codes_event)
+    
     def add_new_code(self, code_config: CodeConfig):
         """添加新代码（高优先级，立即检查）"""
         task = ScheduledTask(
@@ -343,33 +355,51 @@ class PriorityScheduler:
         )
         heapq.heappush(self.task_queue, task)
         self._log(f"Added new high-priority code: {code_config.code}")
+        # 唤醒主循环，确保立即处理
+        self._wake_event(self.new_codes_event)
     
     def get_next_tasks(self) -> List[ScheduledTask]:
         """获取下一批要执行的任务"""
+        ready_tasks = []
+        
+        # 首先处理新增的代码（立即处理）
+        if self.new_codes_to_check:
+            self._log(f"Processing {len(self.new_codes_to_check)} new codes immediately")
+            for code_config in self.new_codes_to_check:
+                task = ScheduledTask(
+                    next_check=datetime.now(),
+                    code_config=code_config,
+                    priority=1
+                )
+                ready_tasks.append(task)
+            self.new_codes_to_check.clear()  # 清空已处理的新代码
+            return ready_tasks  # 立即返回新代码任务
+        
+        # 如果没有新代码，处理正常的定时任务
         if not self.task_queue:
             return []
         
         current_time = datetime.now()
-        ready_tasks = []
         
         # 收集所有到期的任务
         while self.task_queue and self.task_queue[0].next_check <= current_time:
             task = heapq.heappop(self.task_queue)
             ready_tasks.append(task)
         
-        # 检查批处理窗口内的任务
+        # 检查批处理窗口内的任务 - 取更多任务进行批处理
         cutoff_time = current_time + timedelta(seconds=self.batch_window)
-        additional_tasks = []
         
         while (self.task_queue and 
                self.task_queue[0].next_check <= cutoff_time and
-               len(ready_tasks) + len(additional_tasks) < self.max_concurrent):
+               len(ready_tasks) < self.max_concurrent):
             task = heapq.heappop(self.task_queue)
-            additional_tasks.append(task)
+            ready_tasks.append(task)
         
-        if additional_tasks:
-            self._log(f"Batching {len(additional_tasks)} additional tasks within {self.batch_window}s window")
-            ready_tasks.extend(additional_tasks)
+        if len(ready_tasks) > 0:
+            immediate_count = sum(1 for t in ready_tasks if t.next_check <= current_time)
+            batched_count = len(ready_tasks) - immediate_count
+            if batched_count > 0:
+                self._log(f"Batching {batched_count} additional tasks within {self.batch_window}s window")
         
         return ready_tasks
     
@@ -380,7 +410,7 @@ class PriorityScheduler:
         current_item = self.status_data.get('items', {}).get(code)
         if current_item and current_item.get('status'):
             status = current_item.get('status', '')
-            if 'Granted' in status or '已通过' in status:
+            if self._is_granted_status(status):
                 self._log(f"Code {code} is granted, not rescheduling for future checks")
                 return
         
@@ -409,50 +439,100 @@ class PriorityScheduler:
         task.priority = 0  # 重置为正常优先级
         heapq.heappush(self.task_queue, task)
     
-    async def process_task(self, task: ScheduledTask) -> bool:
-        """处理单个任务"""
-        code = task.code_config.code
-        self._log(f"Processing task: {code}")
+    async def process_tasks_batch(self, tasks: list[ScheduledTask]) -> list[bool]:
+        """批量处理任务 - 直接调用CZ查询器的第三方接口"""
+        if not tasks:
+            return []
+        
+        if not CZ_AVAILABLE:
+            self._log("CZ query module not available")
+            return [False] * len(tasks)
+        
+        codes = [task.code_config.code for task in tasks]
+        task_map = {task.code_config.code: task for task in tasks}
+        completed_codes = set()
+        
+        self._log(f"Batch processing {len(tasks)} tasks using CZ query API")
         
         try:
-            # 获取浏览器实例
-            browser = await self.browser_manager.get_browser()
+            # 实时结果回调 - 查到一个立即处理一个
+            async def on_result(code: str, status: str, error: str, attempts: int, timings: dict):
+                """实时处理查询结果 - CZ查询器查到一个立即回调一个"""
+                completed_codes.add(code)
+                task = task_map.get(code)
+                if task:
+                    result = {
+                        'status': status,
+                        'timings': timings,
+                        'code': code,
+                        'timestamp': datetime.now().isoformat(),
+                        'attempts': attempts,
+                        'error': error
+                    }
+                    
+                    # 立即更新状态数据
+                    await self.update_status(task, result)
+                    
+                    self.stats['processed'] += 1
             
-            # 动态导入cz模块 - 需要回到项目根目录
-            project_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-            sys.path.append(project_root)
-            from query_modules.cz import query_code_with_browser
+            # 直接调用CZ查询器的第三方接口（可取消）
+            cz_task = asyncio.create_task(query_codes_async(
+                codes=codes,
+                headless=self.config.headless,
+                workers=self.config.workers,
+                retries=3,
+                result_callback=on_result,
+                suppress_cli=True
+            ))
+
+            try:
+                # 等待查询完成或收到停止事件
+                await asyncio.wait_for(asyncio.shield(cz_task), timeout=None)
+            except asyncio.CancelledError:
+                self._log("Batch processing cancelled")
+            except Exception as e:
+                # 如果是停止事件触发，允许优雅退出
+                if self.stop_event.is_set():
+                    self._log("Batch processing interrupted by stop event")
+                else:
+                    raise
             
-            # 调用查询模块
-            status, timings = await query_code_with_browser(browser, code)
+            # 返回结果：完成的返回True，未完成的返回False
+            results = []
+            for task in tasks:
+                if task.code_config.code in completed_codes:
+                    results.append(True)
+                else:
+                    results.append(False)  # 被中断的任务，不标记为失败
             
-            # 更新浏览器最后使用时间
-            self.browser_manager.update_last_used()
+            return results
             
-            # 创建result字典
-            result = {
-                'status': status,
-                'timings': timings,
-                'code': code,
-                'timestamp': datetime.now().isoformat()
-            }
-            
-            # 更新状态数据
-            await self.update_status(task, result)
-            
-            # 发送通知（如果需要）
-            await self.send_notification(task, result)
-            
-            self.stats['processed'] += 1
-            self._log(f"Task completed successfully: {code} -> {status}")
-            
-            return True
-            
+        except KeyboardInterrupt:
+            # 被中断时，已完成的任务保持完成状态，未完成的保持原状态
+            self._log("Batch processing interrupted by user, completed tasks preserved")
+            results = []
+            for task in tasks:
+                if task.code_config.code in completed_codes:
+                    results.append(True)
+                else:
+                    results.append(False)  # 未完成，但不是失败
+            return results
         except Exception as e:
-            self.stats['errors'] += 1
-            task.last_error = str(e)
-            self._log(f"Task failed: {code} -> {e}")
-            return False
+            self._log(f"Batch processing failed: {e}")
+            self.stats['errors'] += len(tasks)
+            for task in tasks:
+                task.last_error = str(e)
+            return [False] * len(tasks)
+        finally:
+            # 批处理完成后，清理浏览器资源
+            try:
+                if CZ_AVAILABLE:
+                    import query_modules.cz as cz
+                    if hasattr(cz, 'cleanup_browser'):
+                        await cz.cleanup_browser()
+                        self._log("Browser cleanup completed after batch processing")
+            except Exception as cleanup_error:
+                self._log(f"Error during browser cleanup: {cleanup_error}")
     
     async def update_status(self, task: ScheduledTask, result: Optional[Dict[str, Any]]):
         """更新状态数据"""
@@ -467,17 +547,18 @@ class PriorityScheduler:
         if result and result.get('status'):
             new_status = result['status']
         else:
-            new_status = "Query Failed / 查询失败"
+            new_status = "Query Failed/查询失败"
         
         # 判断是否发生变化和是否首次查询
         changed = old_status != new_status
-        is_first_check = old_item.get('first_check', False)
+        # 更稳健的首次判断：标记位或从未检查过(last_checked为空)
+        is_first_check = old_item.get('first_check', False) or (old_item.get('last_checked') in (None, '', 0))
         
         # 计算下次检查时间
         freq_minutes = task.code_config.freq_minutes or self.config.default_freq_minutes
         
         # 如果状态为已通过，则不设置下次检查时间
-        if 'Granted' in new_status or '已通过' in new_status:
+        if self._is_granted_status(new_status):
             next_check_iso = None
             self._log(f"Code {code} is granted, no future checks scheduled")
         else:
@@ -503,7 +584,7 @@ class PriorityScheduler:
             updated_item["next_check"] = next_check_iso
         
         # Remove first_check flag after first successful query
-        if is_first_check and new_status != "Query Failed / 查询失败":
+        if is_first_check and new_status != "Query Failed/查询失败":
             # First successful query completed, remove the flag
             pass  # Don't include first_check in updated_item
         elif is_first_check:
@@ -512,14 +593,49 @@ class PriorityScheduler:
             
         self.status_data.setdefault('items', {})[code] = updated_item
         
-        # 保存状态
-        self.status_data["generated_at"] = now
-        self.save_status_data(self.status_data)
+        # 保存状态（根据来源写回对应文件）
+        # 判断该 code 是否来自 env（status.json）还是用户（users.json）
+        origin = 'env'
+        # 优先根据配置中是否存在判断
+        if not any(c.code == code for c in self.config.codes):
+            origin = 'user'
+        # 允许通过存储层再次确认
+        merged = self.store.merge_codes(self.config)
+        for m in merged:
+            if m.code == code:
+                origin = m.origin
+                break
+        # 写入对应存储
+        # 针对用户来源，确保channel/target/email规范
+        if origin == 'user':
+            updated_item['channel'] = 'email' if self._is_email_configured(task.code_config) else ''
+            if not updated_item.get('target'):
+                try:
+                    users_data = self.store.load_users()
+                    rec = (users_data.get('codes') or {}).get(code)
+                    if isinstance(rec, dict) and rec.get('email'):
+                        updated_item['target'] = rec.get('email')
+                        updated_item['email'] = rec.get('email')
+                except Exception:
+                    pass
+            elif not updated_item.get('email'):
+                updated_item['email'] = updated_item.get('target')
+        self.store.update_item(origin, code, updated_item)
+        # 同步内存
+        if origin == 'env':
+            self.status_data.setdefault('items', {})[code] = updated_item
+            self.status_data['generated_at'] = now
+        
         
         self._log(f"Status updated: {code} -> {new_status} (changed: {changed})")
         
-        # 发送邮件通知（如果需要）
-        await self._send_email_notification(task, result, changed, old_status, is_first_check)
+        # 发送邮件通知（如果需要）- 后台异步执行，避免阻塞查询流水线
+        try:
+            # 调试：打印一次邮件决策（仅在首次或变化时会发送）
+            # 注意：正式环境可考虑降级为更少的日志
+            asyncio.create_task(self._send_email_notification(task, result, changed, old_status, is_first_check))
+        except Exception:
+            pass
     
     async def _send_email_notification(self, task: ScheduledTask, result: Dict[str, Any], changed: bool, old_status: Optional[str], is_first_check: bool = False):
         """发送邮件通知"""
@@ -639,8 +755,12 @@ class PriorityScheduler:
                         getattr(old_c, 'note', '') != getattr(new_c, 'note', '')):
                         modified_codes.append(code)
                 
+                # 检测默认频率是否变化
+                default_changed = (self._current_default_freq != new_config.default_freq_minutes)
                 # 更新配置
                 self.config = new_config
+                if default_changed:
+                    self._current_default_freq = new_config.default_freq_minutes
                 
                 # 处理新增代码
                 if added_codes:
@@ -650,10 +770,93 @@ class PriorityScheduler:
                     for code_config in self.config.codes:
                         if code_config.code in added_codes:
                             self.new_codes_to_check.append(code_config)
+                    
+                    # 唤醒主循环立即处理新代码（跨线程安全）
+                    self._wake_event(self.new_codes_event)
                 
-                # 处理删除和修改的代码 - 更新status.json
+                # 处理删除和修改的代码 - 更新status.json（仅 env 部分）
                 if removed_codes or modified_codes:
                     self._update_status_json_for_changes(removed_codes, modified_codes, new_codes)
+                    # 频率修改后需要重新排序队列
+                    if modified_codes:
+                        self._reschedule_queue_for_codes(modified_codes, new_codes)
+
+                # 如果默认频率变更，则对所有使用默认频率的代码（env 与 user）重新计算 next_check 并重排队列
+                if default_changed:
+                    try:
+                        self._log(f"DEFAULT_FREQ_MINUTES changed -> {self._current_default_freq}, rescheduling items using default")
+                        now_dt = datetime.now()
+                        to_reheap_codes: List[str] = []
+                        # Env items（仅当CodeConfig未指定freq_minutes时使用默认）
+                        status = self.store.load_status()
+                        items = status.get('items', {}) or {}
+                        for ccode, item in items.items():
+                            cfg = new_codes.get(ccode)
+                            if not cfg:
+                                continue
+                            if cfg.freq_minutes is None:
+                                lc = item.get('last_checked')
+                                try:
+                                    base_dt = datetime.fromisoformat(lc) if lc else now_dt
+                                except Exception:
+                                    base_dt = now_dt
+                                item['freq_minutes'] = self._current_default_freq
+                                item['next_check'] = (base_dt + timedelta(minutes=self._current_default_freq)).isoformat()
+                                to_reheap_codes.append(ccode)
+                        status['generated_at'] = datetime.now().isoformat()
+                        self.store.save_status(status)
+
+                        # User items（缺失freq或标记uses_default_freq=True的随默认变化）
+                        users = self.store.load_users()
+                        ucodes = users.get('codes', {}) or {}
+                        for ccode, urec in ucodes.items():
+                            uses_default = (urec.get('freq_minutes') in (None, '')) or bool(urec.get('uses_default_freq', True))
+                            if uses_default:
+                                lc = urec.get('last_checked')
+                                try:
+                                    base_dt = datetime.fromisoformat(lc) if lc else now_dt
+                                except Exception:
+                                    base_dt = now_dt
+                                urec['freq_minutes'] = self._current_default_freq
+                                urec['uses_default_freq'] = True
+                                urec['next_check'] = (base_dt + timedelta(minutes=self._current_default_freq)).isoformat()
+                                if not urec.get('channel'):
+                                    urec['channel'] = 'email'
+                                if not urec.get('target') and urec.get('email'):
+                                    urec['target'] = urec.get('email')
+                                to_reheap_codes.append(ccode)
+                        users['generated_at'] = datetime.now().isoformat()
+                        self.store.save_users(users)
+
+                        # 构造用于重排的CodeConfig映射
+                        targets_map: Dict[str, CodeConfig] = {}
+                        for code in to_reheap_codes:
+                            if code in new_codes:
+                                targets_map[code] = new_codes[code]
+                            else:
+                                rec = ucodes.get(code, {})
+                                email = rec.get('email') or rec.get('target')
+                                targets_map[code] = CodeConfig(code=code, channel='email', target=email, freq_minutes=self._current_default_freq)
+                        self._reschedule_queue_for_codes(to_reheap_codes, targets_map)
+                    except Exception as e:
+                        self._log(f"Error during default freq reschedule: {e}")
+
+                # 从内存队列中移除被删除的代码任务，保持与配置一致
+                if removed_codes:
+                    before_q = len(self.task_queue)
+                    if before_q:
+                        self.task_queue = [t for t in self.task_queue if t.code_config.code not in removed_codes]
+                        heapq.heapify(self.task_queue)
+                        removed_q = before_q - len(self.task_queue)
+                        if removed_q > 0:
+                            self._log(f"Removed {removed_q} queued tasks for deleted codes: {list(removed_codes)}")
+                    # 同时清理待立即处理的新代码列表
+                    if self.new_codes_to_check:
+                        before_new = len(self.new_codes_to_check)
+                        self.new_codes_to_check = [c for c in self.new_codes_to_check if c.code not in removed_codes]
+                        after_new = len(self.new_codes_to_check)
+                        if after_new < before_new:
+                            self._log("Purged removed codes from pending-new list")
                 
                 # 记录变更
                 change_summary = []
@@ -677,52 +880,57 @@ class PriorityScheduler:
             except Exception as e:
                 self._log(f"Failed to reload config: {e}")
                 raise e
+        # Reload 完成后，同步（仅补齐缺失的 env codes，不再清理多余项）
+        self.sync_status_with_config()
                 
     def _update_status_json_for_changes(self, removed_codes, modified_codes, new_codes):
         """更新status.json以反映删除和修改的代码"""
         try:
-            site_json_path = os.path.join(self.config.site_dir, "status.json")
-            if os.path.exists(site_json_path):
-                with open(site_json_path, "r", encoding="utf-8") as f:
-                    content = f.read().strip()
-                    if not content:
-                        # Empty file, skip update
-                        return
-                    status_data = json.loads(content)
-                
-                # 删除已移除的代码
-                for code in removed_codes:
-                    if code in status_data.get("items", {}):
-                        del status_data["items"][code]
-                        self._log(f"Removed code {code} from status.json")
-                
-                # 更新修改的代码的通知配置
-                for code in modified_codes:
-                    if code in status_data.get("items", {}) and code in new_codes:
-                        new_code_cfg = new_codes[code]
-                        # 检查邮件是否正确配置
-                        email_configured = (
-                            new_code_cfg.channel == "email" and 
-                            new_code_cfg.target and 
-                            self.config.smtp_host and 
-                            self.config.smtp_user and 
-                            self.config.smtp_pass
-                        )
-                        
-                        # 更新通知渠道和目标
-                        status_data["items"][code]["channel"] = "Email" if email_configured else ""
-                        status_data["items"][code]["target"] = new_code_cfg.target or ""
-                        status_data["items"][code]["freq_minutes"] = new_code_cfg.freq_minutes
-                        status_data["items"][code]["note"] = getattr(new_code_cfg, 'note', '') or ""
-                        self._log(f"Updated notification config for code {code}")
-                
-                # 更新生成时间
-                status_data["generated_at"] = datetime.now().isoformat()
-                
-                # 写回文件
-                with open(site_json_path, "w", encoding="utf-8") as f:
-                    json.dump(status_data, f, ensure_ascii=False, indent=2)
-                    
+            status_data = self.store.load_status()
+
+            # 删除已移除的代码
+            for code in removed_codes:
+                if code in status_data.get("items", {}):
+                    del status_data["items"][code]
+                    self._log(f"Removed code {code} from status.json")
+
+            # 更新修改的代码的通知配置
+            for code in modified_codes:
+                if code in status_data.get("items", {}) and code in new_codes:
+                    new_code_cfg = new_codes[code]
+                    # 检查邮件是否正确配置
+                    email_configured = (
+                        new_code_cfg.channel == "email" and 
+                        new_code_cfg.target and 
+                        self.config.smtp_host and 
+                        self.config.smtp_user and 
+                        self.config.smtp_pass
+                    )
+
+                    # 更新通知渠道和目标
+                    status_data["items"][code]["channel"] = "Email" if email_configured else ""
+                    status_data["items"][code]["target"] = new_code_cfg.target or ""
+                    status_data["items"][code]["freq_minutes"] = new_code_cfg.freq_minutes
+                    status_data["items"][code]["note"] = getattr(new_code_cfg, 'note', '') or ""
+                    self._log(f"Updated notification config for code {code}")
+                    # 若非已通过，基于 last_checked + 新频率 重新计算 next_check
+                    try:
+                        st = status_data["items"][code].get("status", "")
+                        if not ("Granted" in st or "已通过" in st):
+                            lc = status_data["items"][code].get("last_checked")
+                            base_dt = datetime.fromisoformat(lc) if lc else datetime.now()
+                            freq = new_code_cfg.freq_minutes or self.config.default_freq_minutes
+                            status_data["items"][code]["next_check"] = (base_dt + timedelta(minutes=freq)).isoformat()
+                    except Exception:
+                        pass
+
+            # 更新生成时间
+            status_data["generated_at"] = datetime.now().isoformat()
+
+            # 写回文件并同步内存
+            self.store.save_status(status_data)
+            self.status_data = status_data
+
         except Exception as e:
             self._log(f"Error updating status.json for changes: {e}")
     
@@ -730,11 +938,38 @@ class PriorityScheduler:
         """优雅关闭"""
         self._log("Initiating graceful shutdown...")
         self.running = False
-        self.stop_event.set()
+        # 跨线程安全地触发停止事件
+        try:
+            if getattr(self, 'loop', None) and self.loop and getattr(self.loop, 'is_running', lambda: False)():
+                self.loop.call_soon_threadsafe(self.stop_event.set)
+            else:
+                self.stop_event.set()
+        except Exception:
+            try:
+                self.stop_event.set()
+            except Exception:
+                pass
         
         # 停止环境文件监控
         if self.env_watcher:
             self.env_watcher.stop()
+            
+        # 停止HTTP服务器(如果有)
+        if hasattr(self, '_server_stop_evt') and self._server_stop_evt:
+            self._server_stop_evt.set()
+            self._log("HTTP server stop signal sent")
+            
+        # 强制设置关闭标志，确保主循环退出
+        try:
+            if hasattr(self, '_shutdown_forced'):
+                return
+            self._shutdown_forced = True
+        except Exception:
+            pass
+    
+    def set_server_stop_event(self, stop_evt):
+        """设置服务器停止事件"""
+        self._server_stop_evt = stop_evt
     
     def _is_email_configured(self, code_config: CodeConfig) -> bool:
         """检查邮件是否配置"""
@@ -744,75 +979,106 @@ class PriorityScheduler:
                 self.config.smtp_user and 
                 self.config.smtp_pass)
     
-    async def send_notification(self, task: ScheduledTask, result: Optional[Dict[str, Any]]):
-        """发送通知（占位符）"""
-        # TODO: 实现邮件通知逻辑
-        pass
-    
     async def run(self):
         """主运行循环"""
         self.running = True
+        # 记录当前事件循环，供跨线程事件触发时使用
+        try:
+            self.loop = asyncio.get_running_loop()
+        except RuntimeError:
+            self.loop = None
         self._log("Priority scheduler started")
         
         # 重建队列
         self.rebuild_queue_from_status()
+        # 同步一次，移除 status.json 中不在配置里的条目
+        self.sync_status_with_config()
         
         try:
             while self.running and not self.stop_event.is_set():
-                # 获取下一批任务
-                tasks = self.get_next_tasks()
-                
-                if not tasks:
-                    # 没有任务，等待一段时间
-                    if self.task_queue:
-                        # 计算到下一个任务的等待时间
-                        next_task_time = self.task_queue[0].next_check
-                        wait_seconds = max(1, (next_task_time - datetime.now()).total_seconds())
-                        wait_seconds = min(wait_seconds, 300)  # 最多等待5分钟
-                        self._log(f"No ready tasks, waiting {wait_seconds:.1f}s for next task")
-                    else:
-                        wait_seconds = 60  # 没有任务时等待1分钟
-                        self._log("No tasks in queue, waiting 60s")
-                    
+                try:
+                    # 检查是否被强制关闭
+                    if hasattr(self, '_shutdown_forced'):
+                        self._log("Forced shutdown detected, exiting main loop")
+                        break
+                    # 获取下一批任务
+                    tasks = self.get_next_tasks()
+                    if not tasks:
+                        # 没有可执行任务：要么队列为空（等待新代码），要么下一个任务在未来（睡到队首任务时间）
+                        if self.task_queue:
+                            next_task_time = self.task_queue[0].next_check
+                            now = datetime.now()
+                            wait_seconds = max(1, (next_task_time - now).total_seconds())
+                            human_eta = self._format_eta(wait_seconds)
+                            self._log(
+                                f"No ready tasks; next at {next_task_time.isoformat()} (in {human_eta}). Sleeping until then or new-code/stop"
+                            )
+                            try:
+                                stop_wait = asyncio.create_task(self.stop_event.wait())
+                                new_wait = asyncio.create_task(self.new_codes_event.wait())
+                                done, pending = await asyncio.wait(
+                                    [stop_wait, new_wait], timeout=wait_seconds, return_when=asyncio.FIRST_COMPLETED
+                                )
+                                for t in pending:
+                                    t.cancel()
+                                # 明确区分哪一个事件触发
+                                if stop_wait in done and self.stop_event.is_set():
+                                    self._log("Stop event received, exiting main loop")
+                                    break
+                                if new_wait in done and self.new_codes_event.is_set():
+                                    self.new_codes_event.clear()
+                                    # 立即进入下一轮以处理新代码
+                                    continue
+                                # 若超时，则到点了，进入下一轮处理到期任务
+                                continue
+                            except asyncio.TimeoutError:
+                                # 应该不会触发：asyncio.wait 在到期时返回而不是抛异常
+                                continue
+                        else:
+                            # 队列为空：事件驱动等待，直到新增代码或停止
+                            self._log("No tasks in queue; waiting for new codes or shutdown")
+                            stop_wait = asyncio.create_task(self.stop_event.wait())
+                            new_wait = asyncio.create_task(self.new_codes_event.wait())
+                            done, pending = await asyncio.wait(
+                                [stop_wait, new_wait], return_when=asyncio.FIRST_COMPLETED
+                            )
+                            for t in pending:
+                                t.cancel()
+                            if stop_wait in done and self.stop_event.is_set():
+                                self._log("Stop event received, exiting main loop")
+                                break
+                            if new_wait in done and self.new_codes_event.is_set():
+                                self.new_codes_event.clear()
+                                # 有新代码，下一轮立即处理
+                                continue
+                    self._log(f"Processing {len(tasks)} tasks using batch processing")
                     try:
-                        await asyncio.wait_for(self.stop_event.wait(), timeout=wait_seconds)
-                        break  # 收到停止信号
-                    except asyncio.TimeoutError:
-                        continue  # 超时，继续循环
-                
-                # 并发处理任务
-                self._log(f"Processing {len(tasks)} tasks concurrently")
-                
-                # 添加随机抖动避免同时查询
-                for i, task in enumerate(tasks):
-                    if i > 0:
-                        await asyncio.sleep(1)  # 1秒间隔
-                
-                # 并发执行
-                results = await asyncio.gather(
-                    *[self.process_task(task) for task in tasks],
-                    return_exceptions=True
-                )
-                
-                # 重新调度任务
-                for task, success in zip(tasks, results):
-                    if isinstance(success, Exception):
-                        success = False
-                        task.last_error = str(success)
-                    
-                    self.reschedule_task(task, success)
-                
-                # 清理空闲浏览器
-                if not self.browser_manager.should_keep_alive():
-                    await self.browser_manager.cleanup()
-                
-                # 打印统计信息
-                self._log(f"Stats: processed={self.stats['processed']}, errors={self.stats['errors']}, queue_size={len(self.task_queue)}")
-        
+                        results = await self.process_tasks_batch(tasks)
+                    except Exception as e:
+                        self._log(f"Batch processing failed: {e}")
+                        results = [False] * len(tasks)
+                        for task in tasks:
+                            task.last_error = str(e)
+                    for task, success in zip(tasks, results):
+                        self.reschedule_task(task, success)
+                    self._log(f"Stats: processed={self.stats['processed']}, errors={self.stats['errors']}, queue_size={len(self.task_queue)}")
+                    if self.stop_event.is_set():
+                        self._log("Stop event detected after batch processing, exiting")
+                        break
+                except Exception as e:
+                    self._log(f"Main loop inner error: {e}")
         except Exception as e:
             self._log(f"Scheduler error: {e}")
-        
         finally:
+            self._log("Main loop exiting, performing cleanup...")
+            try:
+                if CZ_AVAILABLE:
+                    import query_modules.cz as cz
+                    if hasattr(cz, 'cleanup_browser'):
+                        await cz.cleanup_browser()
+                        self._log("Browser cleanup completed")
+            except Exception as cleanup_error:
+                self._log(f"Error during cleanup: {cleanup_error}")
             await self.cleanup()
     
     async def stop(self):
@@ -823,9 +1089,11 @@ class PriorityScheduler:
     
     async def cleanup(self):
         """清理资源"""
-        await self.browser_manager.cleanup()
         self._log("Priority scheduler stopped")
 
+
+# 全局注册当前运行的调度器，供API层即时唤醒与插队
+CURRENT_SCHEDULER: Optional["PriorityScheduler"] = None
 
 async def run_priority_scheduler(env_path: str = ".env", once: bool = False):
     """运行优先队列调度器"""
@@ -837,21 +1105,23 @@ async def run_priority_scheduler(env_path: str = ".env", once: bool = False):
         print("No codes configured. Exiting.")
         return
     
-    # 创建调度器
-    scheduler = PriorityScheduler(config, env_path)
+    # 创建调度器（一次性模式禁用信号处理器，避免干扰退出）
+    scheduler = PriorityScheduler(config, env_path, use_signal_handler=not once)
+    # 注册全局引用
+    global CURRENT_SCHEDULER
+    CURRENT_SCHEDULER = scheduler
     
     if once:
-        # 单次运行模式：处理所有到期任务
+        # 单次运行模式：使用批量处理
         scheduler.rebuild_queue_from_status()
         tasks = scheduler.get_next_tasks()
         
         if tasks:
-            print(f"Processing {len(tasks)} tasks in once mode")
-            results = await asyncio.gather(
-                *[scheduler.process_task(task) for task in tasks],
-                return_exceptions=True
-            )
-            print(f"Completed: {sum(1 for r in results if r is True)} successful, {sum(1 for r in results if r is not True)} failed")
+            print(f"Processing {len(tasks)} tasks in once mode using batch processing")
+            results = await scheduler.process_tasks_batch(tasks)
+            successful = sum(1 for r in results if r is True)
+            failed = len(results) - successful
+            print(f"Completed: {successful} successful, {failed} failed")
         else:
             print("No tasks ready for processing")
         
@@ -873,22 +1143,61 @@ async def run_priority_scheduler(env_path: str = ".env", once: bool = False):
                 env_path
             )
             server_thread.start()
+            # 设置服务器停止事件到调度器
+            scheduler.set_server_stop_event(stop_evt)
             
         print(f"Priority Scheduler starting. SERVE={config.serve} SITE_DIR={config.site_dir} SITE_PORT={config.site_port}")
         if scheduler.env_watcher:
             scheduler._log("Environment file hot reloading enabled")
+        
+        # 信号处理：使用统一的SignalHandler（在调度器构造时已注册），这里不再重复注册
         
         try:
             # 运行调度器主循环
             await scheduler.run()
         except KeyboardInterrupt:
             print("\nShutdown requested by user")
+            scheduler.running = False
+            scheduler.stop_event.set()
         finally:
             # 清理
             await scheduler.cleanup()
             if server_thread and stop_evt:
                 stop_evt.set()
                 server_thread.join(timeout=5)
+            # 强制退出
+            import os
+            os._exit(0)
+
+
+def schedule_user_code_immediately(code: str):
+    """供API调用：将用户新添加的 code 立即加入队列头进行查询"""
+    try:
+        if CURRENT_SCHEDULER is None:
+            return False
+        # 在合并视角下，为该code构造临时CodeConfig：尽量从 users.json 恢复 email 与频率
+        target_email = None
+        freq = CURRENT_SCHEDULER.config.default_freq_minutes
+        try:
+            users = CURRENT_SCHEDULER.store.load_users()
+            rec = (users.get('codes') or {}).get(code)
+            if isinstance(rec, dict):
+                target_email = rec.get('email') or rec.get('target') or None
+                f = rec.get('freq_minutes')
+                if isinstance(f, int):
+                    freq = f
+                else:
+                    try:
+                        freq = int(f) if f is not None else freq
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+        cfg = CodeConfig(code=code, channel='email', target=target_email, freq_minutes=freq)
+        CURRENT_SCHEDULER.add_new_code(cfg)
+        return True
+    except Exception:
+        return False
 
 
 if __name__ == "__main__":

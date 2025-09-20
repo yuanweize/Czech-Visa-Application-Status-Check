@@ -72,7 +72,24 @@ function hideLoading() {
 
 function render(data) {
   window.lastData = data; // Store for filter operations
-  document.getElementById('generatedAt').textContent = 'Last updated: ' + (data.generated_at || '');
+  const gaEl = document.getElementById('generatedAt');
+  if (gaEl) {
+    let genText = '';
+    if (data.generated_at) {
+      const d = new Date(data.generated_at);
+      if (!isNaN(d.getTime())) {
+        genText = d.toLocaleString();
+        gaEl.title = `Last updated: ${genText}`;
+      } else {
+        // Fallback to raw string if not a valid date
+        genText = data.generated_at;
+        gaEl.title = `Last updated: ${genText}`;
+      }
+    } else {
+      gaEl.title = '';
+    }
+    gaEl.textContent = 'Last updated: ' + genText;
+  }
   const tb = document.querySelector('#tbl tbody');
   tb.innerHTML = '';
   const entries = Object.values(data.items || {}).sort((a, b) => {
@@ -172,6 +189,7 @@ function render(data) {
       nextCheckDiv.textContent = 'Next: Calculating...';
     } else {
       nextCheckDiv.textContent = 'Next: Not scheduled';
+      nextCheckDiv.classList.add('muted');
     }
     
     timeContainer.appendChild(lastCheckedDiv);
@@ -497,15 +515,24 @@ function startSendCooldown(button, originalText, seconds) {
 
 // Session Management
 function getSessionId() {
-  return localStorage.getItem('visa_session_id');
+  // Prefer localStorage, fallback to cookie
+  const fromStorage = localStorage.getItem('visa_session_id');
+  if (fromStorage) return fromStorage;
+  const m = document.cookie.match(/(?:^|; )visa_session_id=([^;]+)/);
+  return m ? decodeURIComponent(m[1]) : null;
 }
 
 function setSessionId(sessionId) {
   localStorage.setItem('visa_session_id', sessionId);
+  // Also set a cookie (7 days) to persist across tabs and in case storage is cleared
+  const maxAge = 7 * 24 * 3600;
+  document.cookie = `visa_session_id=${encodeURIComponent(sessionId)}; Path=/; Max-Age=${maxAge}; SameSite=Lax`;
 }
 
 function clearSession() {
   localStorage.removeItem('visa_session_id');
+  // Clear cookie
+  document.cookie = 'visa_session_id=; Path=/; Max-Age=0; SameSite=Lax';
 }
 
 async function verifySession() {

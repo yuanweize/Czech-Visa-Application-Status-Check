@@ -71,7 +71,9 @@ class RotatingLogger:
             log_type = log_entry.get('type', 'unknown')
             action = log_entry.get('action', 'unknown')
             log_id = log_entry.get('log_id', 'N/A')
-            print(f"[{timestamp_str}] STRUCTURED_LOG: {log_type}.{action} - {log_id}")
+            # 静默邮件相关的STRUCTURED_LOG，避免控制台噪音
+            if log_type != 'notification_email' and log_type != 'smtp_connection' and log_type != 'smtp_auth':
+                print(f"[{timestamp_str}] STRUCTURED_LOG: {log_type}.{action} - {log_id}")
                 
         except Exception as e:
             # 日志失败时回退到print
