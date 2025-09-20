@@ -297,15 +297,95 @@ class PriorityScheduler:
         self._log(f"Rebuilt queue with {len(self.task_queue)} tasks (skipped {skipped_granted} granted codes)")
     
     def sync_status_with_config(self):
-        """One-way sync: ensure env-configured codes exist in status.json; DO NOT prune extra (user) codes."""
+        """Sync status.json with current .env config strictly for env-managed codes.
+
+        - Ensure all env-configured codes exist in status.json (add missing)
+        - Remove any non-env codes lingering in status.json (user/test leftovers)
+          User-managed codes belong in users.json and will be preserved there.
+        - Align env items' notification fields and freq_minutes with .env values
+          (channel/target/freq_minutes/note), and recompute next_check when needed.
+        """
         try:
             status = self.store.load_status()
+            users = self.store.load_users()
             items = status.get('items', {}) or {}
-            cfg_codes = {c.code for c in self.config.codes}
+            cfg_map = {c.code: c for c in (self.config.codes or [])}
+            cfg_codes = set(cfg_map.keys())
+
+            # 1) Add missing env codes
             missing = cfg_codes - set(items.keys())
             if missing:
                 self._initialize_codes_to_status(missing)
                 status = self.store.load_status()
+                items = status.get('items', {}) or {}
+
+            # 2) Remove non-env codes from env-managed status.json (migrate was already done earlier if any)
+            to_remove = [code for code in list(items.keys()) if code not in cfg_codes]
+            removed_count = 0
+            if to_remove:
+                for code in to_remove:
+                    # If code also exists in users.json, we certainly should not keep it in env status.
+                    # If not in users.json, it's likely test/legacy residue and should be pruned from env file.
+                    items.pop(code, None)
+                    removed_count += 1
+                status['items'] = items
+                status['generated_at'] = self._now_iso()
+                self.store.save_status(status)
+                self._log(f"Pruned {removed_count} non-env codes from status.json: {to_remove}")
+
+            # 3) Align env items with .env config values
+            updated_count = 0
+            now_dt = datetime.now()
+            for code, cfg in cfg_map.items():
+                item = items.get(code)
+                if not item:
+                    continue
+                # Update notification fields
+                email_ok = (
+                    cfg.channel == 'email' and cfg.target and self.config.smtp_host and self.config.smtp_user and self.config.smtp_pass
+                )
+                desired_channel = 'Email' if email_ok else ''
+                desired_target = cfg.target or ''
+                desired_freq = cfg.freq_minutes if cfg.freq_minutes is not None else item.get('freq_minutes', self.config.default_freq_minutes)
+                desired_note = getattr(cfg, 'note', '') or ''
+
+                changed = False
+                if item.get('channel') != desired_channel:
+                    item['channel'] = desired_channel
+                    changed = True
+                if item.get('target') != desired_target:
+                    item['target'] = desired_target
+                    changed = True
+                if item.get('freq_minutes') != desired_freq:
+                    item['freq_minutes'] = desired_freq
+                    changed = True
+                if item.get('note') != desired_note:
+                    item['note'] = desired_note
+                    changed = True
+
+                # Recompute next_check if not granted and we changed frequency or next_check is missing/invalid
+                status_str = item.get('status', '')
+                if not self._is_granted_status(status_str):
+                    need_recompute = changed or (not item.get('next_check'))
+                    if need_recompute:
+                        lc = item.get('last_checked')
+                        try:
+                            base_dt = datetime.fromisoformat(lc) if lc else now_dt
+                        except Exception:
+                            base_dt = now_dt
+                        next_check_dt = base_dt + timedelta(minutes=desired_freq)
+                        item['next_check'] = next_check_dt.isoformat()
+                        changed = True
+
+                if changed:
+                    updated_count += 1
+
+            if updated_count > 0:
+                status['generated_at'] = self._now_iso()
+                self.store.save_status(status)
+                self._log(f"Aligned {updated_count} env items with .env config in status.json")
+
+            # Sync memory
             self.status_data = status
         except Exception as e:
             self._log(f"Error during status/config sync: {e}")
