@@ -383,10 +383,35 @@ class APIHandler(BaseHTTPRequestHandler):
                 # Read and serve file
                 with open(full_path, 'rb') as f:
                     content = f.read()
+                # Compute a simple ETag from size and mtime
+                try:
+                    stat = full_path.stat()
+                    etag = f'W/"{stat.st_mtime_ns:x}-{stat.st_size:x}"'
+                except Exception:
+                    etag = None
+                # Handle If-None-Match for basic 304 support
+                if etag and 'If-None-Match' in self.headers and self.headers.get('If-None-Match') == etag:
+                    self.send_response(304)
+                    self.send_header('ETag', etag)
+                    # Minimal caching headers with 304
+                    if content_type.startswith('text/html'):
+                        self.send_header('Cache-Control', 'no-cache, no-store, must-revalidate')
+                    else:
+                        self.send_header('Cache-Control', 'public, max-age=172800')  # 48h
+                    self.end_headers()
+                    return
                 
                 self.send_response(200)
                 self.send_header('Content-Type', content_type)
                 self.send_header('Content-Length', str(len(content)))
+                # Caching: HTML no-cache to avoid stale pages; assets cached for 48h
+                if content_type.startswith('text/html'):
+                    # Allow revalidation while avoiding staleness
+                    self.send_header('Cache-Control', 'no-cache, no-store, must-revalidate')
+                else:
+                    self.send_header('Cache-Control', 'public, max-age=172800')  # 48h
+                if etag:
+                    self.send_header('ETag', etag)
                 self.end_headers()
                 self.wfile.write(content)
             else:
