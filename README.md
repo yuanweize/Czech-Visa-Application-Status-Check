@@ -260,13 +260,14 @@ Parameters（cz）/ 参数（cz）：
 - `-w, --workers N` — concurrent workers (pages). / 并发 worker 数
 - `-l, --log-dir PATH` — change log directory (default: `logs`). / 日志目录
 
-`clean` (alias: `cl`) — clean a query CSV by status. Defaults to CSV; outputs compact JSON lines only when `-fm` is provided.
-`clean`（别名：`cl`）— 按状态清理查询结果 CSV。默认输出 CSV；仅在提供 `-fm` 时输出紧凑 JSON 行。
+`clean` (alias: `cl`) — clean a query CSV by status. Defaults to CSV; with `-fm` outputs compact JSON lines; with `-fma` outputs a compact JSON array.
+`clean`（别名：`cl`）— 按状态清理查询结果 CSV。默认输出 CSV；带 `-fm` 输出紧凑 JSON 行；带 `-fma` 输出紧凑 JSON 数组。
 
 - `-i, --input PATH` — input CSV (default: `query_codes.csv`). / 输入 CSV（默认：`query_codes.csv`）
 - `-o, --output PATH` — output path (default: CSV path when no `-fm`, JSON path when `-fm`). / 输出路径（无 `-fm` 默认 CSV；有 `-fm` 则为 JSON）。
 - `-k, --keep n|g|p|r[,...]` — keep only specified normalized statuses: n=Not Found, g=Granted, p=Proceedings, r=Rejected/Closed. Comma-separated or compact like `gp`. If omitted, defaults to removing all Not Found and keeping others. / 仅保留指定的标准化状态：n=未找到，g=已通过，p=审理中，r=拒绝/关闭。可逗号分隔或紧凑写法（如 `gp`）。若省略，则默认剔除所有“未找到”。
 - `-fm, --for-monitor [t:email[,f:minutes]]` — when provided, output compact JSON lines. Use `-fm` alone to output code-only lines; add `t:...` and/or `f:...` to include fields. Example: `-fm t:user@mail.com,f:60` → `{"code":"...","channel":"email","target":"user@mail.com","freq_minutes":60}`。/ 提供时输出紧凑 JSON 行；仅写 `-fm` 输出仅包含 code 的行；添加 `t:...`/`f:...` 可包含字段。
+- `-fma, -fm-array, --for-monitor-array [t:email[,f:minutes]]` — output a compact JSON array. Use `-fma` alone for code-only objects; add `t:...` and/or `f:...` like `-fma t:user@mail.com,f:60`。/ 输出紧凑 JSON 数组；仅写 `-fma` 输出仅含 code 的对象；也可添加 `t:...`/`f:...`（如 `-fma t:user@mail.com,f:60`）。
 
 Examples / 示例：
 ```bash
@@ -284,6 +285,9 @@ python visa_status.py cl -k gp -fm t:you@mail.com,f:40
 
 # 4.1) Code-only compact JSON lines
 python visa_status.py cl -fm
+
+# 4.2) Compact JSON array (useful when you need a valid JSON array directly)
+python visa_status.py cl -k gp -fma t:you@mail.com,f:40
 
 # 5) Specify input and output paths
 python visa_status.py clean -i query_codes.csv -o cleaned.json
@@ -306,6 +310,7 @@ Output formats / 输出格式：
 ```
 
 Tip / 提示：你可以将这些 JSON 行拷入 `.env` 中的 `CODES_JSON='[...]'`（注意需要包装成 JSON 数组），或保存在文件中按你的工作流加载。
+Array mode note / 数组模式说明：使用 `-fma` 直接输出 JSON 数组，更便于复制到需要数组的场景（如直接赋给 `CODES_JSON`）。
 
 ## Global options / 全局选项
  -r/--retries, -l/--log-dir

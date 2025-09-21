@@ -147,6 +147,8 @@ def main(argv: Optional[List[str]] = None):
             '    -> Keep only Granted & Rejected. / 仅保留 通过 与 拒绝。\n'
             '  python visa_status.py cl -fm t:you@mail.com,f:60\n'
             '    -> Output compact JSON lines for CODES_JSON (one object per line). / 输出紧凑 JSON 行（每行一个对象，适用于 CODES_JSON）。\n'
+            '  python visa_status.py cl -fma t:you@mail.com,f:60\n'
+            '    -> Output JSON array (compact) for CODES_JSON. / 输出紧凑 JSON 数组（适用于 CODES_JSON）。\n'
             '  python visa_status.py clean -i data.csv -o out.json\n'
             '    -> Specify input and output. / 指定输入与输出。\n'
         )
@@ -157,8 +159,11 @@ def main(argv: Optional[List[str]] = None):
                         help='Output file path (default: CSV when no -fm, JSON when -fm) / 输出文件路径（无 -fm 默认 CSV；有 -fm 则为 JSON）')
     parser.add_argument('-k', '--keep', dest='keep', default=None,
                         help='Keep only types: combination of n,g,p,r (e.g. "gp", "g,r"). No -k means drop Not Found only. / 仅保留类型：n,g,p,r的组合（如"gp"、"g,r"）。不指定则只剔除未找到。')
+    # Output format switches
     parser.add_argument('-fm', '--for-monitor', dest='fm', nargs='?', const='', default=None,
                         help='When provided, output JSON lines. Use -fm alone to output code-only JSON; use -fm t:you@mail.com,f:60 to include fields. / 提供时输出 JSON 行；仅写 -fm 输出仅包含 code 的 JSON；使用 -fm t:你@mail.com,f:60 包含字段。')
+    parser.add_argument('-fma', '-fm-array', '--for-monitor-array', dest='fma', nargs='?', const='', default=None,
+                        help='Output JSON as an array (compact). Use -fma alone for code-only objects; or -fma t:you@mail.com,f:60 to include fields. / 输出紧凑 JSON 数组；仅写 -fma 输出仅含 code；或 -fma t:你@mail.com,f:60 包含字段。')
 
     args, _ = parser.parse_known_args(argv)
 
@@ -196,24 +201,35 @@ def main(argv: Optional[List[str]] = None):
         else:
             removed_counts[skey] += 1
 
-    # Decide output mode: CSV by default; JSON when -fm provided
-    # json_mode when -fm is specified (even if empty string)
-    json_mode = (args.fm is not None)
+    # Decide output mode: CSV by default; JSON-lines when -fm; JSON-array when -fma
+    json_lines_mode = (args.fm is not None)
+    json_array_mode = (args.fma is not None)
+    # If both provided, prefer JSON array mode
+    if json_lines_mode and json_array_mode:
+        json_lines_mode = False
+    json_mode = json_lines_mode or json_array_mode
     out_path = decide_output_path(src, args.output, json_mode=json_mode)
     os.makedirs(os.path.dirname(out_path) or '.', exist_ok=True)
 
     if json_mode:
-        # JSON compact, one object per line, separated by commas (no surrounding array)
-        target, freq = parse_fm_arg(args.fm)
-        out_items = build_code_entries(selected, target, freq)
-        with open(out_path, 'w', encoding='utf-8') as f:
-            for idx, item in enumerate(out_items):
-                s = json.dumps(item, ensure_ascii=False, separators=(',', ':'))
-                # comma at end of line except last line
-                if idx < len(out_items) - 1:
-                    f.write(s + ',\n')
-                else:
-                    f.write(s + '\n')
+        if json_array_mode:
+            # JSON array (compact)
+            target, freq = parse_fm_arg(args.fma)
+            out_items = build_code_entries(selected, target, freq)
+            with open(out_path, 'w', encoding='utf-8') as f:
+                f.write(json.dumps(out_items, ensure_ascii=False, separators=(',', ':')) + '\n')
+        else:
+            # JSON lines compact, one object per line, separated by commas (no surrounding array)
+            target, freq = parse_fm_arg(args.fm)
+            out_items = build_code_entries(selected, target, freq)
+            with open(out_path, 'w', encoding='utf-8') as f:
+                for idx, item in enumerate(out_items):
+                    s = json.dumps(item, ensure_ascii=False, separators=(',', ':'))
+                    # comma at end of line except last line
+                    if idx < len(out_items) - 1:
+                        f.write(s + ',\n')
+                    else:
+                        f.write(s + '\n')
     else:
         # CSV: headers 日期/Date, 查询码/Code, 签证状态/Status
         with open(out_path, 'w', encoding='utf-8', newline='') as f:
@@ -230,7 +246,10 @@ def main(argv: Optional[List[str]] = None):
     print("Clean summary / 清理结果:")
     print(f"  Input / 输入: {src}")
     if json_mode:
-        print(f"  Output(JSON lines) / 输出(JSON 行): {out_path}")
+        if json_array_mode:
+            print(f"  Output(JSON array) / 输出(JSON 数组): {out_path}")
+        else:
+            print(f"  Output(JSON lines) / 输出(JSON 行): {out_path}")
     else:
         print(f"  Output(CSV) / 输出(CSV): {out_path}")
     print(f"  Codes total / 总数: {total_codes}, kept / 保留: {kept_total}, removed / 删除: {removed_total}")

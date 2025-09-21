@@ -26,12 +26,34 @@ def main():
     # 生成器子命令
     gen_parser = sub.add_parser('generate-codes', aliases=['gen', 'gc'], help='Generate a CSV of query codes / 生成查询码CSV（支持自定义日期与数量）')
     # 清理子命令 / clean subcommand
-    cl_parser = sub.add_parser('clean', aliases=['cl'], help='Clean CSV by status (default CSV, JSON when -fm) / 按状态清理（默认导出CSV，提供 -fm 时导出JSON）')
+    cl_parser = sub.add_parser(
+        'clean', aliases=['cl'],
+        help='Clean CSV by status (default CSV, JSON when -fm) / 按状态清理（默认导出CSV，提供 -fm 时导出JSON）',
+        description='Clean CSV by status. 默认输出 CSV；提供 -fm 输出紧凑 JSON 行；提供 -fma 输出紧凑 JSON 数组（用于 CODES_JSON）。',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            'Examples / 示例:\n'
+            '  python visa_status.py cl\n'
+            '    -> Remove all Not Found and output CSV. / 剔除所有“未找到”，输出 CSV。\n'
+            '  python visa_status.py cl -k gp\n'
+            '    -> Keep only Granted & Proceedings. / 仅保留 通过 与 审理中。\n'
+            '  python visa_status.py cl -k g,r\n'
+            '    -> Keep only Granted & Rejected. / 仅保留 通过 与 拒绝。\n'
+            '  python visa_status.py cl -fm t:you@mail.com,f:60\n'
+            '    -> Output compact JSON lines for CODES_JSON (one object per line). / 输出紧凑 JSON 行（每行一个对象，适用于 CODES_JSON）。\n'
+            '  python visa_status.py cl -fma t:you@mail.com,f:60\n'
+            '    -> Output compact JSON array for CODES_JSON. / 输出紧凑 JSON 数组（适用于 CODES_JSON）。\n'
+            '  python visa_status.py clean -i data.csv -o out.json\n'
+            '    -> Specify input and output. / 指定输入与输出。\n'
+        )
+    )
     cl_parser.add_argument('-i', '--input', '--in', dest='input', default='query_codes.csv', help='Input CSV path / 输入CSV路径')
-    cl_parser.add_argument('-o', '--output', '--out', dest='output', default=None, help='Output JSON path / 输出JSON路径')
+    cl_parser.add_argument('-o', '--output', '--out', dest='output', default=None, help='Output path (CSV by default; JSON when -fm or -fma) / 输出路径（默认 CSV；提供 -fm 或 -fma 时输出 JSON）')
     cl_parser.add_argument('-k', '--keep', dest='keep', default=None, help='Keep only n,g,p,r / 仅保留 n,g,p,r')
     cl_parser.add_argument('-fm', '--for-monitor', dest='fm', nargs='?', const='', default=None,
-                           help='Optional monitor fields. Use -fm alone for JSON with only code, or -fm t:email,f:60 to include fields. / 可选监控字段；仅写 -fm 输出仅含 code 的 JSON；或使用 -fm t:邮箱,f:60 包含字段。')
+                           help='Optional monitor fields. Use -fm alone for JSON code-only lines; or -fm t:email,f:60 to include fields. / 可选监控字段；仅写 -fm 输出仅含 code 的 JSON 行；或使用 -fm t:邮箱,f:60 包含字段。')
+    cl_parser.add_argument('-fma', '-fm-array', '--for-monitor-array', dest='fma', nargs='?', const='', default=None,
+                           help='Output JSON as an array (compact). Use -fma alone for code-only objects; or -fma t:email,f:60 to include fields. / 输出紧凑 JSON 数组；仅写 -fma 输出仅含 code；或使用 -fma t:邮箱,f:60 包含字段。')
     gen_parser.add_argument('-o', '--out', default='query_codes.csv', help='output CSV path / 输出 CSV 路径')
     gen_parser.add_argument('-s', '--start', help='start date YYYY-MM-DD / 起始日期（YYYY-MM-DD）')
     gen_parser.add_argument('-e', '--end', help='end date YYYY-MM-DD / 结束日期（YYYY-MM-DD）')
