@@ -260,17 +260,17 @@ Parameters（cz）/ 参数（cz）：
 - `-w, --workers N` — concurrent workers (pages). / 并发 worker 数
 - `-l, --log-dir PATH` — change log directory (default: `logs`). / 日志目录
 
-`clean` (alias: `cl`) — clean a query CSV by status and output JSON for .env CODES_JSON.
-`clean`（别名：`cl`）— 按状态清理查询结果 CSV，输出用于 .env CODES_JSON 的 JSON。
+`clean` (alias: `cl`) — clean a query CSV by status. Defaults to CSV; outputs compact JSON lines only when `-fm` is provided.
+`clean`（别名：`cl`）— 按状态清理查询结果 CSV。默认输出 CSV；仅在提供 `-fm` 时输出紧凑 JSON 行。
 
 - `-i, --input PATH` — input CSV (default: `query_codes.csv`). / 输入 CSV（默认：`query_codes.csv`）
-- `-o, --output PATH` — output JSON path (default: same dir with suffix `_Cleaned_YYYYMMDD_HHMMSS.json`). / 输出 JSON 路径（默认同目录，文件名追加 `_Cleaned_时间戳`）
+- `-o, --output PATH` — output path (default: CSV path when no `-fm`, JSON path when `-fm`). / 输出路径（无 `-fm` 默认 CSV；有 `-fm` 则为 JSON）。
 - `-k, --keep n|g|p|r[,...]` — keep only specified normalized statuses: n=Not Found, g=Granted, p=Proceedings, r=Rejected/Closed. Comma-separated or compact like `gp`. If omitted, defaults to removing all Not Found and keeping others. / 仅保留指定的标准化状态：n=未找到，g=已通过，p=审理中，r=拒绝/关闭。可逗号分隔或紧凑写法（如 `gp`）。若省略，则默认剔除所有“未找到”。
-- `-fm, --for-monitor t:email[,f:minutes]` — add monitor fields to each JSON entry. Example: `-fm t:user@mail.com,f:60` → adds `channel=email`, `target=user@mail.com`, `freq_minutes=60`. Short aliases allowed: `t:` for target, `f:` for frequency. / 为每个 JSON 条目添加监控字段。例如：`-fm t:user@mail.com,f:60` → 添加 `channel=email`、`target=user@mail.com`、`freq_minutes=60`。支持简写：`t:` 目标邮箱，`f:` 频率（分钟）。
+- `-fm, --for-monitor t:email[,f:minutes]` — when provided, output compact JSON lines for monitor. Example: `-fm t:user@mail.com,f:60` → each line: `{"code":"...","channel":"email","target":"user@mail.com","freq_minutes":60}`. / 提供时，输出紧凑 JSON 行用于监控。例如：`-fm t:user@mail.com,f:60` → 每行形如：`{"code":"...","channel":"email","target":"user@mail.com","freq_minutes":60}`。
 
 Examples / 示例：
 ```bash
-# 1) Default: remove all Not Found and output JSON in same folder
+# 1) Default: remove all Not Found and output CSV in same folder
 python visa_status.py cl
 
 # 2) Keep only Granted and Proceedings
@@ -279,26 +279,30 @@ python visa_status.py cl -k gp
 # 3) Keep only Granted and Rejected (comma form)
 python visa_status.py cl -k g,r
 
-# 4) Include monitor fields for direct use in .env CODES_JSON
+# 4) Include monitor fields for direct use in .env CODES_JSON (compact JSON lines)
 python visa_status.py cl -k gp -fm t:you@mail.com,f:40
 
 # 5) Specify input and output paths
 python visa_status.py clean -i query_codes.csv -o cleaned.json
 ```
 
-Output JSON format / 输出 JSON 格式：
+Output formats / 输出格式：
 
-The output is a JSON array. Each item has at least `code`, and when `-fm` is provided, also includes `channel`, `target`, and optional `freq_minutes`.
-输出为 JSON 数组。每个条目至少包含 `code`；提供 `-fm` 时会包含 `channel`、`target`，以及可选 `freq_minutes`。
-
-```json
-[
-	{ "code": "PEKI202506020001" },
-	{ "code": "PEKI202506030002", "channel": "email", "target": "you@mail.com", "freq_minutes": 60 }
-]
+- CSV (default) / CSV（默认）:
+```csv
+日期/Date,查询码/Code,签证状态/Status
+2025-07-01,PEKI202507010001,Not Found/未找到
+2025-07-01,PEKI202507010002,Proceedings/审理中
+2025-07-02,PEKI202507020001,Granted/已通过
 ```
 
-You can paste this array directly into `.env` as `CODES_JSON='[...]'` or keep it in a file and load via your workflow. / 可直接将该数组粘贴进 `.env` 的 `CODES_JSON='[...]'`，或保存为文件按你的工作流加载。
+- Compact JSON lines (with `-fm`) / 紧凑 JSON 行（带 `-fm`）:
+```json
+{"code":"PEKI202505300015","channel":"email","target":"you@mail.com","freq_minutes":40},
+{"code":"PEKI202508190002","channel":"email","target":"you@mail.com","freq_minutes":60}
+```
+
+Tip / 提示：你可以将这些 JSON 行拷入 `.env` 中的 `CODES_JSON='[...]'`（注意需要包装成 JSON 数组），或保存在文件中按你的工作流加载。
 
 ## Global options / 全局选项
  -r/--retries, -l/--log-dir

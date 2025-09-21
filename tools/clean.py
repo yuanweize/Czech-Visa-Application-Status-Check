@@ -14,6 +14,14 @@ STATUS_MAP = {
     'rejected': 'r', '被拒绝': 'r',
 }
 
+STATUS_LABEL = {
+    'n': 'Not Found/未找到',
+    'g': 'Granted/已通过',
+    'p': 'Proceedings/审理中',
+    'r': 'Rejected/被拒绝',
+    'other': 'Unknown/未知',
+}
+
 
 def normalize_status(value: str) -> str:
     if not value:
@@ -127,18 +135,18 @@ def summarize(counts: Dict[str, int]) -> str:
 def main(argv: Optional[List[str]] = None):
     parser = argparse.ArgumentParser(
         prog='clean',
-        description='Clean CSV by status and output JSON for CODES_JSON. 删除CSV中的未找到或按指定类型筛选，并输出用于CODES_JSON的JSON文件。',
+        description='Clean CSV by status. 默认输出 CSV；仅在提供 -fm 时输出紧凑 JSON（用于 CODES_JSON）。',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             'Examples / 示例:\n'
             '  python visa_status.py cl\n'
-            '    -> Remove all Not Found and output JSON. / 剔除所有“未找到”，输出 JSON。\n'
+            '    -> Remove all Not Found and output CSV. / 剔除所有“未找到”，输出 CSV。\n'
             '  python visa_status.py cl -k gp\n'
             '    -> Keep only Granted & Proceedings. / 仅保留 通过 与 审理中。\n'
             '  python visa_status.py cl -k g,r\n'
             '    -> Keep only Granted & Rejected. / 仅保留 通过 与 拒绝。\n'
             '  python visa_status.py cl -fm t:you@mail.com,f:60\n'
-            '    -> Output JSON with channel=email, target=you@mail.com, freq_minutes=60. / 输出含邮件与频率字段的 JSON。\n'
+            '    -> Output compact JSON lines for CODES_JSON (one object per line). / 输出紧凑 JSON 行（每行一个对象，适用于 CODES_JSON）。\n'
             '  python visa_status.py clean -i data.csv -o out.json\n'
             '    -> Specify input and output. / 指定输入与输出。\n'
         )
@@ -146,11 +154,11 @@ def main(argv: Optional[List[str]] = None):
     parser.add_argument('-i', '--input', '--in', dest='input', default='query_codes.csv',
                         help='Input CSV path (default: query_codes.csv) / 输入CSV路径（默认 query_codes.csv）')
     parser.add_argument('-o', '--output', '--out', dest='output', default=None,
-                        help='Output file path (default: <input>_Cleaned_<timestamp>.json) / 输出文件路径（默认 <输入>_Cleaned_时间戳.json）')
+                        help='Output file path (default: CSV when no -fm, JSON when -fm) / 输出文件路径（无 -fm 默认 CSV；有 -fm 则为 JSON）')
     parser.add_argument('-k', '--keep', dest='keep', default=None,
                         help='Keep only types: combination of n,g,p,r (e.g. "gp", "g,r"). No -k means drop Not Found only. / 仅保留类型：n,g,p,r的组合（如"gp"、"g,r"）。不指定则只剔除未找到。')
     parser.add_argument('-fm', '--for-monitor', dest='fm', default=None,
-                        help='Format fields for monitor JSON, e.g. "target:you@mail.com,freq_minutes:60" or "t:you@mail.com,f:60" or "f:40". / 为监控生成字段，如 "target:你@mail.com,freq_minutes:60" 或 "t:你@mail.com,f:60" 或仅 "f:40"')
+                        help='When provided, output JSON for monitor: e.g. "target:you@mail.com,freq_minutes:60" 或 "t:你@mail.com,f:60" 或仅 "f:40"。提供 -fm 时输出紧凑 JSON 行；否则输出 CSV。')
 
     args, _ = parser.parse_known_args(argv)
 
@@ -188,12 +196,31 @@ def main(argv: Optional[List[str]] = None):
         else:
             removed_counts[skey] += 1
 
-    target, freq = parse_fm_arg(args.fm)
-    out_items = build_code_entries(selected, target, freq)
-    out_path = decide_output_path(src, args.output, json_mode=True)
+    # Decide output mode: CSV by default; JSON when -fm provided
+    json_mode = bool(args.fm)
+    out_path = decide_output_path(src, args.output, json_mode=json_mode)
     os.makedirs(os.path.dirname(out_path) or '.', exist_ok=True)
-    with open(out_path, 'w', encoding='utf-8') as f:
-        json.dump(out_items, f, ensure_ascii=False, indent=2)
+
+    if json_mode:
+        # JSON compact, one object per line, separated by commas (no surrounding array)
+        target, freq = parse_fm_arg(args.fm)
+        out_items = build_code_entries(selected, target, freq)
+        with open(out_path, 'w', encoding='utf-8') as f:
+            for idx, item in enumerate(out_items):
+                s = json.dumps(item, ensure_ascii=False, separators=(',', ':'))
+                # comma at end of line except last line
+                if idx < len(out_items) - 1:
+                    f.write(s + ',\n')
+                else:
+                    f.write(s + '\n')
+    else:
+        # CSV: headers 日期/Date, 查询码/Code, 签证状态/Status
+        with open(out_path, 'w', encoding='utf-8', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow(['日期/Date', '查询码/Code', '签证状态/Status'])
+            for code in sorted(selected):
+                date_val, skey = latest[code]
+                writer.writerow([date_val, code, STATUS_LABEL.get(skey, STATUS_LABEL['other'])])
 
     # Summary (EN/中文)
     total_codes = len(latest)
@@ -201,7 +228,10 @@ def main(argv: Optional[List[str]] = None):
     removed_total = total_codes - kept_total
     print("Clean summary / 清理结果:")
     print(f"  Input / 输入: {src}")
-    print(f"  Output(JSON) / 输出(JSON): {out_path}")
+    if json_mode:
+        print(f"  Output(JSON lines) / 输出(JSON 行): {out_path}")
+    else:
+        print(f"  Output(CSV) / 输出(CSV): {out_path}")
     print(f"  Codes total / 总数: {total_codes}, kept / 保留: {kept_total}, removed / 删除: {removed_total}")
     if args.keep:
         print(f"  Keep filter / 保留类型: {args.keep} (n=Not Found, g=Granted, p=Proceedings, r=Rejected)")

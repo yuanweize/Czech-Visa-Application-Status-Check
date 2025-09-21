@@ -26,7 +26,7 @@ def main():
     # 生成器子命令
     gen_parser = sub.add_parser('generate-codes', aliases=['gen', 'gc'], help='Generate a CSV of query codes / 生成查询码CSV（支持自定义日期与数量）')
     # 清理子命令 / clean subcommand
-    cl_parser = sub.add_parser('clean', aliases=['cl'], help='Clean CSV by status to JSON for CODES_JSON / 清理CSV并输出用于CODES_JSON的JSON')
+    cl_parser = sub.add_parser('clean', aliases=['cl'], help='Clean CSV by status (default CSV, JSON when -fm) / 按状态清理（默认导出CSV，提供 -fm 时导出JSON）')
     cl_parser.add_argument('-i', '--input', '--in', dest='input', default='query_codes.csv', help='Input CSV path / 输入CSV路径')
     cl_parser.add_argument('-o', '--output', '--out', dest='output', default=None, help='Output JSON path / 输出JSON路径')
     cl_parser.add_argument('-k', '--keep', dest='keep', default=None, help='Keep only n,g,p,r / 仅保留 n,g,p,r')

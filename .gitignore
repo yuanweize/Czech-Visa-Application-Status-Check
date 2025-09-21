@@ -44,6 +44,7 @@ task.md
 *.xls
 *.sqlite
 *.csv
+*.json
 ## Node / packaging
 node_modules/
 
