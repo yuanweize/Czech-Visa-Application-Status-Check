@@ -157,8 +157,8 @@ def main(argv: Optional[List[str]] = None):
                         help='Output file path (default: CSV when no -fm, JSON when -fm) / 输出文件路径（无 -fm 默认 CSV；有 -fm 则为 JSON）')
     parser.add_argument('-k', '--keep', dest='keep', default=None,
                         help='Keep only types: combination of n,g,p,r (e.g. "gp", "g,r"). No -k means drop Not Found only. / 仅保留类型：n,g,p,r的组合（如"gp"、"g,r"）。不指定则只剔除未找到。')
-    parser.add_argument('-fm', '--for-monitor', dest='fm', default=None,
-                        help='When provided, output JSON for monitor: e.g. "target:you@mail.com,freq_minutes:60" 或 "t:你@mail.com,f:60" 或仅 "f:40"。提供 -fm 时输出紧凑 JSON 行；否则输出 CSV。')
+    parser.add_argument('-fm', '--for-monitor', dest='fm', nargs='?', const='', default=None,
+                        help='When provided, output JSON lines. Use -fm alone to output code-only JSON; use -fm t:you@mail.com,f:60 to include fields. / 提供时输出 JSON 行；仅写 -fm 输出仅包含 code 的 JSON；使用 -fm t:你@mail.com,f:60 包含字段。')
 
     args, _ = parser.parse_known_args(argv)
 
@@ -197,7 +197,8 @@ def main(argv: Optional[List[str]] = None):
             removed_counts[skey] += 1
 
     # Decide output mode: CSV by default; JSON when -fm provided
-    json_mode = bool(args.fm)
+    # json_mode when -fm is specified (even if empty string)
+    json_mode = (args.fm is not None)
     out_path = decide_output_path(src, args.output, json_mode=json_mode)
     os.makedirs(os.path.dirname(out_path) or '.', exist_ok=True)
 

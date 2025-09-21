@@ -266,7 +266,7 @@ Parameters（cz）/ 参数（cz）：
 - `-i, --input PATH` — input CSV (default: `query_codes.csv`). / 输入 CSV（默认：`query_codes.csv`）
 - `-o, --output PATH` — output path (default: CSV path when no `-fm`, JSON path when `-fm`). / 输出路径（无 `-fm` 默认 CSV；有 `-fm` 则为 JSON）。
 - `-k, --keep n|g|p|r[,...]` — keep only specified normalized statuses: n=Not Found, g=Granted, p=Proceedings, r=Rejected/Closed. Comma-separated or compact like `gp`. If omitted, defaults to removing all Not Found and keeping others. / 仅保留指定的标准化状态：n=未找到，g=已通过，p=审理中，r=拒绝/关闭。可逗号分隔或紧凑写法（如 `gp`）。若省略，则默认剔除所有“未找到”。
-- `-fm, --for-monitor t:email[,f:minutes]` — when provided, output compact JSON lines for monitor. Example: `-fm t:user@mail.com,f:60` → each line: `{"code":"...","channel":"email","target":"user@mail.com","freq_minutes":60}`. / 提供时，输出紧凑 JSON 行用于监控。例如：`-fm t:user@mail.com,f:60` → 每行形如：`{"code":"...","channel":"email","target":"user@mail.com","freq_minutes":60}`。
+- `-fm, --for-monitor [t:email[,f:minutes]]` — when provided, output compact JSON lines. Use `-fm` alone to output code-only lines; add `t:...` and/or `f:...` to include fields. Example: `-fm t:user@mail.com,f:60` → `{"code":"...","channel":"email","target":"user@mail.com","freq_minutes":60}`。/ 提供时输出紧凑 JSON 行；仅写 `-fm` 输出仅包含 code 的行；添加 `t:...`/`f:...` 可包含字段。
 
 Examples / 示例：
 ```bash
@@ -281,6 +281,9 @@ python visa_status.py cl -k g,r
 
 # 4) Include monitor fields for direct use in .env CODES_JSON (compact JSON lines)
 python visa_status.py cl -k gp -fm t:you@mail.com,f:40
+
+# 4.1) Code-only compact JSON lines
+python visa_status.py cl -fm
 
 # 5) Specify input and output paths
 python visa_status.py clean -i query_codes.csv -o cleaned.json

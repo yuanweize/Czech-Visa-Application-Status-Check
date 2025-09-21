@@ -30,7 +30,8 @@ def main():
     cl_parser.add_argument('-i', '--input', '--in', dest='input', default='query_codes.csv', help='Input CSV path / 输入CSV路径')
     cl_parser.add_argument('-o', '--output', '--out', dest='output', default=None, help='Output JSON path / 输出JSON路径')
     cl_parser.add_argument('-k', '--keep', dest='keep', default=None, help='Keep only n,g,p,r / 仅保留 n,g,p,r')
-    cl_parser.add_argument('-fm', '--for-monitor', dest='fm', default=None, help='Fields for monitor (t:email,f:60) / 监控字段 (t:邮箱,f:60)')
+    cl_parser.add_argument('-fm', '--for-monitor', dest='fm', nargs='?', const='', default=None,
+                           help='Optional monitor fields. Use -fm alone for JSON with only code, or -fm t:email,f:60 to include fields. / 可选监控字段；仅写 -fm 输出仅含 code 的 JSON；或使用 -fm t:邮箱,f:60 包含字段。')
     gen_parser.add_argument('-o', '--out', default='query_codes.csv', help='output CSV path / 输出 CSV 路径')
     gen_parser.add_argument('-s', '--start', help='start date YYYY-MM-DD / 起始日期（YYYY-MM-DD）')
     gen_parser.add_argument('-e', '--end', help='end date YYYY-MM-DD / 结束日期（YYYY-MM-DD）')
