@@ -260,14 +260,14 @@ Parameters（cz）/ 参数（cz）：
 - `-w, --workers N` — concurrent workers (pages). / 并发 worker 数
 - `-l, --log-dir PATH` — change log directory (default: `logs`). / 日志目录
 
-`clean` (alias: `cl`) — clean a query CSV by status. Defaults to CSV; with `-fm` outputs compact JSON lines; with `-fma` outputs a pretty (multi-line) JSON array.
-`clean`（别名：`cl`）— 按状态清理查询结果 CSV。默认输出 CSV；带 `-fm` 输出紧凑 JSON 行；带 `-fma` 输出易读（多行）JSON 数组。
+`clean` (alias: `cl`) — clean a query CSV by status. Defaults to CSV; with `-fm` outputs compact JSON lines; with `-fma` outputs a multi-line JSON array (one compact object per line).
+`clean`（别名：`cl`）— 按状态清理查询结果 CSV。默认输出 CSV；带 `-fm` 输出紧凑 JSON 行；带 `-fma` 输出多行 JSON 数组（每行一个紧凑对象）。
 
 - `-i, --input PATH` — input CSV (default: `query_codes.csv`). / 输入 CSV（默认：`query_codes.csv`）
 - `-o, --output PATH` — output path (default: CSV path when no `-fm`, JSON path when `-fm`). / 输出路径（无 `-fm` 默认 CSV；有 `-fm` 则为 JSON）。
 - `-k, --keep n|g|p|r[,...]` — keep only specified normalized statuses: n=Not Found, g=Granted, p=Proceedings, r=Rejected/Closed. Comma-separated or compact like `gp`. If omitted, defaults to removing all Not Found and keeping others. / 仅保留指定的标准化状态：n=未找到，g=已通过，p=审理中，r=拒绝/关闭。可逗号分隔或紧凑写法（如 `gp`）。若省略，则默认剔除所有“未找到”。
 - `-fm, --for-monitor [t:email[,f:minutes]]` — when provided, output compact JSON lines. Use `-fm` alone to output code-only lines; add `t:...` and/or `f:...` to include fields. Example: `-fm t:user@mail.com,f:60` → `{"code":"...","channel":"email","target":"user@mail.com","freq_minutes":60}`。/ 提供时输出紧凑 JSON 行；仅写 `-fm` 输出仅包含 code 的行；添加 `t:...`/`f:...` 可包含字段。
-- `-fma, -fm-array, --for-monitor-array [t:email[,f:minutes]]` — output a pretty (multi-line) JSON array. Use `-fma` alone for code-only objects; add `t:...` and/or `f:...` like `-fma t:user@mail.com,f:60`。/ 输出易读（多行）JSON 数组；仅写 `-fma` 输出仅含 code 的对象；也可添加 `t:...`/`f:...`（如 `-fma t:user@mail.com,f:60`）。
+- `-fma, -fm-array, --for-monitor-array [t:email[,f:minutes]]` — output a multi-line JSON array with one compact object per line (like `-fm` but wrapped in `[ ... ]`). Use `-fma` alone for code-only objects; add `t:...` and/or `f:...` like `-fma t:user@mail.com,f:60`。/ 输出多行 JSON 数组（每行一个紧凑对象，效果类似 `-fm` 但包裹在 `[ ... ]` 中）；仅写 `-fma` 输出仅含 code 的对象；也可添加 `t:...`/`f:...`（如 `-fma t:user@mail.com,f:60`）。
 
 Examples / 示例：
 ```bash
@@ -286,7 +286,7 @@ python visa_status.py cl -k gp -fm t:you@mail.com,f:40
 # 4.1) Code-only compact JSON lines
 python visa_status.py cl -fm
 
-# 4.2) Pretty JSON array (multi-line; useful when you need a valid JSON array directly)
+# 4.2) JSON array (multi-line; each element is a compact one-line object, like -fm but wrapped in [])
 python visa_status.py cl -k gp -fma t:you@mail.com,f:40
 
 # 5) Specify input and output paths
@@ -311,6 +311,14 @@ Output formats / 输出格式：
 
 Tip / 提示：你可以将这些 JSON 行拷入 `.env` 中的 `CODES_JSON='[...]'`（注意需要包装成 JSON 数组），或保存在文件中按你的工作流加载。
 Array mode note / 数组模式说明：使用 `-fma` 直接输出多行 JSON 数组，更便于阅读与复制到需要数组的场景（如直接赋给 `CODES_JSON`）。
+
+Example (-fma) / 示例（-fma 数组输出，每行一个对象）:
+```json
+[
+{"code":"PEKI202509040004","channel":"email","target":"you@mail.com","freq_minutes":30},
+{"code":"PEKI202509080001","channel":"email","target":"you@mail.com","freq_minutes":30}
+]
+```
 
 ## Global options / 全局选项
  -r/--retries, -l/--log-dir
