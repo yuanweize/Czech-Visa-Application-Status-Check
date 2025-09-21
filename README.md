@@ -260,6 +260,46 @@ Parameters（cz）/ 参数（cz）：
 - `-w, --workers N` — concurrent workers (pages). / 并发 worker 数
 - `-l, --log-dir PATH` — change log directory (default: `logs`). / 日志目录
 
+`clean` (alias: `cl`) — clean a query CSV by status and output JSON for .env CODES_JSON.
+`clean`（别名：`cl`）— 按状态清理查询结果 CSV，输出用于 .env CODES_JSON 的 JSON。
+
+- `-i, --input PATH` — input CSV (default: `query_codes.csv`). / 输入 CSV（默认：`query_codes.csv`）
+- `-o, --output PATH` — output JSON path (default: same dir with suffix `_Cleaned_YYYYMMDD_HHMMSS.json`). / 输出 JSON 路径（默认同目录，文件名追加 `_Cleaned_时间戳`）
+- `-k, --keep n|g|p|r[,...]` — keep only specified normalized statuses: n=Not Found, g=Granted, p=Proceedings, r=Rejected/Closed. Comma-separated or compact like `gp`. If omitted, defaults to removing all Not Found and keeping others. / 仅保留指定的标准化状态：n=未找到，g=已通过，p=审理中，r=拒绝/关闭。可逗号分隔或紧凑写法（如 `gp`）。若省略，则默认剔除所有“未找到”。
+- `-fm, --for-monitor t:email[,f:minutes]` — add monitor fields to each JSON entry. Example: `-fm t:user@mail.com,f:60` → adds `channel=email`, `target=user@mail.com`, `freq_minutes=60`. Short aliases allowed: `t:` for target, `f:` for frequency. / 为每个 JSON 条目添加监控字段。例如：`-fm t:user@mail.com,f:60` → 添加 `channel=email`、`target=user@mail.com`、`freq_minutes=60`。支持简写：`t:` 目标邮箱，`f:` 频率（分钟）。
+
+Examples / 示例：
+```bash
+# 1) Default: remove all Not Found and output JSON in same folder
+python visa_status.py cl
+
+# 2) Keep only Granted and Proceedings
+python visa_status.py cl -k gp
+
+# 3) Keep only Granted and Rejected (comma form)
+python visa_status.py cl -k g,r
+
+# 4) Include monitor fields for direct use in .env CODES_JSON
+python visa_status.py cl -k gp -fm t:you@mail.com,f:40
+
+# 5) Specify input and output paths
+python visa_status.py clean -i query_codes.csv -o cleaned.json
+```
+
+Output JSON format / 输出 JSON 格式：
+
+The output is a JSON array. Each item has at least `code`, and when `-fm` is provided, also includes `channel`, `target`, and optional `freq_minutes`.
+输出为 JSON 数组。每个条目至少包含 `code`；提供 `-fm` 时会包含 `channel`、`target`，以及可选 `freq_minutes`。
+
+```json
+[
+	{ "code": "PEKI202506020001" },
+	{ "code": "PEKI202506030002", "channel": "email", "target": "you@mail.com", "freq_minutes": 60 }
+]
+```
+
+You can paste this array directly into `.env` as `CODES_JSON='[...]'` or keep it in a file and load via your workflow. / 可直接将该数组粘贴进 `.env` 的 `CODES_JSON='[...]'`，或保存为文件按你的工作流加载。
+
 ## Global options / 全局选项
  -r/--retries, -l/--log-dir
  全局：-r/--retries，-l/--log-dir

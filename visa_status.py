@@ -5,6 +5,7 @@ import importlib
 # 工具注册表：key为命令名，值为(模块路径, 主函数名)
 TOOLS = {
     'generate-codes': ('tools.generate_codes', 'main'),
+    'clean': ('tools.clean', 'main'),
 }
 
 # 查询器注册表（Playwright-only），所有国家查询模块均用二字国家码命名（如cz、us、de等）
@@ -24,6 +25,12 @@ def main():
 
     # 生成器子命令
     gen_parser = sub.add_parser('generate-codes', aliases=['gen', 'gc'], help='Generate a CSV of query codes / 生成查询码CSV（支持自定义日期与数量）')
+    # 清理子命令 / clean subcommand
+    cl_parser = sub.add_parser('clean', aliases=['cl'], help='Clean CSV by status to JSON for CODES_JSON / 清理CSV并输出用于CODES_JSON的JSON')
+    cl_parser.add_argument('-i', '--input', '--in', dest='input', default='query_codes.csv', help='Input CSV path / 输入CSV路径')
+    cl_parser.add_argument('-o', '--output', '--out', dest='output', default=None, help='Output JSON path / 输出JSON路径')
+    cl_parser.add_argument('-k', '--keep', dest='keep', default=None, help='Keep only n,g,p,r / 仅保留 n,g,p,r')
+    cl_parser.add_argument('-fm', '--for-monitor', dest='fm', default=None, help='Fields for monitor (t:email,f:60) / 监控字段 (t:邮箱,f:60)')
     gen_parser.add_argument('-o', '--out', default='query_codes.csv', help='output CSV path / 输出 CSV 路径')
     gen_parser.add_argument('-s', '--start', help='start date YYYY-MM-DD / 起始日期（YYYY-MM-DD）')
     gen_parser.add_argument('-e', '--end', help='end date YYYY-MM-DD / 结束日期（YYYY-MM-DD）')
@@ -83,6 +90,7 @@ def main():
     alias_map = {
         'gc': 'generate-codes',
         'gen': 'generate-codes',
+        'cl': 'clean',
         'rep': 'report',
         'r': 'report',
         'c': 'cz',
