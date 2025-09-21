@@ -80,7 +80,7 @@ def decide_output_path(in_path: str, out_path: Optional[str], json_mode: bool = 
 
 # Shared help/description strings (single source of truth for CLI help)
 CLEAN_DESC = (
-    'Clean CSV by status. 默认输出 CSV；提供 -fm 输出紧凑 JSON 行；提供 -fma 输出紧凑 JSON 数组（用于 CODES_JSON）。'
+    'Clean CSV by status. 默认输出 CSV；提供 -fm 输出紧凑 JSON 行；提供 -fma 输出易读(多行) JSON 数组（用于 CODES_JSON）。'
 )
 CLEAN_EPILOG = (
     'Examples / 示例:\n'
@@ -93,7 +93,7 @@ CLEAN_EPILOG = (
     '  python visa_status.py cl -fm t:you@mail.com,f:60\n'
     '    -> Output compact JSON lines for CODES_JSON (one object per line). / 输出紧凑 JSON 行（每行一个对象，适用于 CODES_JSON）。\n'
     '  python visa_status.py cl -fma t:you@mail.com,f:60\n'
-    '    -> Output JSON array (compact) for CODES_JSON. / 输出紧凑 JSON 数组（适用于 CODES_JSON）。\n'
+    '    -> Output JSON array (pretty, multi-line) for CODES_JSON. / 输出易读(多行) JSON 数组（适用于 CODES_JSON）。\n'
     '  python visa_status.py clean -i data.csv -o out.json\n'
     '    -> Specify input and output. / 指定输入与输出。\n'
 )
@@ -225,11 +225,12 @@ def main(argv: Optional[List[str]] = None):
 
     if json_mode:
         if json_array_mode:
-            # JSON array (compact)
+            # JSON array (pretty, multi-line)
             target, freq = parse_fm_arg(args.fma)
             out_items = build_code_entries(selected, target, freq)
             with open(out_path, 'w', encoding='utf-8') as f:
-                f.write(json.dumps(out_items, ensure_ascii=False, separators=(',', ':')) + '\n')
+                json.dump(out_items, f, ensure_ascii=False, indent=2)
+                f.write('\n')
         else:
             # JSON lines compact, one object per line, separated by commas (no surrounding array)
             target, freq = parse_fm_arg(args.fm)
