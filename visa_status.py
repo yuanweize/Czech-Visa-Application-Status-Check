@@ -25,28 +25,10 @@ def main():
 
     # 生成器子命令
     gen_parser = sub.add_parser('generate-codes', aliases=['gen', 'gc'], help='Generate a CSV of query codes / 生成查询码CSV（支持自定义日期与数量）')
-    # 清理子命令 / clean subcommand
-    cl_parser = sub.add_parser(
-        'clean', aliases=['cl'],
-        help='Clean CSV by status (default CSV, JSON when -fm) / 按状态清理（默认导出CSV，提供 -fm 时导出JSON）',
-        description='Clean CSV by status. 默认输出 CSV；提供 -fm 输出紧凑 JSON 行；提供 -fma 输出紧凑 JSON 数组（用于 CODES_JSON）。',
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=(
-            'Examples / 示例:\n'
-            '  python visa_status.py cl\n'
-            '    -> Remove all Not Found and output CSV. / 剔除所有“未找到”，输出 CSV。\n'
-            '  python visa_status.py cl -k gp\n'
-            '    -> Keep only Granted & Proceedings. / 仅保留 通过 与 审理中。\n'
-            '  python visa_status.py cl -k g,r\n'
-            '    -> Keep only Granted & Rejected. / 仅保留 通过 与 拒绝。\n'
-            '  python visa_status.py cl -fm t:you@mail.com,f:60\n'
-            '    -> Output compact JSON lines for CODES_JSON (one object per line). / 输出紧凑 JSON 行（每行一个对象，适用于 CODES_JSON）。\n'
-            '  python visa_status.py cl -fma t:you@mail.com,f:60\n'
-            '    -> Output compact JSON array for CODES_JSON. / 输出紧凑 JSON 数组（适用于 CODES_JSON）。\n'
-            '  python visa_status.py clean -i data.csv -o out.json\n'
-            '    -> Specify input and output. / 指定输入与输出。\n'
-        )
-    )
+    # 清理子命令 / clean subcommand (Option B: stub parser, delegate full help to tools.clean)
+    # We register the subparser minimally and forward all args (including -h) to tools.clean
+    cl_parser = sub.add_parser('clean', aliases=['cl'], add_help=False,
+                               help='Clean CSV by status / 按状态清理（详细帮助请使用: python visa_status.py cl -h）')
     cl_parser.add_argument('-i', '--input', '--in', dest='input', default='query_codes.csv', help='Input CSV path / 输入CSV路径')
     cl_parser.add_argument('-o', '--output', '--out', dest='output', default=None, help='Output path (CSV by default; JSON when -fm or -fma) / 输出路径（默认 CSV；提供 -fm 或 -fma 时输出 JSON）')
     cl_parser.add_argument('-k', '--keep', dest='keep', default=None, help='Keep only n,g,p,r / 仅保留 n,g,p,r')
@@ -107,7 +89,8 @@ def main():
                 original_subcmd = tok
                 break
 
-    args = parser.parse_args()
+    # Use parse_known_args so we can forward unknown args (including -h) to sub-tools like clean
+    args, unknown = parser.parse_known_args()
 
     # 统一别名映射，防止 argparse 在特定 Python 版本/实现下返回别名值导致匹配失败
     alias_map = {
@@ -123,11 +106,11 @@ def main():
     if hasattr(args, 'cmd') and args.cmd in alias_map:
         args.cmd = alias_map[args.cmd]
 
-    # 动态切分子命令后续参数（支持全局参数位于子命令之前，例如: -r 2 gc -n 5）
+    # 动态切分子命令后续参数（支持全局参数位于子命令之前，例如: -r 2 gc -n 5）。
+    # 采用 argv 切片，将子命令后的所有参数原样转发至具体工具（包括 -h）。
     cmd_args = []
     if original_subcmd:
         try:
-            # 定位原始出现位置，再取其后的所有参数
             idx = sys.argv.index(original_subcmd)
             cmd_args = sys.argv[idx + 1:]
         except ValueError:
@@ -139,6 +122,11 @@ def main():
         mod_name, func_name = TOOLS[args.cmd]
         mod = importlib.import_module(mod_name)
         func = getattr(mod, func_name)
+        func(cmd_args)
+    elif args.cmd in ('clean', 'cl'):
+        # Delegate to tools.clean fully (including -h handling)
+        mod = importlib.import_module('tools.clean')
+        func = getattr(mod, 'main')
         func(cmd_args)
     elif args.cmd == 'monitor':
         if args.install:
