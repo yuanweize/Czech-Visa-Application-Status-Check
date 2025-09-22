@@ -125,11 +125,15 @@ def send_email(cfg, to_addr: str, subject: str, html_body: str):
     
     try:
         msg = MIMEText(html_body, "html", "utf-8")
-        sender = cfg.smtp_from or "CZ Visa Monitor"
-        if "@" in sender:
-            msg["From"] = formataddr(("CZ Visa Monitor", sender))
+        
+        # Set From header properly according to RFC 5322
+        if cfg.smtp_from and "@" in cfg.smtp_from:
+            # Use the configured email address with display name
+            msg["From"] = formataddr(("CZ Visa Monitor", cfg.smtp_from))
         else:
+            # Fallback to default
             msg["From"] = "CZ Visa Monitor <noreply@example.com>"
+            
         msg["To"] = to_addr
         msg["Subject"] = subject
 
@@ -139,8 +143,12 @@ def send_email(cfg, to_addr: str, subject: str, html_body: str):
         # Send the email and capture any response
         smtp_response = None
         try:
-            send_result = conn.send_message(msg)
-            # send_message returns a dict of failed recipients, empty dict means success
+            # Extract from address for explicit sendmail usage  
+            from_addr = cfg.smtp_from if cfg.smtp_from and "@" in cfg.smtp_from else "noreply@example.com"
+            
+            # Use sendmail for explicit control over from/to addresses
+            send_result = conn.sendmail(from_addr, [to_addr], msg.as_string())
+            # sendmail returns a dict of failed recipients, empty dict means success
             if isinstance(send_result, dict) and len(send_result) == 0:
                 smtp_response = "Message sent successfully"
             else:
