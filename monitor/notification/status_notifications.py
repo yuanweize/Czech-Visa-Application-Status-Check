@@ -21,7 +21,8 @@ def build_email_subject(status: str, code: str) -> str:
     Returns:
         邮件主题字符串
     """
-    return f"[{status}] {code} - CZ Visa Status"
+    # Keep concise subject; append a short CN hint for clarity
+    return f"[{status}] {code} - CZ Visa Status 状态通知"
 
 
 def build_email_body(
@@ -50,7 +51,7 @@ def build_email_body(
     if changed and old_status:
         old_to_new = f"""
         <tr>
-            <td style="color:#555;">状态变化</td>
+            <td style=\"color:#555;\">Status Change / 状态变化</td>
             <td><b>{old_status}</b> &rarr; <b>{status}</b></td>
         </tr>"""
     
@@ -58,34 +59,34 @@ def build_email_body(
     <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif; line-height:1.6; color:#222;">
         <div style="max-width:680px; margin:24px auto; border:1px solid #eee; border-radius:10px; overflow:hidden; box-shadow:0 4px 14px rgba(0,0,0,.06);">
             <div style="padding:16px 20px; background:#0b5ed7; color:#fff;">
-                <div style="font-weight:600; font-size:16px; letter-spacing:.2px;">CZ Visa Status 通知</div>
-                <div style="margin-top:4px; font-size:13px; opacity:.9;">Code <b>{code}</b> · 当前状态 <b>{status}</b></div>
+                <div style="font-weight:600; font-size:16px; letter-spacing:.2px;">CZ Visa Status · Notification / 通知</div>
+                <div style="margin-top:4px; font-size:13px; opacity:.9;">Code <b>{code}</b> · Status <b>{status}</b></div>
             </div>
             <div style="padding:16px 20px; background:#fff;">
                 <table style="width:100%; border-collapse:collapse; font-size:14px;">
                     <tr>
-                        <td style="width:120px; color:#555;">查询码</td>
+                        <td style="width:160px; color:#555;">Code / 查询码</td>
                         <td><code style="background:#f6f8fa; padding:2px 6px; border-radius:6px;">{code}</code></td>
                     </tr>
                     <tr>
-                        <td style="color:#555;">通知类型</td>
+                        <td style="color:#555;">Type / 通知类型</td>
                         <td>{notif_label}</td>
                     </tr>
                     {old_to_new}
                     <tr>
-                        <td style="color:#555;">当前状态</td>
+                        <td style="color:#555;">Current Status / 当前状态</td>
                         <td><b>{status}</b></td>
                     </tr>
                     <tr>
-                        <td style="color:#555;">时间</td>
+                        <td style="color:#555;">Time / 时间</td>
                         <td>{when}</td>
                     </tr>
                 </table>
             </div>
             <div style="padding:12px 20px; background:#fafafa; color:#666; font-size:12px; border-top:1px solid #eee;">
-                说明：当首次查询或状态发生变化时会发送通知；若状态为“查询失败”，不会触发通知。
+                Note: Emails are sent on first record or when status changes; "Query Failed / 查询失败" won't trigger notifications. / 说明：首次记录或状态变化时发送；“查询失败”不触发通知。
                 <div style="margin-top:6px;">
-                    查看实时状态：<a href="https://visa.eurun.top/" target="_blank" rel="noopener" style="color:#0b5ed7; text-decoration:none;">https://visa.eurun.top/</a>
+                    Live status / 实时状态：<a href="https://visa.eurun.top/" target="_blank" rel="noopener" style="color:#0b5ed7; text-decoration:none;">https://visa.eurun.top/</a>
                 </div>
             </div>
         </div>

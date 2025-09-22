@@ -32,35 +32,35 @@ def build_verification_email(code: str, email: str, verification_url: str, base_
     <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif; line-height:1.6; color:#222;">
         <div style="max-width:680px; margin:24px auto; border:1px solid #eee; border-radius:10px; overflow:hidden; box-shadow:0 4px 14px rgba(0,0,0,.06);">
             <div style="padding:16px 20px; background:#0b5ed7; color:#fff;">
-                <div style="font-weight:600; font-size:16px; letter-spacing:.2px;">CZ Visa Status 验证</div>
-                <div style="margin-top:4px; font-size:13px; opacity:.9;">Code <b>{code}</b> · 邮箱 <b>{email}</b></div>
+                <div style="font-weight:600; font-size:16px; letter-spacing:.2px;">CZ Visa Status · Verification / 验证</div>
+                <div style="margin-top:4px; font-size:13px; opacity:.9;">Code <b>{code}</b> · Email / 邮箱 <b>{email}</b></div>
             </div>
             <div style="padding:16px 20px; background:#fff;">
                 <table style="width:100%; border-collapse:collapse; font-size:14px;">
                     <tr>
-                        <td style="width:120px; color:#555;">操作</td>
-                        <td>新增监控代码（需验证）</td>
+                        <td style="width:160px; color:#555;">Action / 操作</td>
+                        <td>Add code to monitoring (verification required) / 新增监控代码（需验证）</td>
                     </tr>
                     <tr>
-                        <td style="color:#555;">查询码</td>
+                        <td style="color:#555;">Code / 查询码</td>
                         <td><code style="background:#f6f8fa; padding:2px 6px; border-radius:6px;">{code}</code></td>
                     </tr>
                     <tr>
-                        <td style="color:#555;">邮箱</td>
+                        <td style="color:#555;">Email / 邮箱</td>
                         <td>{email}</td>
                     </tr>
                     <tr>
-                        <td style="color:#555;">有效期</td>
-                        <td>10 分钟</td>
+                        <td style="color:#555;">Validity / 有效期</td>
+                        <td>10 minutes / 10 分钟</td>
                     </tr>
                 </table>
                 <div style="text-align:center; margin:20px 0 4px;">
-                    <a href="{verification_url}" style="background:#0b5ed7; color:#fff; padding:10px 18px; text-decoration:none; border-radius:8px; display:inline-block; font-weight:600;">✅ 确认添加 / Confirm</a>
+                    <a href="{verification_url}" style="background:#0b5ed7; color:#fff; padding:10px 18px; text-decoration:none; border-radius:8px; display:inline-block; font-weight:600;">✅ Confirm Addition / 确认添加</a>
                 </div>
             </div>
             <div style="padding:12px 20px; background:#fafafa; color:#666; font-size:12px; border-top:1px solid #eee;">
-                说明：若非本人操作，请忽略本邮件；未验证将不会添加该查询码。
-                <div style="margin-top:6px;">主页 / Main site：<a href="{base_url}" target="_blank" rel="noopener" style="color:#0b5ed7; text-decoration:none;">{base_url}</a></div>
+                Note: If this wasn’t you, please ignore this email. The code won’t be added without verification. / 说明：若非本人操作，请忽略本邮件；未验证将不会添加该查询码。
+                <div style="margin-top:6px;">Main site / 主页：<a href="{base_url}" target="_blank" rel="noopener" style="color:#0b5ed7; text-decoration:none;">{base_url}</a></div>
             </div>
         </div>
     </div>
@@ -86,30 +86,30 @@ def build_management_code_email(verification_code: str) -> Tuple[str, str]:
     <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif; line-height:1.6; color:#222;">
         <div style="max-width:680px; margin:24px auto; border:1px solid #eee; border-radius:10px; overflow:hidden; box-shadow:0 4px 14px rgba(0,0,0,.06);">
             <div style="padding:16px 20px; background:#0b5ed7; color:#fff;">
-                <div style="font-weight:600; font-size:16px; letter-spacing:.2px;">CZ Visa Status 管理验证</div>
-                <div style="margin-top:4px; font-size:13px; opacity:.9;">Management Verification Code</div>
+                <div style="font-weight:600; font-size:16px; letter-spacing:.2px;">CZ Visa Status · Management Verification / 管理验证</div>
+                <div style="margin-top:4px; font-size:13px; opacity:.9;">Verification Code / 管理验证码</div>
             </div>
             <div style="padding:16px 20px; background:#fff;">
                 <table style="width:100%; border-collapse:collapse; font-size:14px;">
                     <tr>
-                        <td style="width:120px; color:#555;">用途</td>
-                        <td>查看 / 管理我的查询码</td>
+                        <td style="width:160px; color:#555;">Purpose / 用途</td>
+                        <td>View/manage my codes / 查看 / 管理我的查询码</td>
                     </tr>
                     <tr>
-                        <td style="color:#555;">验证码</td>
+                        <td style="color:#555;">Code / 验证码</td>
                         <td>
                             <div style="background:#f6f8fa; border:1px solid #e5e7eb; padding:10px 12px; display:inline-block; border-radius:8px; font-family:'Courier New', monospace; font-weight:700; letter-spacing:4px; font-size:22px; color:#0b5ed7;">{verification_code}</div>
                         </td>
                     </tr>
                     <tr>
-                        <td style="color:#555;">有效期</td>
-                        <td>10 分钟</td>
+                        <td style="color:#555;">Validity / 有效期</td>
+                        <td>10 minutes / 10 分钟</td>
                     </tr>
                 </table>
-                <div style="margin-top:10px; color:#666; font-size:12px;">请在网站中输入上述验证码完成验证。</div>
+                <div style="margin-top:10px; color:#666; font-size:12px;">Enter the code on the website to complete verification. / 请在网站中输入上述验证码完成验证。</div>
             </div>
             <div style="padding:12px 20px; background:#fafafa; color:#666; font-size:12px; border-top:1px solid #eee;">
-                说明：若非本人操作，请忽略本邮件；验证码过期请重新获取。
+                Note: If this wasn’t you, please ignore this email. Request a new code if it expires. / 说明：若非本人操作，请忽略本邮件；验证码过期请重新获取。
             </div>
         </div>
     </div>
