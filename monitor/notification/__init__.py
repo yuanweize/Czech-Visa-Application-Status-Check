@@ -10,7 +10,7 @@ This module provides comprehensive email notification functionality including:
 
 from .status_notifications import build_email_subject, build_email_body, should_send_notification
 from .smtp_client import (
-    send_email, send_email_sync, send_email_async,
+    send_email, send_email_async,
     send_email_queued, send_email_queued_sync,
     send_email_immediate, send_email_immediate_sync,
     configure_email_queue, get_email_queue_stats, stop_email_queue
@@ -29,7 +29,7 @@ __all__ = [
     # Status notifications
     'build_email_subject', 'build_email_body', 'should_send_notification',
     # SMTP client functions  
-    'send_email', 'send_email_sync', 'send_email_async',
+    'send_email', 'send_email_async',
     # Queued email functions
     'send_email_queued', 'send_email_queued_sync',
     'configure_email_queue', 'get_email_queue_stats', 'stop_email_queue',

@@ -45,7 +45,6 @@ from .notification import (
     build_email_body, 
     should_send_notification, 
     send_email,
-    send_email_sync,
     send_email_async,
     send_verification_email,
     send_management_code_email
@@ -86,7 +85,6 @@ __all__ = [
     'build_email_body',
     'should_send_notification',
     'send_email',
-    'send_email_sync',
     'send_email_async',
     'send_verification_email',
     'send_management_code_email',

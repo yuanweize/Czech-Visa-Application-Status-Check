@@ -401,55 +401,6 @@ async def send_email_queued(to_email: str, subject: str, html_body: str, smtp_co
         return False, f"Failed to queue email: {str(e)}"
 
 
-async def send_verification_email_urgent(to_email: str, subject: str, html_body: str, smtp_config: dict, 
-                                        env_path: str = ".env") -> Tuple[bool, Optional[str]]:
-    """
-    Send urgent verification email immediately, bypassing the queue
-    
-    Args:
-        to_email: Recipient email address
-        subject: Email subject
-        html_body: HTML email body
-        smtp_config: SMTP configuration dict with keys: host, port, user, pass, from
-        env_path: Path to .env file for loading base configuration
-        
-    Returns:
-        Tuple of (success: bool, error_message: str or None)
-    """
-    try:
-        # Send immediately using the original async function
-        return await send_email_async(to_email, subject, html_body, smtp_config, env_path)
-    except Exception as e:
-        return False, f"Failed to send urgent email: {str(e)}"
-
-
-def send_verification_email_urgent_sync(to_email: str, subject: str, html_body: str, smtp_config: dict, 
-                                       env_path: str = ".env") -> Tuple[bool, Optional[str]]:
-    """
-    Send urgent verification email immediately, bypassing the queue (sync wrapper)
-    
-    Args:
-        to_email: Recipient email address
-        subject: Email subject
-        html_body: HTML email body
-        smtp_config: SMTP configuration dict with keys: host, port, user, pass, from
-        env_path: Path to .env file for loading base configuration
-        
-    Returns:
-        Tuple of (success: bool, error_message: str or None)
-    """
-    try:
-        return asyncio.run(send_verification_email_urgent(to_email, subject, html_body, smtp_config, env_path))
-    except RuntimeError:
-        # If we're already in an async context, create new event loop
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            return loop.run_until_complete(send_verification_email_urgent(to_email, subject, html_body, smtp_config, env_path))
-        finally:
-            loop.close()
-
-
 def send_email_queued_sync(to_email: str, subject: str, html_body: str, smtp_config: dict, 
                           env_path: str = ".env", priority: int = 0) -> Tuple[bool, Optional[str]]:
     """
@@ -476,46 +427,6 @@ def send_email_queued_sync(to_email: str, subject: str, html_body: str, smtp_con
             return loop.run_until_complete(send_email_queued(to_email, subject, html_body, smtp_config, env_path, priority))
         finally:
             loop.close()
-    """
-    Queue an email for sending with rate limiting (sync wrapper)
-    
-    Args:
-        to_email: Recipient email address
-        subject: Email subject
-        html_body: HTML email body
-        smtp_config: SMTP configuration dict with keys: host, port, user, pass, from
-        env_path: Path to .env file for loading base configuration
-        priority: 0 = normal, 1 = high priority
-        
-    Returns:
-        Tuple of (success: bool, message: str or None) - success indicates if queued successfully
-    """
-    try:
-        return asyncio.run(send_email_queued(to_email, subject, html_body, smtp_config, env_path, priority))
-    except RuntimeError:
-        # If we're already in an async context, create new event loop
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            return loop.run_until_complete(send_email_queued(to_email, subject, html_body, smtp_config, env_path, priority))
-        finally:
-            loop.close()
-
-
-def configure_email_queue(max_emails_per_minute: int = 10):
-    """Configure the email queue rate limiting"""
-    global _email_queue
-    _email_queue.rate_limiter.max_emails_per_minute = max_emails_per_minute
-
-
-def get_email_queue_stats() -> Dict[str, Any]:
-    """Get email queue statistics"""
-    return _email_queue.get_stats()
-
-
-def stop_email_queue():
-    """Stop the email queue worker (for graceful shutdown)"""
-    _email_queue.stop_worker()
 
 
 async def send_email_immediate(to_email: str, subject: str, html_body: str, smtp_config: dict, 
@@ -577,28 +488,17 @@ def send_email_immediate_sync(to_email: str, subject: str, html_body: str, smtp_
             loop.close()
 
 
-def send_email_sync(to_email: str, subject: str, html_body: str, smtp_config: dict, env_path: str = ".env") -> Tuple[bool, Optional[str]]:
-    """
-    Send email using SMTP configuration (sync wrapper)
-    
-    Args:
-        to_email: Recipient email address
-        subject: Email subject
-        html_body: HTML email body
-        smtp_config: SMTP configuration dict with keys: host, port, user, pass, from
-        env_path: Path to .env file for loading base configuration (supports hot reload)
-        
-    Returns:
-        Tuple of (success: bool, error_message: str or None)
-    """
-    # Simple sync wrapper that runs the async version
-    try:
-        return asyncio.run(send_email_async(to_email, subject, html_body, smtp_config, env_path))
-    except RuntimeError:
-        # If we're already in an async context, create new event loop
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            return loop.run_until_complete(send_email_async(to_email, subject, html_body, smtp_config, env_path))
-        finally:
-            loop.close()
+def configure_email_queue(max_emails_per_minute: int = 10):
+    """Configure the email queue rate limiting"""
+    global _email_queue
+    _email_queue.rate_limiter.max_emails_per_minute = max_emails_per_minute
+
+
+def get_email_queue_stats() -> Dict[str, Any]:
+    """Get email queue statistics"""
+    return _email_queue.get_stats()
+
+
+def stop_email_queue():
+    """Stop the email queue worker (for graceful shutdown)"""
+    _email_queue.stop_worker()
