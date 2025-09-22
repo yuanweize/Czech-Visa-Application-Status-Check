@@ -26,50 +26,44 @@ def build_verification_email(code: str, email: str, verification_url: str, base_
         Tuple of (subject: str, html_body: str)
     """
     subject = "Czech Visa Monitor - Verify New Code Addition"
-    
+
+    # Unified style aligned with status notification template
     html_body = f"""
-    <html>
-    <body style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-        <div style="background: linear-gradient(135deg, #007bff, #0056b3); color: white; padding: 2rem; text-align: center;">
-            <h1>Czech Republic Visa Monitor</h1>
-            <p>Verify New Code Addition</p>
-        </div>
-        
-        <div style="padding: 2rem;">
-            <h2>Hello!</h2>
-            <p>You requested to add the visa code <strong>{code}</strong> to our monitoring system.</p>
-            
-            <div style="background: #f8f9fa; padding: 1rem; border-radius: 8px; margin: 1rem 0;">
-                <p><strong>Code:</strong> {code}</p>
-                <p><strong>Email:</strong> {email}</p>
-                <p><strong>Notifications:</strong> Enabled</p>
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif; line-height:1.6; color:#222;">
+        <div style="max-width:680px; margin:24px auto; border:1px solid #eee; border-radius:10px; overflow:hidden; box-shadow:0 4px 14px rgba(0,0,0,.06);">
+            <div style="padding:16px 20px; background:#0b5ed7; color:#fff;">
+                <div style="font-weight:600; font-size:16px; letter-spacing:.2px;">CZ Visa Status 验证</div>
+                <div style="margin-top:4px; font-size:13px; opacity:.9;">Code <b>{code}</b> · 邮箱 <b>{email}</b></div>
             </div>
-            
-            <p>To confirm this addition, please click the button below:</p>
-            
-            <div style="text-align: center; margin: 2rem 0;">
-                <a href="{verification_url}" style="background: linear-gradient(135deg, #28a745, #20c997); color: white; padding: 1rem 2rem; text-decoration: none; border-radius: 8px; display: inline-block; font-weight: bold;">
-                    ✅ Confirm Addition
-                </a>
+            <div style="padding:16px 20px; background:#fff;">
+                <table style="width:100%; border-collapse:collapse; font-size:14px;">
+                    <tr>
+                        <td style="width:120px; color:#555;">操作</td>
+                        <td>新增监控代码（需验证）</td>
+                    </tr>
+                    <tr>
+                        <td style="color:#555;">查询码</td>
+                        <td><code style="background:#f6f8fa; padding:2px 6px; border-radius:6px;">{code}</code></td>
+                    </tr>
+                    <tr>
+                        <td style="color:#555;">邮箱</td>
+                        <td>{email}</td>
+                    </tr>
+                    <tr>
+                        <td style="color:#555;">有效期</td>
+                        <td>10 分钟</td>
+                    </tr>
+                </table>
+                <div style="text-align:center; margin:20px 0 4px;">
+                    <a href="{verification_url}" style="background:#0b5ed7; color:#fff; padding:10px 18px; text-decoration:none; border-radius:8px; display:inline-block; font-weight:600;">✅ 确认添加 / Confirm</a>
+                </div>
             </div>
-            
-            <p><strong>Important:</strong> This link will expire in 10 minutes for security reasons.</p>
-            
-            <hr style="margin: 2rem 0; border: none; border-top: 1px solid #ddd;">
-            
-            <p style="color: #666; font-size: 0.9rem;">
-                If you didn't request this, please ignore this email. The code will not be added without verification.
-            </p>
-            
-            <div style="text-align: center; margin-top: 2rem;">
-                <p style="color: #666; font-size: 0.9rem;">
-                    <strong>Czech Republic Visa Monitor</strong><br>
-                    <a href="{base_url}">Return to Main Site</a>
-                </p>
+            <div style="padding:12px 20px; background:#fafafa; color:#666; font-size:12px; border-top:1px solid #eee;">
+                说明：若非本人操作，请忽略本邮件；未验证将不会添加该查询码。
+                <div style="margin-top:6px;">主页 / Main site：<a href="{base_url}" target="_blank" rel="noopener" style="color:#0b5ed7; text-decoration:none;">{base_url}</a></div>
             </div>
         </div>
-    </body>
-    </html>
+    </div>
     """
     
     return subject, html_body
@@ -86,44 +80,39 @@ def build_management_code_email(verification_code: str) -> Tuple[str, str]:
         Tuple of (subject: str, html_body: str)
     """
     subject = "Czech Visa Monitor - Management Verification Code"
-    
+
+    # Unified style aligned with status notification template
     html_body = f"""
-    <html>
-    <body style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-        <div style="background: linear-gradient(135deg, #6c757d, #5a6268); color: white; padding: 2rem; text-align: center;">
-            <h1>Czech Republic Visa Monitor</h1>
-            <p>Management Verification Code</p>
-        </div>
-        
-        <div style="padding: 2rem;">
-            <h2>Hello!</h2>
-            <p>You requested to manage your monitored visa codes. Your verification code is:</p>
-            
-            <div style="background: #f8f9fa; border: 2px solid #007bff; padding: 2rem; text-align: center; border-radius: 8px; margin: 2rem 0;">
-                <h1 style="color: #007bff; font-size: 2.5rem; margin: 0; letter-spacing: 0.5rem; font-family: 'Courier New', monospace;">
-                    {verification_code}
-                </h1>
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif; line-height:1.6; color:#222;">
+        <div style="max-width:680px; margin:24px auto; border:1px solid #eee; border-radius:10px; overflow:hidden; box-shadow:0 4px 14px rgba(0,0,0,.06);">
+            <div style="padding:16px 20px; background:#0b5ed7; color:#fff;">
+                <div style="font-weight:600; font-size:16px; letter-spacing:.2px;">CZ Visa Status 管理验证</div>
+                <div style="margin-top:4px; font-size:13px; opacity:.9;">Management Verification Code</div>
             </div>
-            
-            <p><strong>Important:</strong> This code will expire in 10 minutes for security reasons.</p>
-            
-            <p>Enter this code on the website to view and manage your monitored codes.</p>
-            
-            <hr style="margin: 2rem 0; border: none; border-top: 1px solid #ddd;">
-            
-            <p style="color: #666; font-size: 0.9rem;">
-                If you didn't request this code, please ignore this email.
-            </p>
-            
-            <div style="text-align: center; margin-top: 2rem;">
-                <p style="color: #666; font-size: 0.9rem;">
-                    <strong>Czech Republic Visa Monitor</strong><br>
-                    Czech Republic Visa Application Status Monitor
-                </p>
+            <div style="padding:16px 20px; background:#fff;">
+                <table style="width:100%; border-collapse:collapse; font-size:14px;">
+                    <tr>
+                        <td style="width:120px; color:#555;">用途</td>
+                        <td>查看 / 管理我的查询码</td>
+                    </tr>
+                    <tr>
+                        <td style="color:#555;">验证码</td>
+                        <td>
+                            <div style="background:#f6f8fa; border:1px solid #e5e7eb; padding:10px 12px; display:inline-block; border-radius:8px; font-family:'Courier New', monospace; font-weight:700; letter-spacing:4px; font-size:22px; color:#0b5ed7;">{verification_code}</div>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="color:#555;">有效期</td>
+                        <td>10 分钟</td>
+                    </tr>
+                </table>
+                <div style="margin-top:10px; color:#666; font-size:12px;">请在网站中输入上述验证码完成验证。</div>
+            </div>
+            <div style="padding:12px 20px; background:#fafafa; color:#666; font-size:12px; border-top:1px solid #eee;">
+                说明：若非本人操作，请忽略本邮件；验证码过期请重新获取。
             </div>
         </div>
-    </body>
-    </html>
+    </div>
     """
     
     return subject, html_body
