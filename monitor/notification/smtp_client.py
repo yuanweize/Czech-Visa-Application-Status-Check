@@ -123,17 +123,15 @@ def send_email(cfg, to_addr: str, subject: str, html_body: str):
     if not cfg.smtp_host:
         return False, "SMTP host not configured"
     
+    # Validate SMTP_FROM configuration
+    if not cfg.smtp_from or "@" not in cfg.smtp_from:
+        return False, "SMTP_FROM must be configured with a valid email address (e.g., user@domain.com)"
+    
     try:
         msg = MIMEText(html_body, "html", "utf-8")
         
-        # Set From header properly according to RFC 5322
-        if cfg.smtp_from and "@" in cfg.smtp_from:
-            # Use the configured email address with display name
-            msg["From"] = formataddr(("CZ Visa Monitor", cfg.smtp_from))
-        else:
-            # Fallback to default
-            msg["From"] = "CZ Visa Monitor <noreply@example.com>"
-            
+        # Set From header using the configured email address
+        msg["From"] = formataddr(("CZ Visa Monitor", cfg.smtp_from))
         msg["To"] = to_addr
         msg["Subject"] = subject
 
@@ -143,11 +141,8 @@ def send_email(cfg, to_addr: str, subject: str, html_body: str):
         # Send the email and capture any response
         smtp_response = None
         try:
-            # Extract from address for explicit sendmail usage  
-            from_addr = cfg.smtp_from if cfg.smtp_from and "@" in cfg.smtp_from else "noreply@example.com"
-            
             # Use sendmail for explicit control over from/to addresses
-            send_result = conn.sendmail(from_addr, [to_addr], msg.as_string())
+            send_result = conn.sendmail(cfg.smtp_from, [to_addr], msg.as_string())
             # sendmail returns a dict of failed recipients, empty dict means success
             if isinstance(send_result, dict) and len(send_result) == 0:
                 smtp_response = "Message sent successfully"
@@ -183,7 +178,7 @@ def _dict_to_config(smtp_config: dict, env_path: str = ".env") -> MonitorConfig:
     cfg.smtp_port = smtp_config.get('port', cfg.smtp_port or 465)
     cfg.smtp_user = smtp_config.get('user', cfg.smtp_user)
     cfg.smtp_pass = smtp_config.get('pass', cfg.smtp_pass)
-    cfg.smtp_from = smtp_config.get('from', cfg.smtp_from or 'CZ Visa Monitor')
+    cfg.smtp_from = smtp_config.get('from', cfg.smtp_from)  # No fallback, let validation catch it
     
     return cfg
 
