@@ -28,6 +28,8 @@ class MonitorConfig:
     smtp_user: Optional[str]
     smtp_pass: Optional[str]
     smtp_from: Optional[str]
+    email_max_per_minute: int  # Email rate limiting
+    email_first_check_delay: int  # Delay for first-time check emails
     codes: List[CodeConfig]
 
 
@@ -106,6 +108,10 @@ def load_env_config(env_path: str = ".env") -> MonitorConfig:
     smtp_user = env.get("SMTP_USER")
     smtp_pass = env.get("SMTP_PASS")
     smtp_from = env.get("SMTP_FROM")
+
+    # Email rate limiting configuration
+    email_max_per_minute = int(env.get("EMAIL_MAX_PER_MINUTE") or 10)
+    email_first_check_delay = int(env.get("EMAIL_FIRST_CHECK_DELAY") or 30)
 
     codes: List[CodeConfig] = []
     if env.get("CODES_JSON"):
@@ -197,5 +203,7 @@ def load_env_config(env_path: str = ".env") -> MonitorConfig:
         smtp_user=smtp_user,
         smtp_pass=smtp_pass,
         smtp_from=smtp_from,
+        email_max_per_minute=email_max_per_minute,
+        email_first_check_delay=email_first_check_delay,
         codes=codes,
     )

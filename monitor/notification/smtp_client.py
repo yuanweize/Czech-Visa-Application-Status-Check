@@ -11,7 +11,10 @@ from __future__ import annotations
 import smtplib, ssl, time, threading, asyncio
 from email.mime.text import MIMEText
 from email.utils import formataddr
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Dict, Any
+from dataclasses import dataclass
+from queue import Queue, Empty
+import logging
 
 from ..core.config import MonitorConfig, load_env_config
 from ..utils.logger import get_email_logger
@@ -115,6 +118,152 @@ class SMTPConnectionPool:
 _smtp_pool = SMTPConnectionPool()
 
 
+@dataclass
+class EmailTask:
+    """Email task for queue processing"""
+    to_email: str
+    subject: str
+    html_body: str
+    smtp_config: dict
+    env_path: str = ".env"
+    priority: int = 0  # 0 = normal, 1 = high (for immediate notifications)
+    created_at: float = None
+    
+    def __post_init__(self):
+        if self.created_at is None:
+            self.created_at = time.time()
+
+
+class EmailRateLimiter:
+    """Email rate limiter to prevent SMTP server overload"""
+    
+    def __init__(self, max_emails_per_minute: int = 10, max_burst: int = 3):
+        self.max_emails_per_minute = max_emails_per_minute
+        self.max_burst = max_burst
+        self.email_times = []
+        self.lock = threading.Lock()
+        
+    def can_send_email(self) -> bool:
+        """Check if we can send an email now"""
+        with self.lock:
+            current_time = time.time()
+            # Remove emails older than 1 minute
+            self.email_times = [t for t in self.email_times if current_time - t < 60]
+            
+            # Check if we're under the limit
+            return len(self.email_times) < self.max_emails_per_minute
+    
+    def record_email_sent(self):
+        """Record that an email was sent"""
+        with self.lock:
+            self.email_times.append(time.time())
+    
+    def wait_time_for_next_email(self) -> float:
+        """Calculate how long to wait before sending next email"""
+        with self.lock:
+            if len(self.email_times) < self.max_emails_per_minute:
+                return 0
+            
+            # Find the oldest email time within the minute window
+            current_time = time.time()
+            oldest_in_window = min(t for t in self.email_times if current_time - t < 60)
+            return max(0, 60 - (current_time - oldest_in_window) + 1)
+
+
+class EmailQueue:
+    """Asynchronous email queue with rate limiting"""
+    
+    def __init__(self, max_emails_per_minute: int = 10):
+        self.queue = Queue()
+        self.rate_limiter = EmailRateLimiter(max_emails_per_minute)
+        self.worker_thread = None
+        self.stop_event = threading.Event()
+        self.logger = get_email_logger()
+        self.stats = {
+            'queued': 0,
+            'sent': 0,
+            'failed': 0
+        }
+        
+    def start_worker(self):
+        """Start the background email worker thread"""
+        if self.worker_thread is None or not self.worker_thread.is_alive():
+            self.stop_event.clear()
+            self.worker_thread = threading.Thread(target=self._worker_loop, daemon=True)
+            self.worker_thread.start()
+            
+    def stop_worker(self):
+        """Stop the background email worker thread"""
+        self.stop_event.set()
+        if self.worker_thread and self.worker_thread.is_alive():
+            self.worker_thread.join(timeout=5)
+    
+    def queue_email(self, task: EmailTask):
+        """Add an email to the queue"""
+        self.queue.put(task)
+        self.stats['queued'] += 1
+        
+    def _worker_loop(self):
+        """Background worker loop to process email queue"""
+        while not self.stop_event.is_set():
+            try:
+                # Wait for rate limiter
+                wait_time = self.rate_limiter.wait_time_for_next_email()
+                if wait_time > 0:
+                    if self.stop_event.wait(wait_time):
+                        break
+                
+                # Get next email task
+                try:
+                    task = self.queue.get(timeout=1)
+                except Empty:
+                    continue
+                
+                # Send the email
+                try:
+                    cfg = _dict_to_config(task.smtp_config, task.env_path)
+                    success, error = send_email(cfg, task.to_email, task.subject, task.html_body)
+                    
+                    if success:
+                        self.rate_limiter.record_email_sent()
+                        self.stats['sent'] += 1
+                        self.logger.log_notification_email_result(
+                            f"queue_{int(task.created_at)}", True, 
+                            smtp_response="Email sent via queue"
+                        )
+                    else:
+                        self.stats['failed'] += 1
+                        self.logger.log_notification_email_result(
+                            f"queue_{int(task.created_at)}", False, error=error
+                        )
+                        
+                except Exception as e:
+                    self.stats['failed'] += 1
+                    self.logger.log_notification_email_result(
+                        f"queue_{int(task.created_at)}", False, error=str(e)
+                    )
+                
+                finally:
+                    self.queue.task_done()
+                    
+            except Exception as e:
+                # Log unexpected errors but keep the worker running
+                logging.error(f"Email queue worker error: {e}")
+                time.sleep(1)
+    
+    def get_stats(self) -> Dict[str, Any]:
+        """Get queue statistics"""
+        return {
+            **self.stats,
+            'queue_size': self.queue.qsize(),
+            'rate_limit_wait': self.rate_limiter.wait_time_for_next_email()
+        }
+
+
+# Global email queue instance
+_email_queue = EmailQueue(max_emails_per_minute=10)  # Default limit, can be configured
+
+
 def send_email(cfg, to_addr: str, subject: str, html_body: str):
     """Send email with detailed logging"""
     logger = get_email_logger()
@@ -212,6 +361,88 @@ async def send_email_async(to_email: str, subject: str, html_body: str, smtp_con
         return True, None
     except Exception as e:
         return False, str(e)
+
+
+async def send_email_queued(to_email: str, subject: str, html_body: str, smtp_config: dict, 
+                           env_path: str = ".env", priority: int = 0) -> Tuple[bool, Optional[str]]:
+    """
+    Queue an email for sending with rate limiting (async version)
+    
+    Args:
+        to_email: Recipient email address
+        subject: Email subject
+        html_body: HTML email body
+        smtp_config: SMTP configuration dict with keys: host, port, user, pass, from
+        env_path: Path to .env file for loading base configuration
+        priority: 0 = normal, 1 = high priority
+        
+    Returns:
+        Tuple of (success: bool, message: str or None) - success indicates if queued successfully
+    """
+    try:
+        # Start the queue worker if not already running
+        _email_queue.start_worker()
+        
+        # Create and queue the email task
+        task = EmailTask(
+            to_email=to_email,
+            subject=subject,
+            html_body=html_body,
+            smtp_config=smtp_config,
+            env_path=env_path,
+            priority=priority
+        )
+        
+        _email_queue.queue_email(task)
+        
+        return True, f"Email queued for {to_email}"
+        
+    except Exception as e:
+        return False, f"Failed to queue email: {str(e)}"
+
+
+def send_email_queued_sync(to_email: str, subject: str, html_body: str, smtp_config: dict, 
+                          env_path: str = ".env", priority: int = 0) -> Tuple[bool, Optional[str]]:
+    """
+    Queue an email for sending with rate limiting (sync wrapper)
+    
+    Args:
+        to_email: Recipient email address
+        subject: Email subject
+        html_body: HTML email body
+        smtp_config: SMTP configuration dict with keys: host, port, user, pass, from
+        env_path: Path to .env file for loading base configuration
+        priority: 0 = normal, 1 = high priority
+        
+    Returns:
+        Tuple of (success: bool, message: str or None) - success indicates if queued successfully
+    """
+    try:
+        return asyncio.run(send_email_queued(to_email, subject, html_body, smtp_config, env_path, priority))
+    except RuntimeError:
+        # If we're already in an async context, create new event loop
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            return loop.run_until_complete(send_email_queued(to_email, subject, html_body, smtp_config, env_path, priority))
+        finally:
+            loop.close()
+
+
+def configure_email_queue(max_emails_per_minute: int = 10):
+    """Configure the email queue rate limiting"""
+    global _email_queue
+    _email_queue.rate_limiter.max_emails_per_minute = max_emails_per_minute
+
+
+def get_email_queue_stats() -> Dict[str, Any]:
+    """Get email queue statistics"""
+    return _email_queue.get_stats()
+
+
+def stop_email_queue():
+    """Stop the email queue worker (for graceful shutdown)"""
+    _email_queue.stop_worker()
 
 
 def send_email_sync(to_email: str, subject: str, html_body: str, smtp_config: dict, env_path: str = ".env") -> Tuple[bool, Optional[str]]:

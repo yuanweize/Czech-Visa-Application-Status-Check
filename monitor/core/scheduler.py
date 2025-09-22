@@ -25,7 +25,10 @@ from .config import MonitorConfig, CodeConfig, load_env_config
 from .code_manager import CodeStorageManager, ManagedCode
 from ..utils import create_logger, create_env_watcher, create_signal_handler
 from ..server import create_server_thread
-from ..notification import build_email_subject, build_email_body, should_send_notification
+from ..notification import (
+    build_email_subject, build_email_body, should_send_notification,
+    send_email_queued, configure_email_queue, stop_email_queue
+)
 
 # 导入CZ查询器接口
 try:
@@ -40,7 +43,6 @@ except ImportError:
     CZ_AVAILABLE = False
 
 try:
-    from ..notification import send_email_async
     from ..utils.logger import get_email_logger
     EMAIL_AVAILABLE = True
 except ImportError:
@@ -98,6 +100,10 @@ class PriorityScheduler:
 
         # 代码存储管理器（新架构：site/config/status.json & users.json）
         self.store = CodeStorageManager(self.config.site_dir)
+        
+        # 配置邮件队列
+        configure_email_queue(self.config.email_max_per_minute)
+        self._log(f"Email queue configured: max {self.config.email_max_per_minute} emails/minute")
         self.store.ensure_initialized()
         # 初始化状态数据 - 从新路径加载
         self.status_data = self.load_status_data()
@@ -745,7 +751,7 @@ class PriorityScheduler:
             pass
     
     async def _send_email_notification(self, task: ScheduledTask, result: Dict[str, Any], changed: bool, old_status: Optional[str], is_first_check: bool = False):
-        """发送邮件通知"""
+        """发送邮件通知 - 使用队列机制避免SMTP服务器过载"""
         if not EMAIL_AVAILABLE or not self._is_email_configured(task.code_config):
             return
             
@@ -797,22 +803,31 @@ class PriorityScheduler:
                 notif_label=notif_label
             )
             
-            # 发送邮件
-            success, error = await send_email_async(
+            # 确定邮件优先级：首次查询使用普通优先级，状态变化使用高优先级
+            priority = 1 if changed and not is_first_check else 0
+            
+            # 对于首次查询的大批量邮件，添加延迟发送以分散负载
+            if is_first_check and not is_user_code:
+                # 为首次查询添加延迟，避免短时间大量发送
+                await asyncio.sleep(self.config.email_first_check_delay + (hash(code) % 30))
+            
+            # 使用队列发送邮件
+            success, error = await send_email_queued(
                 to_email=task.code_config.target,
                 subject=subject,
                 html_body=body,
-                smtp_config=smtp_config
+                smtp_config=smtp_config,
+                priority=priority
             )
             
             if success:
-                # Log successful notification
-                logger.log_notification_email_result(log_id, True, smtp_response="Notification sent successfully")
-                self._log(f"Email notification sent to {task.code_config.target} for {code}")
+                # Log successful queuing
+                logger.log_notification_email_result(log_id, True, smtp_response="Email queued successfully")
+                self._log(f"Email notification queued for {task.code_config.target} for {code} (priority={priority})")
             else:
-                # Log failed notification
+                # Log failed queuing
                 logger.log_notification_email_result(log_id, False, error=error)
-                self._log(f"Failed to send email notification for {code}: {error}")
+                self._log(f"Failed to queue email notification for {code}: {error}")
             
         except Exception as e:
             error_msg = str(e)
@@ -1054,6 +1069,14 @@ class PriorityScheduler:
         """优雅关闭"""
         self._log("Initiating graceful shutdown...")
         self.running = False
+        
+        # 停止邮件队列
+        try:
+            stop_email_queue()
+            self._log("Email queue stopped")
+        except Exception as e:
+            self._log(f"Error stopping email queue: {e}")
+        
         # 跨线程安全地触发停止事件
         try:
             if getattr(self, 'loop', None) and self.loop and getattr(self.loop, 'is_running', lambda: False)():
