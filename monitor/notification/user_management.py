@@ -8,7 +8,7 @@ including verification emails, management codes, and HTML page templates for web
 
 from typing import Tuple, Optional
 
-from .smtp_client import send_email_sync
+from .smtp_client import send_email_immediate_sync
 from ..utils.logger import get_email_logger
 
 
@@ -151,7 +151,8 @@ def send_verification_email(to_email: str, code: str, verification_url: str, bas
     
     try:
         subject, html_body = build_verification_email(code, to_email, verification_url, base_url)
-        success, error_or_response = send_email_sync(to_email, subject, html_body, smtp_config, env_path)
+        # Use immediate email sending for verification emails (better user experience)
+        success, error_or_response = send_email_immediate_sync(to_email, subject, html_body, smtp_config, env_path)
         
         # Log email result
         if success:
@@ -187,7 +188,8 @@ def send_management_code_email(to_email: str, verification_code: str, smtp_confi
     
     try:
         subject, html_body = build_management_code_email(verification_code)
-        success, error_or_response = send_email_sync(to_email, subject, html_body, smtp_config, env_path)
+        # Use immediate email sending for verification codes (better user experience)
+        success, error_or_response = send_email_immediate_sync(to_email, subject, html_body, smtp_config, env_path)
         
         # Log email result
         if success:
