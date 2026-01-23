@@ -849,6 +849,12 @@ function closeAllModals() {
 
 // 事件监听器
 document.addEventListener('DOMContentLoaded', async () => {
+  // Initialize UI components
+  initTypeSelectors();
+  populateYears();
+  generateCaptcha('captcha-question', 'captcha-answer');
+  generateCaptcha('captcha-question-2', 'captcha-answer-2');
+
   // Check for existing session on page load
   if (await verifySession()) {
     await loadUserCodes();
@@ -866,12 +872,12 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('btn-add-code').addEventListener('click', () => openModal('modal-add'));
   document.getElementById('btn-manage-codes').addEventListener('click', () => openModal('modal-manage'));
 
-  // 关闭按钮事件
-  document.querySelectorAll('.close').forEach(closeBtn => {
-    closeBtn.addEventListener('click', (e) => {
+  // 关闭按钮事件 (Robust delegation)
+  document.addEventListener('click', (e) => {
+    if (e.target.classList.contains('close')) {
       const modal = e.target.closest('.modal');
       closeModal(modal.id);
-    });
+    }
   });
 
   // 点击模态框外部关闭
