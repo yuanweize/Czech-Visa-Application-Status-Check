@@ -63,78 +63,99 @@
 
     <!-- 添加代码弹窗 -->
     <div id="modal-add" class="modal">
-      <div class="modal-content">
-        <span class="close">&times;</span>
-        <h3>Add New Visa Code</h3>
-        <form id="form-add-code">
-          <div class="form-group">
-            <label>Query Type / 查询类型</label>
-            <div class="segmented-control">
-              <input type="radio" name="query_type" id="type-zov" value="zov" checked
-                onchange="toggleQueryTypeFields()">
-              <label for="type-zov">ŽOV (Visa Application Number)</label>
+      <div class="modal-content premium-modal">
+        <span class="close" onclick="closeModal('modal-add')">&times;</span>
+        <div class="modal-header">
+          <h3>Add New Visa Code</h3>
+          <p>Configure automated monitoring for your application</p>
+        </div>
 
-              <input type="radio" name="query_type" id="type-oam" value="oam" onchange="toggleQueryTypeFields()">
+        <form id="form-add-code">
+          <div class="form-section">
+            <label class="section-label">1. Choose Query Type</label>
+            <div class="segmented-control premium-toggle">
+              <input type="radio" name="query_type" id="type-zov" value="zov" checked>
+              <label for="type-zov">ŽOV (Application Number)</label>
+
+              <input type="radio" name="query_type" id="type-oam" value="oam">
               <label for="type-oam">OAM (Reference Number)</label>
 
               <div class="segmented-indicator"></div>
             </div>
           </div>
 
-          <!-- ZOV Field -->
-          <div id="zov-fields" class="form-group">
-            <label>Visa Code / 签证代码 (ŽOV)</label>
-            <input type="text" id="input-code" placeholder="e.g., PEKI202501010001" autocomplete="off" />
-            <small>Format: 4 Letters + 12 Digits</small>
-          </div>
-
-          <!-- OAM Fields -->
-          <div id="oam-fields" style="display:none;">
-            <div class="form-group">
-              <label>Serial Number / 序列号</label>
-              <input type="text" id="oam-serial" placeholder="e.g., 12345" autocomplete="off" />
-              <small>Numerical serial from your document</small>
-            </div>
-            <div class="form-group">
-              <label>Suffix / 后缀 (Optional)</label>
-              <input type="text" id="oam-suffix" placeholder="e.g., XX" autocomplete="off" />
-              <small>Leave empty if no suffix</small>
-            </div>
-            <div class="form-row">
-              <div class="form-group half">
-                <label>Type / 类型</label>
-                <select id="oam-type">
-                  <option value="CC">CC</option>
-                  <option value="CD">CD</option>
-                  <option value="CA">CA</option>
-                  <option value="CB">CB</option>
-                </select>
-              </div>
-              <div class="form-group half">
-                <label>Year / 年份</label>
-                <select id="oam-year"></select>
+          <div class="form-section main-fields">
+            <label class="section-label">2. Application Details</label>
+            <!-- ZOV Field -->
+            <div id="zov-fields" class="animated-field-group">
+              <div class="form-group">
+                <label for="input-code">Visa Code (ŽOV)</label>
+                <div class="input-wrapper">
+                  <input type="text" id="input-code" placeholder="e.g., PEKI202501010001" autocomplete="off" />
+                  <span class="input-icon">🆔</span>
+                </div>
+                <small>Format: 4 uppercase letters followed by 12 digits</small>
               </div>
             </div>
-          </div>
 
-          <div class="form-group">
-            <label>Email for Notifications</label>
-            <input type="email" id="input-email" placeholder="your@email.com" required />
-            <small>We'll send status updates to this email</small>
-          </div>
-          <div class="form-group captcha">
-            <label>Security Check</label>
-            <div class="captcha-question">
-              <span id="captcha-question">Please calculate: 3 + 7 = ?</span>
-              <input type="number" id="captcha-answer" placeholder="Answer" required />
+            <!-- OAM Fields -->
+            <div id="oam-fields" class="animated-field-group" style="display:none;">
+              <div class="form-group">
+                <label for="oam-serial">Serial Number</label>
+                <input type="text" id="oam-serial" placeholder="e.g., 12345" autocomplete="off" />
+                <small>The numerical part of your reference number</small>
+              </div>
+              <div class="form-row">
+                <div class="form-group">
+                  <label for="oam-suffix">Suffix</label>
+                  <input type="text" id="oam-suffix" placeholder="e.g., XX" autocomplete="off" />
+                </div>
+                <div class="form-group">
+                  <label for="oam-type">Code Type</label>
+                  <select id="oam-type" class="premium-select">
+                    <option value="CC">CC</option>
+                    <option value="CD">CD</option>
+                    <option value="CA">CA</option>
+                    <option value="CB">CB</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label for="oam-year">Year</label>
+                  <select id="oam-year" class="premium-select"></select>
+                </div>
+              </div>
             </div>
           </div>
-          <div class="form-actions">
-            <button type="button" class="btn-secondary" onclick="closeModal('modal-add')">Cancel</button>
-            <button type="submit" class="btn-primary">Submit Request</button>
+
+          <div class="form-section">
+            <label class="section-label">3. Notification & Security</label>
+            <div class="form-group">
+              <label for="input-email">Email Address</label>
+              <div class="input-wrapper">
+                <input type="email" id="input-email" placeholder="name@example.com" required />
+                <span class="input-icon">📧</span>
+              </div>
+              <small>Stay updated with instant status change alerts</small>
+            </div>
+
+            <div class="form-group security-card">
+              <label>Human Verification</label>
+              <div class="captcha-box">
+                <span id="captcha-question" class="math-question">...</span>
+                <input type="number" id="captcha-answer" placeholder="?" required />
+              </div>
+            </div>
+          </div>
+
+          <div class="form-footer">
+            <button type="button" class="btn-ghost" onclick="closeModal('modal-add')">Cancel</button>
+            <button type="submit" class="btn-action-primary">
+              <span class="btn-label">Create Monitor</span>
+              <span class="loader-icon" style="display: none;">⟳</span>
+            </button>
           </div>
         </form>
-        <div id="add-result" class="result-message" style="display:none;"></div>
+        <div id="add-result" class="result-toast" style="display:none;"></div>
       </div>
     </div>
 
@@ -186,7 +207,8 @@
   <footer>
     <div class="footer">
       <div class="footer-line footer-line-1">Performance &amp; security by <strong>EURUN CDN</strong> • Operated by
-        <strong>HKTSE s.r.o.</strong></div>
+        <strong>HKTSE s.r.o.</strong>
+      </div>
       <div class="footer-line footer-line-2">Holandská 49/4, 10100 Praha, Czech Republic • Contact: <a
           href="mailto:info@hktse.eu.org">info@hktse.eu.org</a></div>
     </div>
