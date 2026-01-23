@@ -4,56 +4,140 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Czech Republic Visa Monitor</title>
+  <title>Czech Visa Monitor | Real-time Status Tracking</title>
   <link rel="icon" type="image/png" href="assets/logo.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="assets/style.css" />
 </head>
 
 <body>
-  <header>
-    <h1>Czech Republic Visa Monitor</h1>
-    <p class="subtitle">Real-time visa application status monitoring / 实时签证申请状态监控</p>
-  </header>
-  <main>
-    <div class="toolbar">
-      <div class="toolbar-left">
-        <button id="refresh" disabled>
-          <span class="btn-text">🔄 Refresh</span>
-          <span class="spinner" style="display: none;">⟳</span>
-        </button>
-        <div class="status-info">
-          <span id="generatedAt"></span>
-          <div id="countdown" class="countdown"></div>
+  <div class="app-container">
+    <!-- Header -->
+    <header class="app-header">
+      <div class="header-content">
+        <div class="brand">
+          <div class="brand-icon">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+              <path d="M9 12l2 2 4-4"/>
+            </svg>
+          </div>
+          <div class="brand-text">
+            <h1>Czech Visa Monitor</h1>
+            <p class="subtitle">Real-time status tracking · 实时签证状态监控</p>
+          </div>
         </div>
-        <input id="filter" type="search" placeholder="🔍 Filter by code or status..." />
+        <div class="header-actions">
+          <button id="btn-add-code" class="btn btn-primary">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <line x1="12" y1="5" x2="12" y2="19"></line>
+              <line x1="5" y1="12" x2="19" y2="12"></line>
+            </svg>
+            <span>Add Code</span>
+          </button>
+          <button id="btn-manage-codes" class="btn btn-ghost">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="3"></circle>
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+            </svg>
+            <span>Manage</span>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="main-content">
+      <!-- Stats Bar -->
+      <div class="stats-bar">
+        <div class="stat-item">
+          <span class="stat-label">Last Updated</span>
+          <span class="stat-value" id="generatedAt">--</span>
+        </div>
+        <div class="stat-divider"></div>
+        <div class="stat-item">
+          <span class="stat-label">Next Refresh</span>
+          <span class="stat-value countdown" id="countdown">--</span>
+        </div>
+        <div class="stat-actions">
+          <button id="refresh" class="btn btn-icon" disabled title="Refresh now">
+            <span class="btn-text">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="23 4 23 10 17 10"></polyline>
+                <polyline points="1 20 1 14 7 14"></polyline>
+                <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+              </svg>
+            </span>
+            <span class="spinner" style="display: none;">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="animate-spin">
+                <circle cx="12" cy="12" r="10" stroke-opacity="0.25"></circle>
+                <path d="M12 2a10 10 0 0 1 10 10" stroke-linecap="round"></path>
+              </svg>
+            </span>
+          </button>
+          <div class="search-wrapper">
+            <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="11" cy="11" r="8"></circle>
+              <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+            </svg>
+            <input id="filter" type="search" placeholder="Search codes or status..." />
+          </div>
+        </div>
       </div>
 
-      <!-- 管理面板移动到toolbar右侧 -->
-      <div class="management-panel">
-        <button id="btn-add-code" class="btn-secondary">➕ Add Code</button>
-        <button id="btn-manage-codes" class="btn-secondary">⚙️ Manage</button>
+      <!-- Data Table Card -->
+      <div class="card table-card">
+        <div class="table-container">
+          <table id="tbl">
+            <thead>
+              <tr>
+                <th id="th-code" data-sort-key="code" class="sortable">
+                  <span class="th-content">
+                    Application Code
+                    <span class="sort-arrow" id="arrow-code">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polyline points="6 9 12 15 18 9"></polyline>
+                      </svg>
+                    </span>
+                  </span>
+                </th>
+                <th id="th-status" data-sort-key="status" class="sortable">
+                  <span class="th-content">
+                    Status
+                    <span class="sort-arrow" id="arrow-status"></span>
+                  </span>
+                </th>
+                <th>Check Schedule</th>
+                <th>Last Changed</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <div class="table-footer">
+          <span class="table-info">Auto-refreshes every 60 seconds</span>
+        </div>
       </div>
-    </div>
-    <div class="table-container">
-      <table id="tbl">
-        <thead>
-          <tr>
-            <th id="th-code" data-sort-key="code" class="sortable">
-              Code <span class="sort-arrow" id="arrow-code">↓</span>
-            </th>
-            <th id="th-status" data-sort-key="status" class="sortable">
-              Status <span class="sort-arrow" id="arrow-status"></span>
-            </th>
-            <th>Check Status</th>
-            <th>Last Changed</th>
-          </tr>
-        </thead>
-        <tbody></tbody>
-      </table>
-    </div>
-    <div class="footer-main">
-      <small>Updated from status.json • Auto-refreshes every 60 seconds</small>
-    </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="app-footer">
+      <div class="footer-content">
+        <div class="footer-brand">
+          <span>Performance & security by <strong>EURUN CDN</strong></span>
+          <span class="footer-dot">•</span>
+          <span>Operated by <strong>HKTSE s.r.o.</strong></span>
+        </div>
+        <div class="footer-address">
+          Holandská 49/4, 10100 Praha, Czech Republic · 
+          <a href="mailto:info@hktse.eu.org">info@hktse.eu.org</a>
+        </div>
+      </div>
+    </footer>
+
+    <!-- Loading Overlay -->
     <div id="loading-overlay" class="loading-overlay" style="display: none;">
       <div class="loading-spinner">
         <div class="spinner-ring"></div>
@@ -61,141 +145,223 @@
       </div>
     </div>
 
-    <!-- 添加代码弹窗 -->
+    <!-- Add Code Modal -->
     <div id="modal-add" class="modal">
+      <div class="modal-backdrop"></div>
       <div class="modal-content">
-        <span class="close">&times;</span>
-        <h3>Add New Visa Code</h3>
+        <div class="modal-header">
+          <h3>Add Monitoring Code</h3>
+          <button class="close" aria-label="Close">&times;</button>
+        </div>
         <form id="form-add-code">
-          <div class="form-group">
-            <label>Query Type / 查询类型</label>
-            <div class="segmented-control">
-              <input type="radio" name="query_type" id="type-zov" value="zov" checked>
-              <label for="type-zov">ŽOV</label>
-
-              <input type="radio" name="query_type" id="type-oam" value="oam">
-              <label for="type-oam">OAM</label>
-            </div>
-          </div>
-
-          <!-- Query Type Info -->
-          <div id="query-type-info" class="query-type-info">
-            <span class="icon">📋</span>
-            <span class="text" id="query-type-description">ŽOV (Visa Application Number) - Standard visa application code from the embassy</span>
-          </div>
-
-          <!-- ZOV Field -->
-          <div id="zov-fields" class="form-group">
-            <label id="code-label">Visa Application Number / 签证申请号 (ŽOV)</label>
-            <input type="text" id="input-code" placeholder="e.g., PEKI202501010001" autocomplete="off" />
-            <small id="code-hint">Format: 4 Letters + 12 Digits (e.g., PEKI202501010001)</small>
-          </div>
-
-          <!-- OAM Fields -->
-          <div id="oam-fields" style="display:none;">
+          <div class="modal-body">
+            <!-- Query Type Selector -->
             <div class="form-group">
-              <label>Serial Number / 序列号 (OAM)</label>
-              <input type="text" id="oam-serial" placeholder="e.g., 12345" autocomplete="off" />
-              <small>The numerical serial number from your residence permit document</small>
-            </div>
-            <div class="form-group">
-              <label>Suffix / 后缀 (Optional)</label>
-              <input type="text" id="oam-suffix" placeholder="e.g., XX" autocomplete="off" />
-              <small>Leave empty if your reference number has no suffix</small>
-            </div>
-            <div class="form-row">
-              <div class="form-group half">
-                <label>Type / 类型</label>
-                <select id="oam-type">
-                  <option value="CC">CC - Long-term Residence</option>
-                  <option value="CD">CD - Permanent Residence</option>
-                  <option value="CA">CA - Employee Card</option>
-                  <option value="CB">CB - Blue Card</option>
-                </select>
-              </div>
-              <div class="form-group half">
-                <label>Year / 年份</label>
-                <select id="oam-year"></select>
+              <label class="form-label">Query Type / 查询类型</label>
+              <div class="segmented-control">
+                <input type="radio" name="query_type" id="type-zov" value="zov" checked>
+                <label for="type-zov" class="segment">
+                  <span class="segment-title">ŽOV</span>
+                  <span class="segment-desc">Visa Application</span>
+                </label>
+                <input type="radio" name="query_type" id="type-oam" value="oam">
+                <label for="type-oam" class="segment">
+                  <span class="segment-title">OAM</span>
+                  <span class="segment-desc">Reference Number</span>
+                </label>
+                <div class="segment-indicator"></div>
               </div>
             </div>
-          </div>
 
-          <div class="form-group">
-            <label>📧 Email for Notifications</label>
-            <input type="email" id="input-email" placeholder="your@email.com" required />
-            <small>We'll send status change notifications to this email</small>
-          </div>
-          <div class="form-group captcha">
-            <label>🔒 Security Check</label>
-            <div class="captcha-question">
-              <span id="captcha-question">Please calculate: 3 + 7 = ?</span>
-              <input type="number" id="captcha-answer" placeholder="?" required />
+            <!-- Query Type Info -->
+            <div id="query-type-info" class="info-banner">
+              <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10"></circle>
+                <line x1="12" y1="16" x2="12" y2="12"></line>
+                <line x1="12" y1="8" x2="12.01" y2="8"></line>
+              </svg>
+              <span class="text" id="query-type-description">ŽOV (Visa Application Number) - Standard visa application code from the embassy</span>
+            </div>
+
+            <!-- ZOV Fields -->
+            <div id="zov-fields" class="form-group">
+              <label class="form-label" id="code-label">Application Number / 申请号 (ŽOV)</label>
+              <input type="text" id="input-code" class="form-input" placeholder="e.g., PEKI202501010001" autocomplete="off" />
+              <span class="form-hint" id="code-hint">Format: 4 Letters + 12 Digits</span>
+            </div>
+
+            <!-- OAM Fields -->
+            <div id="oam-fields" style="display:none;">
+              <div class="form-group">
+                <label class="form-label">Serial Number / 序列号</label>
+                <input type="text" id="oam-serial" class="form-input" placeholder="e.g., 12345" autocomplete="off" />
+                <span class="form-hint">Numerical serial from your residence permit document</span>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Suffix / 后缀 <span class="optional">(Optional)</span></label>
+                <input type="text" id="oam-suffix" class="form-input" placeholder="e.g., XX" autocomplete="off" />
+                <span class="form-hint">Leave empty if your reference has no suffix</span>
+              </div>
+              <div class="form-row">
+                <div class="form-group">
+                  <label class="form-label">Type / 类型</label>
+                  <select id="oam-type" class="form-select">
+                    <option value="CC">CC - Long-term Residence</option>
+                    <option value="CD">CD - Permanent Residence</option>
+                    <option value="CA">CA - Employee Card</option>
+                    <option value="CB">CB - Blue Card</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label class="form-label">Year / 年份</label>
+                  <select id="oam-year" class="form-select"></select>
+                </div>
+              </div>
+            </div>
+
+            <!-- Email Field -->
+            <div class="form-group">
+              <label class="form-label">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 6px; vertical-align: -2px;">
+                  <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path>
+                  <polyline points="22,6 12,13 2,6"></polyline>
+                </svg>
+                Email for Notifications
+              </label>
+              <input type="email" id="input-email" class="form-input" placeholder="your@email.com" required />
+              <span class="form-hint">We'll notify you when the status changes</span>
+            </div>
+
+            <!-- Captcha -->
+            <div class="form-group captcha-group">
+              <label class="form-label">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 6px; vertical-align: -2px;">
+                  <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                  <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+                </svg>
+                Security Check
+              </label>
+              <div class="captcha-row">
+                <span class="captcha-question" id="captcha-question">3 + 7 = ?</span>
+                <input type="number" id="captcha-answer" class="form-input captcha-input" placeholder="?" required />
+              </div>
             </div>
           </div>
-          <div class="form-actions">
-            <button type="button" class="btn-secondary" onclick="closeModal('modal-add')">Cancel</button>
-            <button type="submit" class="btn-primary">📤 Submit Request</button>
+
+          <div class="modal-footer">
+            <button type="button" class="btn btn-ghost" onclick="closeModal('modal-add')">Cancel</button>
+            <button type="submit" class="btn btn-primary">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="22" y1="2" x2="11" y2="13"></line>
+                <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+              </svg>
+              Submit
+            </button>
           </div>
         </form>
         <div id="add-result" class="result-message" style="display:none;"></div>
       </div>
     </div>
 
-    <!-- 管理代码弹窗 -->
+    <!-- Manage Codes Modal -->
     <div id="modal-manage" class="modal">
+      <div class="modal-backdrop"></div>
       <div class="modal-content">
-        <span class="close">&times;</span>
-        <h3>🔐 Manage Your Codes</h3>
+        <div class="modal-header">
+          <h3>Manage Your Codes</h3>
+          <button class="close" aria-label="Close">&times;</button>
+        </div>
+        
         <form id="form-verify-email">
-          <div class="form-group">
-            <label>📧 Your Email Address</label>
-            <input type="email" id="verify-email" placeholder="your@email.com" required />
-            <small>Enter the email you used when adding codes. We'll send a verification code.</small>
-          </div>
-          <div class="form-group captcha">
-            <label>🔒 Security Check</label>
-            <div class="captcha-question">
-              <span id="captcha-question-2">Please calculate: 5 + 2 = ?</span>
-              <input type="number" id="captcha-answer-2" placeholder="?" required />
+          <div class="modal-body">
+            <div class="form-group">
+              <label class="form-label">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 6px; vertical-align: -2px;">
+                  <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path>
+                  <polyline points="22,6 12,13 2,6"></polyline>
+                </svg>
+                Your Email Address
+              </label>
+              <input type="email" id="verify-email" class="form-input" placeholder="your@email.com" required />
+              <span class="form-hint">Enter the email you used when adding codes</span>
+            </div>
+
+            <div class="form-group captcha-group">
+              <label class="form-label">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 6px; vertical-align: -2px;">
+                  <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                  <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+                </svg>
+                Security Check
+              </label>
+              <div class="captcha-row">
+                <span class="captcha-question" id="captcha-question-2">5 + 2 = ?</span>
+                <input type="number" id="captcha-answer-2" class="form-input captcha-input" placeholder="?" required />
+              </div>
             </div>
           </div>
-          <button type="submit" class="btn-primary" style="width:100%;">📤 Send Verification Code</button>
+
+          <div class="modal-footer">
+            <button type="submit" class="btn btn-primary btn-full">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="22" y1="2" x2="11" y2="13"></line>
+                <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+              </svg>
+              Send Verification Code
+            </button>
+          </div>
         </form>
 
-        <div id="verification-step" style="display:none;">
-          <div class="form-group">
-            <label>🔑 Enter Verification Code</label>
-            <input type="text" id="verification-code" placeholder="123456" maxlength="6" />
-            <small>Enter the 6-digit code sent to your email</small>
+        <div id="verification-step" class="verification-section" style="display:none;">
+          <div class="modal-body">
+            <div class="form-group">
+              <label class="form-label">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 6px; vertical-align: -2px;">
+                  <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                  <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+                </svg>
+                Verification Code
+              </label>
+              <input type="text" id="verification-code" class="form-input code-input" placeholder="• • • • • •" maxlength="6" />
+              <span class="form-hint">Enter the 6-digit code sent to your email</span>
+            </div>
           </div>
-          <button type="button" class="btn-primary" style="width:100%;" onclick="verifyAndShowCodes()">✓ Verify & Show My Codes</button>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-primary btn-full" onclick="verifyAndShowCodes()">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="20 6 9 17 4 12"></polyline>
+              </svg>
+              Verify & Continue
+            </button>
+          </div>
         </div>
 
-        <div id="codes-list" style="display:none;">
-          <h4>📋 Your Monitored Codes</h4>
-          <div id="user-codes-container"></div>
+        <div id="codes-list" class="codes-section" style="display:none;">
+          <div class="modal-body">
+            <div class="section-header">
+              <h4>Your Monitored Codes</h4>
+            </div>
+            <div id="user-codes-container" class="codes-grid"></div>
+          </div>
         </div>
 
-        <div id="logout-section" style="display:none;">
-          <div class="form-group">
-            <button type="button" class="btn-secondary" style="width:100%;" onclick="logout()">🚪 Logout</button>
-            <small>Your session will be remembered for 7 days unless you logout</small>
-          </div>
+        <div id="logout-section" class="logout-section" style="display:none;">
+          <button type="button" class="btn btn-ghost btn-full" onclick="logout()">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+              <polyline points="16 17 21 12 16 7"></polyline>
+              <line x1="21" y1="12" x2="9" y2="12"></line>
+            </svg>
+            Sign Out
+          </button>
+          <span class="form-hint" style="text-align: center; display: block; margin-top: 8px;">Session expires in 7 days</span>
         </div>
 
         <div id="manage-result" class="result-message" style="display:none;"></div>
       </div>
     </div>
-  </main>
-  <footer>
-    <div class="footer">
-      <div class="footer-line footer-line-1">Performance &amp; security by <strong>EURUN CDN</strong> • Operated by
-        <strong>HKTSE s.r.o.</strong>
-      </div>
-      <div class="footer-line footer-line-2">Holandská 49/4, 10100 Praha, Czech Republic • Contact: <a
-          href="mailto:info@hktse.eu.org">info@hktse.eu.org</a></div>
-    </div>
-  </footer>
+  </div>
+
   <script src="assets/app.js"></script>
 </body>
 

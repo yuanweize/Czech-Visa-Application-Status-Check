@@ -45,11 +45,11 @@ function startCountdown() {
       countdownEl.textContent = 'Refreshing...';
       clearInterval(countdownInterval);
     } else {
-      countdownEl.textContent = `Next refresh in ${seconds}s`;
+      countdownEl.textContent = `${seconds}s`;
     }
   }, 1000);
 
-  countdownEl.textContent = `Next refresh in ${seconds}s`;
+  countdownEl.textContent = `${seconds}s`;
 }
 
 function showLoading() {
@@ -57,7 +57,7 @@ function showLoading() {
   const btn = document.getElementById('refresh');
   btn.disabled = true;
   btn.querySelector('.btn-text').style.display = 'none';
-  btn.querySelector('.spinner').style.display = 'inline';
+  btn.querySelector('.spinner').style.display = 'inline-flex';
   refreshInProgress = true;
 }
 
@@ -65,7 +65,7 @@ function hideLoading() {
   document.getElementById('loading-overlay').style.display = 'none';
   const btn = document.getElementById('refresh');
   btn.disabled = false;
-  btn.querySelector('.btn-text').style.display = 'inline';
+  btn.querySelector('.btn-text').style.display = 'inline-flex';
   btn.querySelector('.spinner').style.display = 'none';
   refreshInProgress = false;
 }
@@ -74,7 +74,7 @@ function render(data) {
   window.lastData = data; // Store for filter operations
   const gaEl = document.getElementById('generatedAt');
   if (gaEl) {
-    let genText = '';
+    let genText = '--';
     if (data.generated_at) {
       const d = new Date(data.generated_at);
       if (!isNaN(d.getTime())) {
@@ -88,7 +88,7 @@ function render(data) {
     } else {
       gaEl.title = '';
     }
-    gaEl.textContent = 'Last updated: ' + genText;
+    gaEl.textContent = genText;
   }
   const tb = document.querySelector('#tbl tbody');
   tb.innerHTML = '';
@@ -282,16 +282,20 @@ filter.addEventListener('input', () => {
 // Clickable header sorting
 const thCode = document.getElementById('th-code');
 const thStatus = document.getElementById('th-status');
+
+const arrowSvgDown = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>`;
+const arrowSvgUp = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 15 12 9 18 15"></polyline></svg>`;
+
 function setHeaderIndicators() {
   const arrowCode = document.getElementById('arrow-code');
   const arrowStatus = document.getElementById('arrow-status');
 
   if (sortState.key === 'code') {
-    arrowCode.textContent = sortState.dir === 'asc' ? '↓' : '↑';
-    arrowStatus.textContent = '';
+    arrowCode.innerHTML = sortState.dir === 'asc' ? arrowSvgDown : arrowSvgUp;
+    arrowStatus.innerHTML = '';
   } else {
-    arrowCode.textContent = '';
-    arrowStatus.textContent = sortState.dir === 'asc' ? '↑' : '↓';
+    arrowCode.innerHTML = '';
+    arrowStatus.innerHTML = sortState.dir === 'asc' ? arrowSvgUp : arrowSvgDown;
   }
 }
 function toggleSort(key) {
@@ -747,7 +751,7 @@ function displayUserCodes(codes) {
   const container = document.getElementById('user-codes-container');
 
   if (codes.length === 0) {
-    container.innerHTML = '<p>No codes found for this email address.</p>';
+    container.innerHTML = '<p class="form-hint" style="text-align:center;padding:var(--space-4);">No codes found for this email address.</p>';
     return;
   }
 
@@ -757,10 +761,12 @@ function displayUserCodes(codes) {
 
     return `
     <div class="user-code-item" ${nextCheckTooltip}>
-      <span class="code">${code.code}</span>
-      <span class="status">${code.status || 'Pending first check'}</span>
-      ${code.note ? `<span class="note">${code.note}</span>` : ''}
-      <button class="btn-danger btn-small" onclick="deleteCode('${code.code}', '${code.email}')">Delete</button>
+      <div style="flex:1;min-width:0;">
+        <span class="code">${code.code}</span>
+        <span class="status">${code.status || 'Pending first check'}</span>
+        ${code.note ? `<span class="note">${code.note}</span>` : ''}
+      </div>
+      <button class="btn btn-danger btn-small" onclick="deleteCode('${code.code}', '${code.email}')">Delete</button>
     </div>
   `;
   }).join('');
