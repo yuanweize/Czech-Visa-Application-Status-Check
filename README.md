@@ -1,275 +1,167 @@
+<div align="center">
 
-# Czech Visa Application Status Check / 捷克签证状态批量查询
+# 🇨🇿 CZ Visa Status Monitor
 
-> Modern, reliable, and user-friendly tool for bulk checking Czech visa application status, with smart notifications and user management.  
-> 现代化、可靠、易用的捷克签证批量查询与智能通知工具，支持用户自助管理。
+[![Python Version](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Docker Support](https://img.shields.io/badge/Docker-Ready-2496ED.svg?logo=docker&logoColor=white)](docker-compose.yml)
+[![SRE Hardened](https://img.shields.io/badge/SRE-Hardened-success.svg?logo=serverfault&logoColor=white)](#-technical-highlights)
+[![Code Style: Ruff](https://img.shields.io/badge/code%20style-Ruff-000000.svg)](https://github.com/astral-sh/ruff)
 
----
+**Enterprise-grade automated monitoring system for Czech visa applications.**  
+**企业级捷克签证申请状态自动监控系统 - 极致健壮，生产就绪。**
 
-- [Czech Visa Application Status Check / 捷克签证状态批量查询](#czech-visa-application-status-check--捷克签证状态批量查询)
-	- [Features / 主要功能](#features--主要功能)
-	- [Quick Start / 快速上手](#quick-start--快速上手)
-	- [Configuration / 配置说明](#configuration--配置说明)
-	- [Usage / 常用用法](#usage--常用用法)
-	- [Monitoring \& Notification / 监控与通知](#monitoring--notification--监控与通知)
-	- [User Management / 用户管理](#user-management--用户管理)
-	- [Technical Highlights / 技术亮点](#technical-highlights--技术亮点)
-	- [Logging \& Service / 日志与服务部署](#logging--service--日志与服务部署)
-	- [FAQ / 常见问题](#faq--常见问题)
-	- [Contributing / 贡献指南](#contributing--贡献指南)
-	- [Links / 相关链接](#links--相关链接)
-	- [License / 许可证](#license--许可证)
+[English](#english-version) | [中文说明](#中文版)
+
+</div>
 
 ---
 
-## Features / 主要功能
+<a name="english-version"></a>
 
-- Bulk Status Query / 批量状态查询：捷克移民局签证状态批量查询
-- Smart Code Generation / 智能码生成：灵活日期区间+工作日/排除
-- Automated Monitoring / 自动监控：后台定时监控，频率可配
-- Email Notification / 邮件通知：HTML 提醒+频控；验证码邮件即时优先
-- User Management / 用户管理：Web 界面、邮件验证、验证码保护
-- Hot Reload / 热更新：.env 配置实时热加载，无需重启
-- Security / 安全：频控、文件访问控制、会话管理
+## 🌟 Overview
 
-## Quick Start / 快速上手
+**CZ Visa Status Monitor** is a robust, asynchronous monitoring solution designed for individuals and agencies to track Czech visa application statuses in real-time. Built with a focus on **Site Reliability Engineering (SRE)**, it guarantees data integrity, resource efficiency, and high availability.
 
-1) Clone & Install / 克隆与安装
+### 🚀 Key Features
+
+*   🛡️ **SRE Hardened**: Features atomic write-ahead logging (WAL), automatic `.bak` disaster recovery, and aggressive Playwright zombie process reaping.
+*   ⚡ **High Performance**: Asynchronous query engine based on Playwright/Asyncio with configurable concurrency and rate limiting.
+*   🐳 **Cloud Ready**: One-click deployment via Docker Compose or native Systemd integration.
+*   🔄 **Hot Reload**: Real-time configuration updates via `.env` without interrupting active monitoring tasks.
+*   📧 **Smart Alerts**: Advanced email notification system with SMTP connection pooling and business-priority verification codes.
+*   🧱 **DRY Architecture**: Minimalist codebase using Python decorators and unified file I/O abstractions.
+
+---
+
+## 🏗️ Architecture
+
+```mermaid
+graph TD
+    A[Environment/.env] -->|Watchdog| B(Scheduler)
+    B -->|Async Task| C{Query Engine}
+    C -->|Playwright| D[ZOV Query]
+    C -->|Playwright| E[OAM Query]
+    D & E --> F[Result Handler]
+    F -->|Atomic Write| G[(Storage: JSON/CSV)]
+    F -->|SMTP Pool| H[Notifications]
+    I[Web Dashboard] -->|API| G
+```
+
+---
+
+## 🛠️ Quick Start
+
+### Option 1: Docker (Recommended) 🐳
+The fastest way to get up and running with all dependencies pre-configured.
 
 ```bash
-# Clone the repo / 克隆仓库
+# 1. Clone the repository
 git clone https://github.com/yuanweize/Czech-Visa-Application-Status-Check.git
 cd Czech-Visa-Application-Status-Check
 
-# (Recommended 推荐) Use uv for fast env management
-curl -LsSf https://astral.sh/uv/install.sh | sh
-uv venv
-source .venv/bin/activate        # Linux/macOS
-# source .venv/Scripts/activate   # Windows Git Bash
-uv pip install -r requirements.txt
-playwright install chromium
-
-# (Alternative 备选) Use pip
-python -m pip install -r requirements.txt
-playwright install chromium
-```
-
-2) Minimal run / 最小运行
-
-```bash
-# Generate codes 生成查询码
-python visa_status.py gen -o query_codes.csv -s 2025-06-01 -e 2025-06-07 -n 5
-
-# Check status 批量查询
-python visa_status.py cz -i query_codes.csv -w 4 -H true
-
-# Generate report 生成报告
-python visa_status.py report --charts
-```
-
-## Configuration / 配置说明
-
-- Base / 基础
-	- HEADLESS=true|false: Playwright 无头模式（默认 true）
-	- SITE_DIR=site: 输出 status.json 与静态站点根目录
-	- MONITOR_LOG_DIR=logs/monitor: 监控日志目录（默认 logs/monitor）
-	- SERVE=true|false: 是否启动内置 HTTP（根目录为 SITE_DIR，端口 SITE_PORT）
-	- SITE_PORT=8000: 站点端口（默认 8000）
-	- DEFAULT_FREQ_MINUTES=60: 全局默认监控频率（分钟）
-	- WORKERS=1: 查询并发页面数
-
-- SMTP
-	- SMTP_HOST, SMTP_PORT(465/587), SMTP_USER, SMTP_PASS, SMTP_FROM
-	- EMAIL_MAX_PER_MINUTE=10: 每分钟最大发信数（队列限流）
-	- EMAIL_FIRST_CHECK_DELAY=30: 首次记录延迟发送秒数（避免首次风暴）
-
-- Codes / 监控代码配置（二选一，可混用）
-	- CODES_JSON='[ {"code":"PEKI2025...","channel":"email","target":"you@mail.com","freq_minutes":30,"note":"..."} ]'
-		- channel 可为空字符串或省略表示关闭通知
-		- freq_minutes 为空/省略将使用 DEFAULT_FREQ_MINUTES
-	- 编号格式 Numbered:
-		- CODE_1=PEKI2025...  CHANNEL_1=email  TARGET_1=you@mail.com  FREQ_MINUTES_1=30  NOTE_1=xxx
-		- CODE_2=...
-
-Example .env / 配置示例：
-
-```env
-HEADLESS=true
-SITE_DIR=site
-SERVE=false
-SITE_PORT=8000
-DEFAULT_FREQ_MINUTES=60
-WORKERS=1
-
-SMTP_HOST=smtp.example.com
-SMTP_PORT=465
-SMTP_USER=user@example.com
-SMTP_PASS=your-app-password
-SMTP_FROM=user@example.com
-EMAIL_MAX_PER_MINUTE=10
-EMAIL_FIRST_CHECK_DELAY=30
-
-CODES_JSON='[{"code":"PEKI202509040004","channel":"email","target":"you@mail.com","freq_minutes":30}]'
-# 或者 / or
-# CODE_1=PEKI202509080001
-# CHANNEL_1=email
-# TARGET_1=you@mail.com
-# FREQ_MINUTES_1=45
-```
-
-Notes / 说明：
-- 所有 .env 变更在守护模式下会被自动热加载（安装 watchdog 时）。
-- 重复的查询码会导致启动失败，请确保唯一。
-
-## Usage / 常用用法
-
-- Generate codes / 生成代码
-	- python visa_status.py generate-codes -o query_codes.csv -s 2025-06-01 -e 2025-06-30 -n 5
-	- 别名 Aliases: gen, gc
-	- 选项 Options: --include-weekends, --exclude 35, --prefix ABC
-
-- Clean CSV / 清理与导出 JSON（用于监控 CODES_JSON）
-	- 仅代码 JSON 行：python visa_status.py cl -fm
-	- 带字段 JSON 行：python visa_status.py cl -fm t:your@mail.com,f:60
-	- 紧凑数组 JSON：python visa_status.py cl -fma t:your@mail.com,f:60
-	- 输入/输出：-i input.csv，-o output.(csv|json)
-
-- Check status / 批量查询
-	- python visa_status.py cz -i query_codes.csv -w 4 -H true|false
-	- 别名 Alias: c
-
-- Monitor / 定时监控与通知
-	- 单次：python visa_status.py monitor --once -e .env
-	- 守护：python visa_status.py monitor -e .env
-	- systemd（Debian/Ubuntu）
-		- 安装：sudo python visa_status.py monitor --install -e /path/to/.env
-		- 启动/状态：sudo python visa_status.py monitor --start / python visa_status.py monitor --status
-		- 停止/重载/卸载：--stop / --reload / --uninstall；重启：--restart
-		- 可用 --python-exe 指定解释器
-
-- Report / 报告（Markdown + 可选图表）
-	- python visa_status.py report -i query_codes.csv --charts -o reports/summary.md
-	- 默认输出目录：reports/YYYY-MM-DD/HH-MM-SS/summary.md，并归档输入 CSV
-
-CSV format example / CSV 示例：
-
-```csv
-日期/Date,查询码/Code,签证状态/Status
-2025-06-02,PEKI202506020001,Rejected/Closed / 被拒绝/已关闭
-2025-06-03,PEKI202506030002,Granted / 已通过
-```
-
-行为说明 / Behavior:
-- 已为最终非失败状态的行将被跳过；`Query Failed / 查询失败` 视为待重试。
-- 所有结果被标准化为有限集合：Granted、Rejected/Closed、Proceedings、Not Found、Unknown、Query Failed。
-
-## Monitoring & Notification / 监控与通知
-
-- What triggers email / 何时发信：
-	- 首次记录或状态变化时发送；主题示例 `[Granted] PEKI2025... - CZ Visa Status`
-- Queue & rate limiting / 队列与限流：
-	- 普通通知走队列，按 EMAIL_MAX_PER_MINUTE 限流，防止 SMTP 过载
-	- 首次大量 codes 时，结合 EMAIL_FIRST_CHECK_DELAY 做平滑延迟
-- Verification priority / 验证码优先级：
-	- 用户管理的验证码邮件走“即时通道”，绕过队列，保证秒级送达
-- SMTP pool / 连接池：
-	- 复用连接并带 NOOP 健康检查与 AUTH 节流，减少“过多 AUTH”导致的封禁
-
-状态文件 / Status file：
-- 监控周期结束会写入 `SITE_DIR/status.json`（仅字符串状态）；当 SERVE=true 时可在 `SITE_PORT` 提供静态站点。
-
-## User Management / 用户管理
-
-- Web 界面：在主站点（SERVE=true）工具栏中进入，添加/查看/删除自己的查询码
-- 邮箱验证：10 分钟限时链接 + 6 位验证码，防止滥用
-- 简单 CAPTCHA：基础运算题，拦截机器人
-- 无数量限制：用户可按需管理任意数量代码
-- 安全：100 req/min 频控、文件白名单、统一错误页
-
-快速开始：
-
-```bash
-# 开启 Web 界面（.env 中设置 SERVE=true）
-python visa_status.py monitor -e .env
-# 访问 http://localhost:8000
-```
-
-- Persistence & Reliability / 可靠性：
-  - Atomic Writes: 临时文件原子替换与 `.bak` 自动备份，彻底杜绝断电导致的数据清空风险。
-  - Process Safety: Playwright 全局 Context 追踪与强回收机制，零僵尸进程。
-  - Hot Reload Sync: 热重载时自动取消旧配置任务，确保状态瞬间同步。
-- Security / 安全：频控、文件访问控制、会话管理、业务级验证码防刷。
-
-## Quick Start / 快速上手
-[...]
-
-## Docker Deployment / 容器化部署 (Recommended/推荐)
-
-我们提供了官方的 Docker 支持，这是最简单且最稳健的运行方式：
-
-```bash
-# 1. 准备配置 (基于示例修改)
+# 2. Configure environment
 cp .env.example .env
 
-# 2. 启动服务 (自动拉取镜像并完成 Playwright 依赖)
+# 3. Launch
 docker-compose up -d
 ```
 
-特性：
-- 完美隔离的 Playwright 运行环境。
-- 自动挂载 `logs`, `data`, `config` 到宿主机，数据持久化。
-- 支持时区同步（默认 `Europe/Prague`）。
+### Option 2: Bare Metal 🐍
+Ensure you have Python 3.10+ installed.
 
-## Technical Highlights / 技术亮点
+```bash
+# Install dependencies
+pip install -r requirements.txt
+playwright install chromium
 
-- **SRE Hardening**: 原子写入机制 (`_write_json_atomic`)，即便在系统崩溃时也能保证用户数据安全。
-- **Browser Lifecycle**: 实现了 `force_cleanup_all` 闭环，保证在任何异常或取消发生时，Chromium 进程都能被强制回收。
-- **DRY Architecture**: 抽象了统一的 `file_ops` 与装饰器模式，代码库极度精简且高效。
-- CSV-first：所有状态保存在 CSV，断点续查、易审计。
-- Playwright：单浏览器多页面并发，默认无头。
-- 智能邮件：队列+每分钟限流；验证码即时优先；SMTP 连接池。
-- 热更新：.env 改动自动生效（watchdog）。
-- 安全：频控、文件白名单、统一错误跳转、详细日志。
-- 自动日志轮换：保持日志文件大小在 2MB 以内。
-
-## Logging & Service / 日志与服务部署
-
-- 日志轮换：保持文件 < 2MB，轮换保留最近 1000 行；目录 `logs/monitor`（可配 MONITOR_LOG_DIR）
-- 周期日志：记录每轮处理、邮件通知、热更新事件与统计
-- systemd：支持一键安装、启动、停止、状态、重载、卸载与重启
-- 热更新：CLI 与 systemd 模式均支持；变更在下个周期生效
-
-示例日志 / Sample:
-```
-[2025-09-17T10:30:00] Processing 34 codes (3 added, 1 removed, 2 modified)
-[2025-09-17T10:30:03] notify Email code=PEKI202508140001 to=user@example.com ok=True
-[2025-09-17T10:30:45] .env changed detected, reloading configuration
+# Run monitor
+python visa_status.py monitor -e .env
 ```
 
-## FAQ / 常见问题
+---
 
-- 收不到邮件？
-	- 检查 SMTP 配置、垃圾箱、频控（EMAIL_MAX_PER_MINUTE）
-- Playwright 报错？
-	- 确保安装 playwright 与 chromium：python -m playwright install chromium
-- 如何设置监控频率？
-	- 修改 .env 的 DEFAULT_FREQ_MINUTES 或单个 code 的 freq_minutes
-- 如何部署为服务？
-	- 见上文 systemd 小节
+## ⚙️ Configuration
 
-## Contributing / 贡献指南
+Key settings in your `.env` file:
 
-- 欢迎 PR（建议先开 issue 讨论）；遵循现有代码风格，附必要测试
-- 文档/翻译/功能/安全改进均欢迎；新增国家模块请放在 `query_modules/`
+| Variable | Description | Default |
+| :--- | :--- | :--- |
+| `HEADLESS` | Run browser without UI | `true` |
+| `WORKERS` | Concurrent browser pages | `1` |
+| `DEFAULT_FREQ_MINUTES` | Global monitoring interval | `60` |
+| `EMAIL_MAX_PER_MINUTE` | SMTP Rate limiting | `10` |
 
-## Links / 相关链接
+---
 
-- GitHub Repo: https://github.com/yuanweize/Czech-Visa-Application-Status-Check
-- Issues: https://github.com/yuanweize/Czech-Visa-Application-Status-Check/issues
-- Discussions: https://github.com/yuanweize/Czech-Visa-Application-Status-Check/discussions
+<a name="中文版"></a>
 
-## License / 许可证
+## 🌟 项目简介
 
-[MIT](LICENSE)
+**CZ Visa Status Monitor** 是一款专为捷克签证申请设计的自动化监控系统。本项目不仅仅是一个查询工具，更是一个遵循 **SRE (站点可靠性工程)** 原则构建的生产级服务，旨在通过技术手段确保查询的及时性、数据的完整性与系统的稳定性。
+
+### 🚀 技术亮点
+
+*   🛡️ **极致健壮性**: 引入 **原子化写入 (Atomic Writes)** 机制与自动 `.bak` 备份，从根源上杜绝因断电或系统崩溃导致的数据丢失风险。
+*   ⚡ **高效调度**: 基于 Playwright + Asyncio 的非阻塞查询引擎，支持数平级并发。
+*   🐳 **运维就绪**: 完美支持 Docker Compose 一键部署及 Systemd 常驻进程托管。
+*   🔄 **热重载系统**: 配置变更无需重启，调度中心自动同步最新环境参数。
+*   📧 **智能通知**: 具备 SMTP 连接池管理与邮件指纹去重功能，验证码邮件享受极速绿色通道。
+
+---
+
+## 📦 部署指南
+
+### 方式一：Docker 部署 (强烈推荐) 🐳
+环境隔离，一键启动，数据持久化。
+
+```bash
+git clone https://github.com/yuanweize/Czech-Visa-Application-Status-Check.git
+cd Czech-Visa-Application-Status-Check
+cp .env.example .env
+docker-compose up -d
+```
+*挂载说明：日志 (`logs/`)、数据 (`data/`) 及配置文件 (`config/`) 均自动映射至宿主机。*
+
+### 方式二：Systemd 原生托管 🖥️
+适用于 Linux 服务器长期运行。
+
+1.  修改 `deployment/cz-visa-monitor.service` 中的路径。
+2.  执行安装：
+    ```bash
+    sudo python visa_status.py monitor --install -e /path/to/.env
+    sudo systemctl start cz-visa-monitor
+    ```
+
+---
+
+## 🛠️ 核心指令
+
+| 命令 | 描述 |
+| :--- | :--- |
+| `python visa_status.py gen` | 智能批量生成签证查询码 |
+| `python visa_status.py monitor` | 启动自动化监控守护进程 |
+| `python visa_status.py report` | 生成可视化 Markdown 监控报告 |
+
+---
+
+## 🛡️ SRE 硬核加固说明
+
+本项目在多次迭代中完成了“从功能到工程”的进化：
+*   **资源闭环**: 实现了 `force_cleanup_all` 机制，强制回收所有 Playwright 上下文，彻底告别内存溢出与僵尸进程。
+*   **数据韧性**: 采用 `Temporary File -> os.replace` 策略，确保文件写入要么成功，要么保持原样。
+*   **代码解耦**: 采用统一的 `file_ops` 抽象层与 `@synchronized` 装饰器，遵循 DRY 原则，让代码更纯粹、更易于审计。
+
+---
+
+## 🔗 相关链接
+
+- **问题反馈**: [Opening an issue](https://github.com/yuanweize/Czech-Visa-Application-Status-Check/issues)
+- **许可证**: [MIT License](LICENSE)
+
+---
+<div align="center">
+Developed with ❤️ for the CZ Visa Community.
+</div>
 
 
