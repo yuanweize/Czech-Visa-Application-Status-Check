@@ -8,8 +8,8 @@
 [![SRE Hardened](https://img.shields.io/badge/SRE-Hardened-success.svg?logo=serverfault&logoColor=white)](#-technical-highlights)
 [![Code Style: Ruff](https://img.shields.io/badge/code%20style-Ruff-000000.svg)](https://github.com/astral-sh/ruff)
 
-**Enterprise-grade automated monitoring system for Czech visa applications.**  
-**企业级捷克签证申请状态自动监控系统 - 极致健壮，生产就绪。**
+**Robust and reliable automated monitoring system for Czech visa applications.**  
+**高效可靠的捷克签证申请状态自动监控系统 - 极致健壮，生产就绪。**
 
 [English](#english-version) | [中文说明](#中文版)
 
