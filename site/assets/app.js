@@ -376,51 +376,53 @@ function closeModal(modalId) {
   document.getElementById('codes-list').style.display = 'none';
 }
 
-// Toggle between ZOV and OAM form fields (Robust Edition)
+// Toggle between ZOV and OAM form fields
 function toggleQueryTypeFields() {
-  const checkedRadio = document.querySelector('input[name="query_type"]:checked');
-  if (!checkedRadio) return;
-
-  const queryType = checkedRadio.value;
-  const zovSection = document.getElementById('zov-fields');
-  const oamSection = document.getElementById('oam-fields');
+  const queryType = document.querySelector('input[name="query_type"]:checked').value;
+  const zovFields = document.getElementById('zov-fields');
+  const oamFields = document.getElementById('oam-fields');
+  const codeLabel = document.getElementById('code-label');
+  const inputCode = document.getElementById('input-code');
+  const codeHint = document.getElementById('code-hint');
+  const queryTypeDescription = document.getElementById('query-type-description');
 
   if (queryType === 'oam') {
-    // Hide ZOV with animation
-    zovSection.classList.add('fade-out');
+    // Update description
+    if (queryTypeDescription) {
+      queryTypeDescription.textContent = 'OAM (Reference Number) - For residence permit applications tracked via the Ministry of Interior';
+    }
+    
+    // Animate transition
+    zovFields.style.animation = 'fadeOut 0.2s ease forwards';
     setTimeout(() => {
-      zovSection.style.display = 'none';
-      zovSection.classList.remove('fade-out');
-
-      // Show OAM with animation
-      oamSection.style.display = 'block';
-      oamSection.classList.add('fade-in');
-      setTimeout(() => oamSection.classList.remove('fade-in'), 400);
-    }, 300);
+      zovFields.style.display = 'none';
+      oamFields.style.display = 'block';
+      oamFields.style.animation = 'fadeIn 0.3s ease forwards';
+    }, 200);
   } else {
-    // Hide OAM with animation
-    oamSection.classList.add('fade-out');
+    // Update description
+    if (queryTypeDescription) {
+      queryTypeDescription.textContent = 'ŽOV (Visa Application Number) - Standard visa application code from the embassy';
+    }
+    
+    // Update labels and placeholders for ZOV
+    if (codeLabel) {
+      codeLabel.textContent = 'Visa Application Number / 签证申请号 (ŽOV)';
+    }
+    if (inputCode) {
+      inputCode.placeholder = 'e.g., PEKI202501010001';
+    }
+    if (codeHint) {
+      codeHint.textContent = 'Format: 4 Letters + 12 Digits (e.g., PEKI202501010001)';
+    }
+    
+    // Animate transition
+    oamFields.style.animation = 'fadeOut 0.2s ease forwards';
     setTimeout(() => {
-      oamSection.style.display = 'none';
-      oamSection.classList.remove('fade-out');
-
-      // Show ZOV with animation
-      zovSection.style.display = 'block';
-      zovSection.classList.add('fade-in');
-      setTimeout(() => zovSection.classList.remove('fade-in'), 400);
-    }, 300);
-  }
-}
-
-// Add event listeners for radio buttons centrally
-function initTypeSelectors() {
-  const container = document.querySelector('.segmented-control');
-  if (container) {
-    container.addEventListener('change', (e) => {
-      if (e.target.name === 'query_type') {
-        toggleQueryTypeFields();
-      }
-    });
+      oamFields.style.display = 'none';
+      zovFields.style.display = 'block';
+      zovFields.style.animation = 'fadeIn 0.3s ease forwards';
+    }, 200);
   }
 }
 
@@ -442,8 +444,13 @@ function populateYears() {
   }
 }
 
-// Initialize year dropdown on page load
+// Initialize year dropdown and add radio button event listeners
 populateYears();
+
+// Add event listeners for query type radio buttons
+document.querySelectorAll('input[name="query_type"]').forEach(radio => {
+  radio.addEventListener('change', toggleQueryTypeFields);
+});
 
 // 添加代码表单提交
 document.getElementById('form-add-code').addEventListener('submit', async (e) => {
@@ -867,12 +874,6 @@ function closeAllModals() {
 
 // 事件监听器
 document.addEventListener('DOMContentLoaded', async () => {
-  // Initialize UI components
-  initTypeSelectors();
-  populateYears();
-  generateCaptcha('captcha-question', 'captcha-answer');
-  generateCaptcha('captcha-question-2', 'captcha-answer-2');
-
   // Check for existing session on page load
   if (await verifySession()) {
     await loadUserCodes();
@@ -890,12 +891,12 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('btn-add-code').addEventListener('click', () => openModal('modal-add'));
   document.getElementById('btn-manage-codes').addEventListener('click', () => openModal('modal-manage'));
 
-  // 关闭按钮事件 (Robust delegation)
-  document.addEventListener('click', (e) => {
-    if (e.target.classList.contains('close')) {
+  // 关闭按钮事件
+  document.querySelectorAll('.close').forEach(closeBtn => {
+    closeBtn.addEventListener('click', (e) => {
       const modal = e.target.closest('.modal');
       closeModal(modal.id);
-    }
+    });
   });
 
   // 点击模态框外部关闭

@@ -18,20 +18,20 @@
     <div class="toolbar">
       <div class="toolbar-left">
         <button id="refresh" disabled>
-          <span class="btn-text">Refresh</span>
+          <span class="btn-text">🔄 Refresh</span>
           <span class="spinner" style="display: none;">⟳</span>
         </button>
         <div class="status-info">
           <span id="generatedAt"></span>
           <div id="countdown" class="countdown"></div>
         </div>
-        <input id="filter" type="search" placeholder="Filter by code or status..." />
+        <input id="filter" type="search" placeholder="🔍 Filter by code or status..." />
       </div>
 
       <!-- 管理面板移动到toolbar右侧 -->
       <div class="management-panel">
-        <button id="btn-add-code" class="btn-secondary">➕ Add New Code</button>
-        <button id="btn-manage-codes" class="btn-secondary">🗑️ Manage My Codes</button>
+        <button id="btn-add-code" class="btn-secondary">➕ Add Code</button>
+        <button id="btn-manage-codes" class="btn-secondary">⚙️ Manage</button>
       </div>
     </div>
     <div class="table-container">
@@ -61,79 +61,80 @@
       </div>
     </div>
 
-    <!-- Dynamic Add Code Modal -->
+    <!-- 添加代码弹窗 -->
     <div id="modal-add" class="modal">
       <div class="modal-content">
-        <span class="close" onclick="closeModal('modal-add')">&times;</span>
-        <h3>Track New Application</h3>
-
+        <span class="close">&times;</span>
+        <h3>Add New Visa Code</h3>
         <form id="form-add-code">
           <div class="form-group">
-            <label>Inquiry Type</label>
+            <label>Query Type / 查询类型</label>
             <div class="segmented-control">
               <input type="radio" name="query_type" id="type-zov" value="zov" checked>
-              <label for="type-zov">ŽOV (Visa App)</label>
+              <label for="type-zov">ŽOV</label>
 
               <input type="radio" name="query_type" id="type-oam" value="oam">
-              <label for="type-oam">OAM (Reference)</label>
-
-              <div class="segmented-indicator"></div>
+              <label for="type-oam">OAM</label>
             </div>
           </div>
 
-          <div id="form-fields-container">
-            <!-- ZOV Section -->
-            <div id="zov-fields" class="form-section">
-              <div class="form-group">
-                <label>Application Number (ŽOV)</label>
-                <input type="text" id="input-code" placeholder="PEKI2025XXXXXXXX" maxlength="16" />
-                <small>e.g. PEKI202501010001</small>
-              </div>
-            </div>
+          <!-- Query Type Info -->
+          <div id="query-type-info" class="query-type-info">
+            <span class="icon">📋</span>
+            <span class="text" id="query-type-description">ŽOV (Visa Application Number) - Standard visa application code from the embassy</span>
+          </div>
 
-            <!-- OAM Section (Hidden by default) -->
-            <div id="oam-fields" class="form-section" style="display:none;">
-              <div class="form-group">
-                <label>Serial Number</label>
-                <input type="text" id="oam-serial" placeholder="12345" />
+          <!-- ZOV Field -->
+          <div id="zov-fields" class="form-group">
+            <label id="code-label">Visa Application Number / 签证申请号 (ŽOV)</label>
+            <input type="text" id="input-code" placeholder="e.g., PEKI202501010001" autocomplete="off" />
+            <small id="code-hint">Format: 4 Letters + 12 Digits (e.g., PEKI202501010001)</small>
+          </div>
+
+          <!-- OAM Fields -->
+          <div id="oam-fields" style="display:none;">
+            <div class="form-group">
+              <label>Serial Number / 序列号 (OAM)</label>
+              <input type="text" id="oam-serial" placeholder="e.g., 12345" autocomplete="off" />
+              <small>The numerical serial number from your residence permit document</small>
+            </div>
+            <div class="form-group">
+              <label>Suffix / 后缀 (Optional)</label>
+              <input type="text" id="oam-suffix" placeholder="e.g., XX" autocomplete="off" />
+              <small>Leave empty if your reference number has no suffix</small>
+            </div>
+            <div class="form-row">
+              <div class="form-group half">
+                <label>Type / 类型</label>
+                <select id="oam-type">
+                  <option value="CC">CC - Long-term Residence</option>
+                  <option value="CD">CD - Permanent Residence</option>
+                  <option value="CA">CA - Employee Card</option>
+                  <option value="CB">CB - Blue Card</option>
+                </select>
               </div>
-              <div class="form-group">
-                <label>Suffix (Optional)</label>
-                <input type="text" id="oam-suffix" placeholder="XX" />
-              </div>
-              <div class="form-row">
-                <div class="form-group half">
-                  <label>Type</label>
-                  <select id="oam-type">
-                    <option value="CC">CC</option>
-                    <option value="CD">CD</option>
-                    <option value="CA">CA</option>
-                    <option value="CB">CB</option>
-                  </select>
-                </div>
-                <div class="form-group half">
-                  <label>Registration Year</label>
-                  <select id="oam-year"></select>
-                </div>
+              <div class="form-group half">
+                <label>Year / 年份</label>
+                <select id="oam-year"></select>
               </div>
             </div>
           </div>
 
           <div class="form-group">
-            <label>Notification Email</label>
-            <input type="email" id="input-email" placeholder="name@example.com" required />
+            <label>📧 Email for Notifications</label>
+            <input type="email" id="input-email" placeholder="your@email.com" required />
+            <small>We'll send status change notifications to this email</small>
           </div>
-
           <div class="form-group captcha">
-            <label>Human Verification</label>
+            <label>🔒 Security Check</label>
             <div class="captcha-question">
-              <span id="captcha-question">...</span>
-              <input type="number" id="captcha-answer" required />
+              <span id="captcha-question">Please calculate: 3 + 7 = ?</span>
+              <input type="number" id="captcha-answer" placeholder="?" required />
             </div>
           </div>
-
           <div class="form-actions">
-            <button type="submit" class="btn-primary" style="width: 100%;">Monitor This Application</button>
+            <button type="button" class="btn-secondary" onclick="closeModal('modal-add')">Cancel</button>
+            <button type="submit" class="btn-primary">📤 Submit Request</button>
           </div>
         </form>
         <div id="add-result" class="result-message" style="display:none;"></div>
@@ -144,40 +145,41 @@
     <div id="modal-manage" class="modal">
       <div class="modal-content">
         <span class="close">&times;</span>
-        <h3>Manage Your Codes</h3>
+        <h3>🔐 Manage Your Codes</h3>
         <form id="form-verify-email">
           <div class="form-group">
-            <label>Enter your email to view/delete your codes</label>
+            <label>📧 Your Email Address</label>
             <input type="email" id="verify-email" placeholder="your@email.com" required />
-            <small>We'll send a verification code to this email</small>
+            <small>Enter the email you used when adding codes. We'll send a verification code.</small>
           </div>
           <div class="form-group captcha">
-            <label>Security Check</label>
+            <label>🔒 Security Check</label>
             <div class="captcha-question">
               <span id="captcha-question-2">Please calculate: 5 + 2 = ?</span>
-              <input type="number" id="captcha-answer-2" placeholder="Answer" required />
+              <input type="number" id="captcha-answer-2" placeholder="?" required />
             </div>
           </div>
-          <button type="submit" class="btn-primary">Send Verification Code</button>
+          <button type="submit" class="btn-primary" style="width:100%;">📤 Send Verification Code</button>
         </form>
 
         <div id="verification-step" style="display:none;">
           <div class="form-group">
-            <label>Enter the 6-digit code from your email</label>
+            <label>🔑 Enter Verification Code</label>
             <input type="text" id="verification-code" placeholder="123456" maxlength="6" />
+            <small>Enter the 6-digit code sent to your email</small>
           </div>
-          <button type="button" class="btn-primary" onclick="verifyAndShowCodes()">Verify & Show My Codes</button>
+          <button type="button" class="btn-primary" style="width:100%;" onclick="verifyAndShowCodes()">✓ Verify & Show My Codes</button>
         </div>
 
         <div id="codes-list" style="display:none;">
-          <h4>Your Monitored Codes</h4>
+          <h4>📋 Your Monitored Codes</h4>
           <div id="user-codes-container"></div>
         </div>
 
         <div id="logout-section" style="display:none;">
           <div class="form-group">
-            <button type="button" class="btn-secondary" onclick="logout()">Logout</button>
-            <small>You'll stay logged in for 7 days unless you logout manually</small>
+            <button type="button" class="btn-secondary" style="width:100%;" onclick="logout()">🚪 Logout</button>
+            <small>Your session will be remembered for 7 days unless you logout</small>
           </div>
         </div>
 
