@@ -5,159 +5,187 @@
 [![Python Version](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Docker Support](https://img.shields.io/badge/Docker-Ready-2496ED.svg?logo=docker&logoColor=white)](docker-compose.yml)
-[![SRE Hardened](https://img.shields.io/badge/SRE-Hardened-success.svg?logo=serverfault&logoColor=white)](#-technical-highlights)
+[![SRE Hardened](https://img.shields.io/badge/SRE-Hardened-success.svg?logo=serverfault&logoColor=white)](#-sre-hardening-features)
 [![Code Style: Ruff](https://img.shields.io/badge/code%20style-Ruff-000000.svg)](https://github.com/astral-sh/ruff)
 
-**Robust and reliable automated monitoring system for Czech visa applications.**  
-**高效可靠的捷克签证申请状态自动监控系统 - 极致健壮，生产就绪。**
+**A robust automated monitoring system for Czech visa applications, featuring multi-user support, real-time alerts, and anti-ban protection.**  
+**全自动捷克签证状态监控系统：支持多用户管理、实时邮件提醒、自动化防封禁与极致稳定性。**
 
-[English](#english-version) | [中文说明](#中文版)
+[English](#english) | [中文说明](#中文)
 
 </div>
 
 ---
 
-<a name="english-version"></a>
+<a name="english"></a>
 
-## 🌟 Overview
+## 🌟 English Edition
 
-**CZ Visa Status Monitor** is a robust, asynchronous monitoring solution designed for individuals and agencies to track Czech visa application statuses in real-time. Built with a focus on **Site Reliability Engineering (SRE)**, it guarantees data integrity, resource efficiency, and high availability.
+### 1. Introduction
+**CZ Visa Status Monitor** solves the pain of manually checking the Czech Ministry of Interior (MOI) website. It automatically tracks visa application statuses, sends instant notifications when changes occur, and manages sessions efficiently to avoid IP bans.
 
-### 🚀 Key Features
+### 2. Key Features
+- **🛡️ SRE Hardened**: Atomic writes with `.bak` backups, automatic zombie process reaping, and stable hot-reloading.
+- **⚡ Async Engine**: High-concurrency Playwright-based query dispatcher.
+- **📧 Smart Alerts**: Business-priority email delivery (OTP first) with SMTP connection pooling.
+- **🐳 Multi-Platform**: Native support for Docker, Systemd, and Raw Python orchestration.
 
-*   🛡️ **SRE Hardened**: Features atomic write-ahead logging (WAL), automatic `.bak` disaster recovery, and aggressive Playwright zombie process reaping.
-*   ⚡ **High Performance**: Asynchronous query engine based on Playwright/Asyncio with configurable concurrency and rate limiting.
-*   🐳 **Cloud Ready**: One-click deployment via Docker Compose or native Systemd integration.
-*   🔄 **Hot Reload**: Real-time configuration updates via `.env` without interrupting active monitoring tasks.
-*   📧 **Smart Alerts**: Advanced email notification system with SMTP connection pooling and business-priority verification codes.
-*   🧱 **DRY Architecture**: Minimalist codebase using Python decorators and unified file I/O abstractions.
+### 3. Data Configuration (Crucial!)
+Before starting, you must tell the system which codes to monitor.
 
----
-
-## 🏗️ Architecture
-
-```mermaid
-graph TD
-    A[Environment/.env] -->|Watchdog| B(Scheduler)
-    B -->|Async Task| C{Query Engine}
-    C -->|Playwright| D[ZOV Query]
-    C -->|Playwright| E[OAM Query]
-    D & E --> F[Result Handler]
-    F -->|Atomic Write| G[(Storage: JSON/CSV)]
-    F -->|SMTP Pool| H[Notifications]
-    I[Web Dashboard] -->|API| G
+#### A. Input Codes (`query_codes.csv`)
+Used for batch queries or initialization. Place it in the root or specified path.
+```csv
+Date/日期,查询码/Code,Status/签证状态
+2025-06-02,PEKI202506020001,
+2025-06-03,PEKI202506030002,
 ```
 
----
-
-## 🛠️ Quick Start
-
-### Option 1: Docker (Recommended) 🐳
-The fastest way to get up and running with all dependencies pre-configured.
-
-```bash
-# 1. Clone the repository
-git clone https://github.com/yuanweize/Czech-Visa-Application-Status-Check.git
-cd Czech-Visa-Application-Status-Check
-
-# 2. Configure environment
-cp .env.example .env
-
-# 3. Launch
-docker-compose up -d
+#### B. User Managed Codes (`site/config/users.json`)
+Managed automatically via Web interface or manual entry for notification targets.
+```json
+{
+  "codes": {
+    "PEKI202506020001": {
+      "code": "PEKI202506020001",
+      "target": "user@example.com",
+      "channel": "email",
+      "freq_minutes": 60
+    }
+  }
+}
 ```
 
-### Option 2: Bare Metal 🐍
-Ensure you have Python 3.10+ installed.
+### 4. Installation & Deployment
 
-```bash
-# Install dependencies
-pip install -r requirements.txt
-playwright install chromium
+#### 🐳 via Docker (Recommended)
+1.  **Prep**: `cp .env.example .env` and edit your SMTP/Settings.
+2.  **Launch**: `docker-compose up -d`
+3.  **Logs**: `docker logs -f cz-visa-monitor`
 
-# Run monitor
-python visa_status.py monitor -e .env
-```
+#### 🎮 via CLI (Python)
+1.  **Dependencies**: `pip install -r requirements.txt && playwright install chromium`
+2.  **Monitor**: `python visa_status.py monitor -e .env`
+3.  **Report**: `python visa_status.py report`
 
----
+#### 🖥️ via Systemd
+1.  Customize `deployment/cz-visa-monitor.service` paths.
+2.  `sudo python visa_status.py monitor --install -e /absolute/path/.env`
+3.  `sudo systemctl start cz-visa-monitor`
 
-## ⚙️ Configuration
+### 5. Configuration (.env)
+| Group | Variable | Description | Default |
+| :--- | :--- | :--- | :--- |
+| **Engine** | `WORKERS` | Max concurrent browser pages | `1` |
+| **Engine** | `HEADLESS` | Run Chromium without GUI | `true` |
+| **Task** | `DEFAULT_FREQ_MINUTES` | Check interval if not specified per code | `60` |
+| **Email** | `SMTP_HOST` | Your email provider SMTP server | - |
+| **Email** | `EMAIL_MAX_PER_MINUTE` | Prevention of SMTP spam blocking | `10` |
 
-Key settings in your `.env` file:
-
-| Variable | Description | Default |
+### 6. Command Reference
+| Command | Alias | Description |
 | :--- | :--- | :--- |
-| `HEADLESS` | Run browser without UI | `true` |
-| `WORKERS` | Concurrent browser pages | `1` |
-| `DEFAULT_FREQ_MINUTES` | Global monitoring interval | `60` |
-| `EMAIL_MAX_PER_MINUTE` | SMTP Rate limiting | `10` |
+| `gen` | `gc` | Intelligent batch code generator with date ranges. |
+| `monitor` | `m` | Start the daemon for continuous tracking. |
+| `report` | `r` | Compile Markdown summaries & visualization charts. |
+| `cz` | `c` | One-time synchronous query for a CSV file. |
 
----
-
-<a name="中文版"></a>
-
-## 🌟 项目简介
-
-**CZ Visa Status Monitor** 是一款专为捷克签证申请设计的自动化监控系统。本项目不仅仅是一个查询工具，更是一个遵循 **SRE (站点可靠性工程)** 原则构建的生产级服务，旨在通过技术手段确保查询的及时性、数据的完整性与系统的稳定性。
-
-### 🚀 技术亮点
-
-*   🛡️ **极致健壮性**: 引入 **原子化写入 (Atomic Writes)** 机制与自动 `.bak` 备份，从根源上杜绝因断电或系统崩溃导致的数据丢失风险。
-*   ⚡ **高效调度**: 基于 Playwright + Asyncio 的非阻塞查询引擎，支持数平级并发。
-*   🐳 **运维就绪**: 完美支持 Docker Compose 一键部署及 Systemd 常驻进程托管。
-*   🔄 **热重载系统**: 配置变更无需重启，调度中心自动同步最新环境参数。
-*   📧 **智能通知**: 具备 SMTP 连接池管理与邮件指纹去重功能，验证码邮件享受极速绿色通道。
-
----
-
-## 📦 部署指南
-
-### 方式一：Docker 部署 (强烈推荐) 🐳
-环境隔离，一键启动，数据持久化。
-
-```bash
-git clone https://github.com/yuanweize/Czech-Visa-Application-Status-Check.git
-cd Czech-Visa-Application-Status-Check
-cp .env.example .env
-docker-compose up -d
+### 7. Architecture
+```mermaid
+graph LR
+    A[Env/Config] --> B(Scheduler)
+    B --> C[Playwright Executor]
+    C --> D{MOI Site}
+    D --> E[Status Normalization]
+    E --> F[(Atomic JSON/CSV Storage)]
+    E --> G[SMTP Notification]
 ```
-*挂载说明：日志 (`logs/`)、数据 (`data/`) 及配置文件 (`config/`) 均自动映射至宿主机。*
-
-### 方式二：Systemd 原生托管 🖥️
-适用于 Linux 服务器长期运行。
-
-1.  修改 `deployment/cz-visa-monitor.service` 中的路径。
-2.  执行安装：
-    ```bash
-    sudo python visa_status.py monitor --install -e /path/to/.env
-    sudo systemctl start cz-visa-monitor
-    ```
 
 ---
 
-## 🛠️ 核心指令
+<a name="中文"></a>
 
-| 命令 | 描述 |
-| :--- | :--- |
-| `python visa_status.py gen` | 智能批量生成签证查询码 |
-| `python visa_status.py monitor` | 启动自动化监控守护进程 |
-| `python visa_status.py report` | 生成可视化 Markdown 监控报告 |
+## 🌟 中文说明
 
----
+### 1. 项目简介
+**CZ Visa Status Monitor** 解决了手动刷新捷克移民局官网的痛苦。它能够全自动追踪签证申请状态，在状态发生变更时立即发送通知，并通过高效的会话管理防止 IP 被封禁。
 
-## 🛡️ SRE 硬核加固说明
+### 2. 核心特性
+- **🛡️ SRE 级加固**: 原子化写入与 `.bak` 逻辑备份、僵尸进程自动回收、稳定的配置热重载。
+- **⚡ 异步引擎**: 基于 Playwright 的高并发查询分发器。
+- **📧 智能提醒**: 业务优先级邮件分发（验证码优先），内置 SMTP 连接池。
+- **🐳 多平台支持**: 原生支持 Docker、Systemd 以及裸机 Python 环境。
 
-本项目在多次迭代中完成了“从功能到工程”的进化：
-*   **资源闭环**: 实现了 `force_cleanup_all` 机制，强制回收所有 Playwright 上下文，彻底告别内存溢出与僵尸进程。
-*   **数据韧性**: 采用 `Temporary File -> os.replace` 策略，确保文件写入要么成功，要么保持原样。
-*   **代码解耦**: 采用统一的 `file_ops` 抽象层与 `@synchronized` 装饰器，遵循 DRY 原则，让代码更纯粹、更易于审计。
+### 3. 数据配置 (关键步骤!)
+在启动之前，您需要告知系统需要监控哪些申请码。
 
----
+#### A. 批量输入 (`query_codes.csv`)
+用于批量查询或系统初始化。
+```csv
+日期/Date,查询码/Code,签证状态/Status
+2025-06-02,PEKI202506020001,
+2025-06-03,PEKI202506030002,
+```
 
-## 🔗 相关链接
+#### B. 用户管理配置 (`site/config/users.json`)
+通过 Web 界面或手动编辑，用于配置通知目标。
+```json
+{
+  "codes": {
+    "PEKI202506020001": {
+      "code": "PEKI202506020001",
+      "target": "user@example.com",
+      "channel": "email",
+      "freq_minutes": 60
+    }
+  }
+}
+```
 
-- **问题反馈**: [Opening an issue](https://github.com/yuanweize/Czech-Visa-Application-Status-Check/issues)
-- **许可证**: [MIT License](LICENSE)
+### 4. 安装与部署
+
+#### 🐳 通过 Docker 部署 (推荐)
+1.  **准备**: `cp .env.example .env` 并编辑您的 SMTP 与基础设置。
+2.  **启动**: `docker-compose up -d`
+3.  **日志**: `docker logs -f cz-visa-monitor`
+
+#### 🎮 通过 命令行 (Python)
+1.  **依赖**: `pip install -r requirements.txt && playwright install chromium`
+2.  **监控**: `python visa_status.py monitor -e .env`
+3.  **报告**: `python visa_status.py report`
+
+#### 🖥️ 通过 Systemd 托管
+1.  根据实际路径修改 `deployment/cz-visa-monitor.service`。
+2.  安装：`sudo python visa_status.py monitor --install -e /绝对路径/.env`
+3.  启动：`sudo systemctl start cz-visa-monitor`
+
+### 5. 配置说明 (.env)
+| 分组 | 变量名 | 描述 | 默认值 |
+| :--- | :--- | :--- | :--- |
+| **引擎** | `WORKERS` | 最大并发浏览器页面数 | `1` |
+| **引擎** | `HEADLESS` | 是否以无界面模式运行 Chromium | `true` |
+| **任务** | `DEFAULT_FREQ_MINUTES` | 默认监控频率 | `60` |
+| **邮件** | `SMTP_HOST` | 邮件服务商的 SMTP 地址 | - |
+| **邮件** | `EMAIL_MAX_PER_MINUTE` | 防止被封禁的单位时间发信限额 | `10` |
+
+### 6. 指令参考
+| 指令 | 别名 | 描述 |
+| :--- | :--- | :--- |
+| `gen` | `gc` | 基于日期范围智能生成批量查询码。 |
+| `monitor` | `m` | 启动守护进程进行持续追踪。 |
+| `report` | `r` | 汇总生成 Markdown 报告与可视化图表。 |
+| `cz` | `c` | 对指定 CSV 文件进行单次同步查询。 |
+
+### 7. 系统架构
+```mermaid
+graph LR
+    A[环境/配置] --> B(调度器)
+    B --> C[Playwright 执行器]
+    C --> D{移民局官网}
+    D --> E[状态标准化]
+    E --> F[(原子化 JSON/CSV 存储)]
+    E --> G[SMTP 通知服务]
+```
 
 ---
 <div align="center">
