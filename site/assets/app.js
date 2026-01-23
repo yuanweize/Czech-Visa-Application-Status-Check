@@ -424,6 +424,24 @@ function initTypeSelectors() {
   }
 }
 
+// Populate year dropdown with sensible range
+function populateYears() {
+  const yearSelect = document.getElementById('oam-year');
+  if (!yearSelect) return;
+
+  const currentYear = new Date().getFullYear();
+  yearSelect.innerHTML = '';
+
+  // Years from 2020 to current year + 2
+  for (let y = 2020; y <= currentYear + 2; y++) {
+    const option = document.createElement('option');
+    option.value = y;
+    option.textContent = y;
+    if (y === currentYear) option.selected = true;
+    yearSelect.appendChild(option);
+  }
+}
+
 // Initialize year dropdown on page load
 populateYears();
 
