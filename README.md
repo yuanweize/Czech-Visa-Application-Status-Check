@@ -232,6 +232,3 @@ python visa_status.py monitor -e .env
 - **频率限制韧性**: 实施 SMTP 流量控制（如 10 封/分钟）与业务层去重，防止 IP 或发信账号被拉黑。
 
 ---
-<div align="center">
-Developed with ❤️ for the CZ Visa Community.
-</div>
