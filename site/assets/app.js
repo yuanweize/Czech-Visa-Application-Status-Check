@@ -376,44 +376,51 @@ function closeModal(modalId) {
   document.getElementById('codes-list').style.display = 'none';
 }
 
-// Toggle between ZOV and OAM form fields
+// Toggle between ZOV and OAM form fields (Robust Edition)
 function toggleQueryTypeFields() {
-  const queryType = document.querySelector('input[name="query_type"]:checked').value;
-  const zovFields = document.getElementById('zov-fields');
-  const oamFields = document.getElementById('oam-fields');
+  const checkedRadio = document.querySelector('input[name="query_type"]:checked');
+  if (!checkedRadio) return;
+
+  const queryType = checkedRadio.value;
+  const zovSection = document.getElementById('zov-fields');
+  const oamSection = document.getElementById('oam-fields');
 
   if (queryType === 'oam') {
-    zovFields.style.animation = 'fadeOut 0.2s ease forwards';
+    // Hide ZOV with animation
+    zovSection.classList.add('fade-out');
     setTimeout(() => {
-      zovFields.style.display = 'none';
-      oamFields.style.display = 'block';
-      oamFields.style.animation = 'fadeIn 0.3s ease forwards';
-    }, 200);
+      zovSection.style.display = 'none';
+      zovSection.classList.remove('fade-out');
+
+      // Show OAM with animation
+      oamSection.style.display = 'block';
+      oamSection.classList.add('fade-in');
+      setTimeout(() => oamSection.classList.remove('fade-in'), 400);
+    }, 300);
   } else {
-    oamFields.style.animation = 'fadeOut 0.2s ease forwards';
+    // Hide OAM with animation
+    oamSection.classList.add('fade-out');
     setTimeout(() => {
-      oamFields.style.display = 'none';
-      zovFields.style.display = 'block';
-      zovFields.style.animation = 'fadeIn 0.3s ease forwards';
-    }, 200);
+      oamSection.style.display = 'none';
+      oamSection.classList.remove('fade-out');
+
+      // Show ZOV with animation
+      zovSection.style.display = 'block';
+      zovSection.classList.add('fade-in');
+      setTimeout(() => zovSection.classList.remove('fade-in'), 400);
+    }, 300);
   }
 }
 
-// Populate year dropdown with sensible range
-function populateYears() {
-  const yearSelect = document.getElementById('oam-year');
-  if (!yearSelect) return;
-
-  const currentYear = new Date().getFullYear();
-  yearSelect.innerHTML = '';
-
-  // Years from 2020 to current year + 2
-  for (let y = 2020; y <= currentYear + 2; y++) {
-    const option = document.createElement('option');
-    option.value = y;
-    option.textContent = y;
-    if (y === currentYear) option.selected = true;
-    yearSelect.appendChild(option);
+// Add event listeners for radio buttons centrally
+function initTypeSelectors() {
+  const container = document.querySelector('.segmented-control');
+  if (container) {
+    container.addEventListener('change', (e) => {
+      if (e.target.name === 'query_type') {
+        toggleQueryTypeFields();
+      }
+    });
   }
 }
 
