@@ -328,6 +328,7 @@ function openModal(modalId) {
   document.getElementById(modalId).style.display = 'block';
   if (modalId === 'modal-add') {
     generateCaptcha('captcha-question', 'captcha-answer');
+    toggleQueryTypeFields(); // Ensure fields are correct for the default selected type
   } else if (modalId === 'modal-manage') {
     generateCaptcha('captcha-question-2', 'captcha-answer-2');
     // Reset manage modal state
@@ -377,16 +378,24 @@ function closeModal(modalId) {
 
 // Toggle between ZOV and OAM form fields
 function toggleQueryTypeFields() {
-  const queryType = document.getElementById('input-query-type').value;
+  const queryType = document.querySelector('input[name="query_type"]:checked').value;
   const zovFields = document.getElementById('zov-fields');
   const oamFields = document.getElementById('oam-fields');
 
   if (queryType === 'oam') {
-    zovFields.style.display = 'none';
-    oamFields.style.display = 'block';
+    zovFields.style.animation = 'fadeOut 0.2s ease forwards';
+    setTimeout(() => {
+      zovFields.style.display = 'none';
+      oamFields.style.display = 'block';
+      oamFields.style.animation = 'fadeIn 0.3s ease forwards';
+    }, 200);
   } else {
-    zovFields.style.display = 'block';
-    oamFields.style.display = 'none';
+    oamFields.style.animation = 'fadeOut 0.2s ease forwards';
+    setTimeout(() => {
+      oamFields.style.display = 'none';
+      zovFields.style.display = 'block';
+      zovFields.style.animation = 'fadeIn 0.3s ease forwards';
+    }, 200);
   }
 }
 
@@ -415,7 +424,7 @@ populateYears();
 document.getElementById('form-add-code').addEventListener('submit', async (e) => {
   e.preventDefault();
 
-  const queryType = document.getElementById('input-query-type').value;
+  const queryType = document.querySelector('input[name="query_type"]:checked').value;
   const email = document.getElementById('input-email').value.trim();
   const captchaAnswer = parseInt(document.getElementById('captcha-answer').value);
   const correctAnswer = parseInt(document.getElementById('captcha-question').dataset.answer);

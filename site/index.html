@@ -1,5 +1,6 @@
 <!doctype html>
 <html lang="en">
+
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -7,10 +8,11 @@
   <link rel="icon" type="image/png" href="assets/logo.png" />
   <link rel="stylesheet" href="assets/style.css" />
 </head>
+
 <body>
   <header>
-  <h1>Czech Republic Visa Monitor</h1>
-  <p class="subtitle">Real-time visa application status monitoring / 实时签证申请状态监控</p>
+    <h1>Czech Republic Visa Monitor</h1>
+    <p class="subtitle">Real-time visa application status monitoring / 实时签证申请状态监控</p>
   </header>
   <main>
     <div class="toolbar">
@@ -25,7 +27,7 @@
         </div>
         <input id="filter" type="search" placeholder="Filter by code or status..." />
       </div>
-      
+
       <!-- 管理面板移动到toolbar右侧 -->
       <div class="management-panel">
         <button id="btn-add-code" class="btn-secondary">➕ Add New Code</button>
@@ -67,29 +69,36 @@
         <form id="form-add-code">
           <div class="form-group">
             <label>Query Type / 查询类型</label>
-            <select id="input-query-type" onchange="toggleQueryTypeFields()">
-              <option value="zov">ŽOV (Visa Application Number / 签证申请号)</option>
-              <option value="oam">OAM (Reference Number / 参考号)</option>
-            </select>
+            <div class="segmented-control">
+              <input type="radio" name="query_type" id="type-zov" value="zov" checked
+                onchange="toggleQueryTypeFields()">
+              <label for="type-zov">ŽOV (Visa Application Number)</label>
+
+              <input type="radio" name="query_type" id="type-oam" value="oam" onchange="toggleQueryTypeFields()">
+              <label for="type-oam">OAM (Reference Number)</label>
+
+              <div class="segmented-indicator"></div>
+            </div>
           </div>
-          
+
           <!-- ZOV Field -->
           <div id="zov-fields" class="form-group">
-            <label>Visa Code / 签证代码</label>
-            <input type="text" id="input-code" placeholder="e.g., PEKI202501010001" />
-            <small>Enter your Czech visa application code (ŽOV format)</small>
+            <label>Visa Code / 签证代码 (ŽOV)</label>
+            <input type="text" id="input-code" placeholder="e.g., PEKI202501010001" autocomplete="off" />
+            <small>Format: 4 Letters + 12 Digits</small>
           </div>
-          
+
           <!-- OAM Fields -->
           <div id="oam-fields" style="display:none;">
             <div class="form-group">
               <label>Serial Number / 序列号</label>
-              <input type="text" id="oam-serial" placeholder="e.g., 12345" />
-              <small>OAM serial number (required)</small>
+              <input type="text" id="oam-serial" placeholder="e.g., 12345" autocomplete="off" />
+              <small>Numerical serial from your document</small>
             </div>
             <div class="form-group">
               <label>Suffix / 后缀 (Optional)</label>
-              <input type="text" id="oam-suffix" placeholder="e.g., XX (optional)" />
+              <input type="text" id="oam-suffix" placeholder="e.g., XX" autocomplete="off" />
+              <small>Leave empty if no suffix</small>
             </div>
             <div class="form-row">
               <div class="form-group half">
@@ -107,7 +116,7 @@
               </div>
             </div>
           </div>
-          
+
           <div class="form-group">
             <label>Email for Notifications</label>
             <input type="email" id="input-email" placeholder="your@email.com" required />
@@ -149,7 +158,7 @@
           </div>
           <button type="submit" class="btn-primary">Send Verification Code</button>
         </form>
-        
+
         <div id="verification-step" style="display:none;">
           <div class="form-group">
             <label>Enter the 6-digit code from your email</label>
@@ -157,29 +166,32 @@
           </div>
           <button type="button" class="btn-primary" onclick="verifyAndShowCodes()">Verify & Show My Codes</button>
         </div>
-        
+
         <div id="codes-list" style="display:none;">
           <h4>Your Monitored Codes</h4>
           <div id="user-codes-container"></div>
         </div>
-        
+
         <div id="logout-section" style="display:none;">
           <div class="form-group">
             <button type="button" class="btn-secondary" onclick="logout()">Logout</button>
             <small>You'll stay logged in for 7 days unless you logout manually</small>
           </div>
         </div>
-        
+
         <div id="manage-result" class="result-message" style="display:none;"></div>
       </div>
     </div>
   </main>
   <footer>
     <div class="footer">
-      <div class="footer-line footer-line-1">Performance &amp; security by <strong>EURUN CDN</strong> • Operated by <strong>HKTSE s.r.o.</strong></div>
-      <div class="footer-line footer-line-2">Holandská 49/4, 10100 Praha, Czech Republic • Contact: <a href="mailto:info@hktse.eu.org">info@hktse.eu.org</a></div>
+      <div class="footer-line footer-line-1">Performance &amp; security by <strong>EURUN CDN</strong> • Operated by
+        <strong>HKTSE s.r.o.</strong></div>
+      <div class="footer-line footer-line-2">Holandská 49/4, 10100 Praha, Czech Republic • Contact: <a
+          href="mailto:info@hktse.eu.org">info@hktse.eu.org</a></div>
     </div>
   </footer>
   <script src="assets/app.js"></script>
 </body>
+
 </html>
