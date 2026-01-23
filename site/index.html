@@ -66,10 +66,48 @@
         <h3>Add New Visa Code</h3>
         <form id="form-add-code">
           <div class="form-group">
-            <label>Visa Code</label>
-            <input type="text" id="input-code" placeholder="e.g., PEKI202501010001" required />
-            <small>Enter your Czech visa application code</small>
+            <label>Query Type / 查询类型</label>
+            <select id="input-query-type" onchange="toggleQueryTypeFields()">
+              <option value="zov">ŽOV (Visa Application Number / 签证申请号)</option>
+              <option value="oam">OAM (Reference Number / 参考号)</option>
+            </select>
           </div>
+          
+          <!-- ZOV Field -->
+          <div id="zov-fields" class="form-group">
+            <label>Visa Code / 签证代码</label>
+            <input type="text" id="input-code" placeholder="e.g., PEKI202501010001" />
+            <small>Enter your Czech visa application code (ŽOV format)</small>
+          </div>
+          
+          <!-- OAM Fields -->
+          <div id="oam-fields" style="display:none;">
+            <div class="form-group">
+              <label>Serial Number / 序列号</label>
+              <input type="text" id="oam-serial" placeholder="e.g., 12345" />
+              <small>OAM serial number (required)</small>
+            </div>
+            <div class="form-group">
+              <label>Suffix / 后缀 (Optional)</label>
+              <input type="text" id="oam-suffix" placeholder="e.g., XX (optional)" />
+            </div>
+            <div class="form-row">
+              <div class="form-group half">
+                <label>Type / 类型</label>
+                <select id="oam-type">
+                  <option value="CC">CC</option>
+                  <option value="CD">CD</option>
+                  <option value="CA">CA</option>
+                  <option value="CB">CB</option>
+                </select>
+              </div>
+              <div class="form-group half">
+                <label>Year / 年份</label>
+                <select id="oam-year"></select>
+              </div>
+            </div>
+          </div>
+          
           <div class="form-group">
             <label>Email for Notifications</label>
             <input type="email" id="input-email" placeholder="your@email.com" required />

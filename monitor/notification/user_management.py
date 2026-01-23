@@ -6,10 +6,13 @@ This module provides email functionality specifically for user management operat
 including verification emails, management codes, and HTML page templates for web responses.
 """
 
+
+import html
 from typing import Tuple, Optional
 
 from .smtp_client import send_email_immediate_sync
 from ..utils.logger import get_email_logger
+
 
 
 def build_verification_email(code: str, email: str, verification_url: str, base_url: str) -> Tuple[str, str]:
@@ -33,7 +36,7 @@ def build_verification_email(code: str, email: str, verification_url: str, base_
         <div style="max-width:680px; margin:24px auto; border:1px solid #eee; border-radius:10px; overflow:hidden; box-shadow:0 4px 14px rgba(0,0,0,.06);">
             <div style="padding:16px 20px; background:#0b5ed7; color:#fff;">
                 <div style="font-weight:600; font-size:16px; letter-spacing:.2px;">CZ Visa Status · Verification / 验证</div>
-                <div style="margin-top:4px; font-size:13px; opacity:.9;">Code <b>{code}</b> · Email / 邮箱 <b>{email}</b></div>
+                <div style="margin-top:4px; font-size:13px; opacity:.9;">Code <b>{html.escape(code)}</b> · Email / 邮箱 <b>{html.escape(email)}</b></div>
             </div>
             <div style="padding:16px 20px; background:#fff;">
                 <table style="width:100%; border-collapse:collapse; font-size:14px;">
@@ -43,11 +46,11 @@ def build_verification_email(code: str, email: str, verification_url: str, base_
                     </tr>
                     <tr>
                         <td style="color:#555;">Code / 查询码</td>
-                        <td><code style="background:#f6f8fa; padding:2px 6px; border-radius:6px;">{code}</code></td>
+                        <td><code style="background:#f6f8fa; padding:2px 6px; border-radius:6px;">{html.escape(code)}</code></td>
                     </tr>
                     <tr>
                         <td style="color:#555;">Email / 邮箱</td>
-                        <td>{email}</td>
+                        <td>{html.escape(email)}</td>
                     </tr>
                     <tr>
                         <td style="color:#555;">Validity / 有效期</td>
@@ -98,7 +101,7 @@ def build_management_code_email(verification_code: str) -> Tuple[str, str]:
                     <tr>
                         <td style="color:#555;">Code / 验证码</td>
                         <td>
-                            <div style="background:#f6f8fa; border:1px solid #e5e7eb; padding:10px 12px; display:inline-block; border-radius:8px; font-family:'Courier New', monospace; font-weight:700; letter-spacing:4px; font-size:22px; color:#0b5ed7;">{verification_code}</div>
+                            <div style="background:#f6f8fa; border:1px solid #e5e7eb; padding:10px 12px; display:inline-block; border-radius:8px; font-family:'Courier New', monospace; font-weight:700; letter-spacing:4px; font-size:22px; color:#0b5ed7;">{html.escape(verification_code)}</div>
                         </td>
                     </tr>
                     <tr>
@@ -344,7 +347,7 @@ def build_success_page(code: str, message: str, base_url: str, session_id: str =
             (function() {{
                 try {{
                     var maxAge = 7 * 24 * 3600;
-                    document.cookie = 'visa_session_id=' + encodeURIComponent('{session_id}') + '; Path=/; Max-Age=' + maxAge + '; SameSite=Lax';
+                    document.cookie = 'visa_session_id=' + encodeURIComponent('{html.escape(session_id)}') + '; Path=/; Max-Age=' + maxAge + '; SameSite=Lax';
                 }} catch (e) {{}}
             }})();
             console.log('Session automatically set for user convenience');
@@ -366,8 +369,8 @@ def build_success_page(code: str, message: str, base_url: str, session_id: str =
         <div class="container">
             <div class="icon success-icon">✅</div>
             <h1 class="success-title">Success!</h1>
-            <div class="code-box">{code}</div>
-            <p class="message" style="margin-bottom: 2rem;">{message}</p>
+            <div class="code-box">{html.escape(code)}</div>
+            <p class="message" style="margin-bottom: 2rem;">{html.escape(message)}</p>
             <div class="actions">
                 <a href="{base_url}" class="btn btn-primary">Return to Main Site</a>
                 <a href="{base_url}#manage" class="btn btn-secondary">Manage My Codes</a>
@@ -399,7 +402,7 @@ def build_error_page(error_title: str, error_message: str, base_url: str, detail
         Complete HTML page as string
     """
     common_styles = _get_common_page_styles()
-    details_html = f"<p class='details'>{details}</p>" if details else ""
+    details_html = f"<p class='details'>{html.escape(details)}</p>" if details else ""
     
     html_page = f"""
     <!DOCTYPE html>
@@ -415,8 +418,8 @@ def build_error_page(error_title: str, error_message: str, base_url: str, detail
     <body class="error-bg">
         <div class="container">
             <div class="icon error-icon">❌</div>
-            <h1 class="error-title">{error_title}</h1>
-            <p class="message">{error_message}</p>
+            <h1 class="error-title">{html.escape(error_title)}</h1>
+            <p class="message">{html.escape(error_message)}</p>
             {details_html}
             <div class="actions">
                 <a href="{base_url}" class="btn btn-primary">Return to Main Site</a>

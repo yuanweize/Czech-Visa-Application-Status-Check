@@ -37,7 +37,7 @@ try:
     _project_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
     if _project_root not in sys.path:
         sys.path.append(_project_root)
-    from query_modules.cz import query_codes_async
+    from query_modules.cz import query_codes_async, query_configs_async
     CZ_AVAILABLE = True
 except ImportError:
     CZ_AVAILABLE = False
@@ -121,6 +121,9 @@ class PriorityScheduler:
         if use_signal_handler:
             self.signal_handler = create_signal_handler()
             self.signal_handler.add_shutdown_callback(self.graceful_shutdown)
+        
+        # Track active batch processing tasks for cancellation
+        self._active_batch_tasks: List[asyncio.Task] = []
         
     def _now_iso(self) -> str:
         """当前时间ISO格式"""
@@ -464,6 +467,14 @@ class PriorityScheduler:
         self._log(f"Added new high-priority code: {code_config.code}")
         # 唤醒主循环，确保立即处理
         self._wake_event(self.new_codes_event)
+
+    def add_new_code_threadsafe(self, code_config: CodeConfig):
+        """线程安全地添加新代码（供API调用）"""
+        if getattr(self, 'loop', None) and self.loop.is_running():
+            self.loop.call_soon_threadsafe(self.add_new_code, code_config)
+        else:
+            # Fallback for testing or non-async context
+            self.add_new_code(code_config)
     
     def get_next_tasks(self) -> List[ScheduledTask]:
         """获取下一批要执行的任务"""
@@ -555,7 +566,8 @@ class PriorityScheduler:
             self._log("CZ query module not available")
             return [False] * len(tasks)
         
-        codes = [task.code_config.code for task in tasks]
+        # Pass full CodeConfig objects to support both ZOV and OAM queries
+        configs = [task.code_config for task in tasks]
         task_map = {task.code_config.code: task for task in tasks}
         completed_codes = set()
         
@@ -582,27 +594,39 @@ class PriorityScheduler:
                     
                     self.stats['processed'] += 1
             
-            # 直接调用CZ查询器的第三方接口（可取消）
-            cz_task = asyncio.create_task(query_codes_async(
-                codes=codes,
+            # 使用 query_configs_async 支持 ZOV 和 OAM 两种查询类型
+            cz_task = asyncio.create_task(query_configs_async(
+                configs=configs,
                 headless=self.config.headless,
                 workers=self.config.workers,
                 retries=3,
                 result_callback=on_result,
                 suppress_cli=True
             ))
+            self._active_batch_tasks.append(cz_task)
 
             try:
                 # 等待查询完成或收到停止事件
-                await asyncio.wait_for(asyncio.shield(cz_task), timeout=None)
+                await asyncio.shield(cz_task)
             except asyncio.CancelledError:
-                self._log("Batch processing cancelled")
+                self._log("Batch processing task was cancelled")
+                # Ensure the actual query task is also cancelled if it's still running
+                if not cz_task.done():
+                    cz_task.cancel()
+                    try:
+                        await cz_task
+                    except asyncio.CancelledError:
+                        pass
+                raise
             except Exception as e:
                 # 如果是停止事件触发，允许优雅退出
                 if self.stop_event.is_set():
                     self._log("Batch processing interrupted by stop event")
                 else:
                     raise
+            finally:
+                if cz_task in self._active_batch_tasks:
+                    self._active_batch_tasks.remove(cz_task)
             
             # 返回结果：完成的返回True，未完成的返回False
             results = []
@@ -835,12 +859,30 @@ class PriorityScheduler:
             self._log(f"Failed to send email notification for {code}: {e}")
     
     def reload_config(self):
-        """重新加载配置 - 完整的差异化更新"""
+        """Thread-safe interface for config reload (called by env_watcher)"""
+        if getattr(self, 'loop', None) and self.loop and getattr(self.loop, 'is_running', lambda: False)():
+            # Before reloading, cancel any current batch tasks to prevent "Zombie Tasks" 
+            # and ensure quick convergence to new configuration
+            def cancel_and_reload():
+                for t in list(self._active_batch_tasks):
+                    if not t.done():
+                        t.cancel()
+                self._reload_config_internal()
+                
+            self.loop.call_soon_threadsafe(cancel_and_reload)
+        else:
+            # Fallback for testing or before loop starts
+            self._reload_config_internal()
+
+    def _reload_config_internal(self):
+        """Internal reload logic - MUST run on main thread/event loop"""
         import time
         import json
         import os
         
-        with self.config_lock:
+        # No longer need threading lock if running on main loop
+        # with self.config_lock:
+        if True:
             try:
                 # 保存旧配置
                 old_codes = {c.code: c for c in self.config.codes}
@@ -1070,6 +1112,11 @@ class PriorityScheduler:
         self._log("Initiating graceful shutdown...")
         self.running = False
         
+        # Cancel all active batch tasks immediately
+        for t in list(self._active_batch_tasks):
+            if not t.done():
+                t.cancel()
+        
         # 停止邮件队列
         try:
             stop_email_queue()
@@ -1213,7 +1260,11 @@ class PriorityScheduler:
             try:
                 if CZ_AVAILABLE:
                     import query_modules.cz as cz
-                    if hasattr(cz, 'cleanup_browser'):
+                    if hasattr(cz, 'force_cleanup_all'):
+                        # Using the new robust force_cleanup_all
+                        await cz.force_cleanup_all()
+                        self._log("Browser and all contexts cleaned up vigorously")
+                    elif hasattr(cz, 'cleanup_browser'):
                         await cz.cleanup_browser()
                         self._log("Browser cleanup completed")
             except Exception as cleanup_error:
@@ -1231,9 +1282,6 @@ class PriorityScheduler:
         self._log("Priority scheduler stopped")
 
 
-# 全局注册当前运行的调度器，供API层即时唤醒与插队
-CURRENT_SCHEDULER: Optional["PriorityScheduler"] = None
-
 async def run_priority_scheduler(env_path: str = ".env", once: bool = False):
     """运行优先队列调度器"""
     
@@ -1246,9 +1294,7 @@ async def run_priority_scheduler(env_path: str = ".env", once: bool = False):
     
     # 创建调度器（一次性模式禁用信号处理器，避免干扰退出）
     scheduler = PriorityScheduler(config, env_path, use_signal_handler=not once)
-    # 注册全局引用
-    global CURRENT_SCHEDULER
-    CURRENT_SCHEDULER = scheduler
+
     
     if once:
         # 单次运行模式：使用批量处理
@@ -1279,7 +1325,8 @@ async def run_priority_scheduler(env_path: str = ".env", once: bool = False):
                 config.site_dir, 
                 config.site_port, 
                 scheduler._log, 
-                env_path
+                env_path,
+                scheduler  # Inject scheduler instance
             )
             server_thread.start()
             # 设置服务器停止事件到调度器
@@ -1308,35 +1355,6 @@ async def run_priority_scheduler(env_path: str = ".env", once: bool = False):
             import os
             os._exit(0)
 
-
-def schedule_user_code_immediately(code: str):
-    """供API调用：将用户新添加的 code 立即加入队列头进行查询"""
-    try:
-        if CURRENT_SCHEDULER is None:
-            return False
-        # 在合并视角下，为该code构造临时CodeConfig：尽量从 users.json 恢复 email 与频率
-        target_email = None
-        freq = CURRENT_SCHEDULER.config.default_freq_minutes
-        try:
-            users = CURRENT_SCHEDULER.store.load_users()
-            rec = (users.get('codes') or {}).get(code)
-            if isinstance(rec, dict):
-                target_email = rec.get('target') or None
-                f = rec.get('freq_minutes')
-                if isinstance(f, int):
-                    freq = f
-                else:
-                    try:
-                        freq = int(f) if f is not None else freq
-                    except Exception:
-                        pass
-        except Exception:
-            pass
-        cfg = CodeConfig(code=code, channel='email', target=target_email, freq_minutes=freq)
-        CURRENT_SCHEDULER.add_new_code(cfg)
-        return True
-    except Exception:
-        return False
 
 
 if __name__ == "__main__":

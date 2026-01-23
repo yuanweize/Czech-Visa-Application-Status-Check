@@ -22,7 +22,8 @@ def start_http_server(
     port: int, 
     stop_event: threading.Event, 
     log_func: Callable[[str], None],
-    config_path: str = '.env'
+    config_path: str = '.env',
+    scheduler=None
 ) -> None:
     """启动HTTP服务器
     
@@ -36,7 +37,7 @@ def start_http_server(
     if API_AVAILABLE:
         # 创建结合静态文件服务和API处理的处理器
         def create_handler(*args, **kwargs):
-            return APIHandler(*args, config_path=config_path, site_dir=site_dir, **kwargs)
+            return APIHandler(*args, config_path=config_path, site_dir=site_dir, scheduler=scheduler, **kwargs)
         
         server = ThreadingHTTPServer(("0.0.0.0", port), create_handler)
         log_func(f"HTTP server started with API - dir={site_dir} port={port}")
@@ -70,7 +71,8 @@ def create_server_thread(
     site_dir: str,
     port: int,
     log_func: Callable[[str], None],
-    config_path: str = '.env'
+    config_path: str = '.env',
+    scheduler=None
 ) -> tuple[threading.Thread, threading.Event]:
     """创建HTTP服务器线程
     
@@ -87,7 +89,7 @@ def create_server_thread(
     
     server_thread = threading.Thread(
         target=start_http_server,
-        args=(site_dir, port, stop_event, log_func, config_path),
+        args=(site_dir, port, stop_event, log_func, config_path, scheduler),
         daemon=True
     )
     

@@ -194,14 +194,43 @@ python visa_status.py monitor -e .env
 # 访问 http://localhost:8000
 ```
 
+- Persistence & Reliability / 可靠性：
+  - Atomic Writes: 临时文件原子替换与 `.bak` 自动备份，彻底杜绝断电导致的数据清空风险。
+  - Process Safety: Playwright 全局 Context 追踪与强回收机制，零僵尸进程。
+  - Hot Reload Sync: 热重载时自动取消旧配置任务，确保状态瞬间同步。
+- Security / 安全：频控、文件访问控制、会话管理、业务级验证码防刷。
+
+## Quick Start / 快速上手
+[...]
+
+## Docker Deployment / 容器化部署 (Recommended/推荐)
+
+我们提供了官方的 Docker 支持，这是最简单且最稳健的运行方式：
+
+```bash
+# 1. 准备配置 (基于示例修改)
+cp .env.example .env
+
+# 2. 启动服务 (自动拉取镜像并完成 Playwright 依赖)
+docker-compose up -d
+```
+
+特性：
+- 完美隔离的 Playwright 运行环境。
+- 自动挂载 `logs`, `data`, `config` 到宿主机，数据持久化。
+- 支持时区同步（默认 `Europe/Prague`）。
+
 ## Technical Highlights / 技术亮点
 
-- CSV-first：所有状态保存在 CSV，断点续查、易审计
-- Playwright：单浏览器多页面并发，默认无头
-- 智能邮件：队列+每分钟限流；验证码即时优先；SMTP 连接池
-- 热更新：.env 改动自动生效（watchdog）
-- 安全：频控、文件白名单、统一错误跳转、详细日志
-- 自动日志轮换：长期运行更稳健
+- **SRE Hardening**: 原子写入机制 (`_write_json_atomic`)，即便在系统崩溃时也能保证用户数据安全。
+- **Browser Lifecycle**: 实现了 `force_cleanup_all` 闭环，保证在任何异常或取消发生时，Chromium 进程都能被强制回收。
+- **DRY Architecture**: 抽象了统一的 `file_ops` 与装饰器模式，代码库极度精简且高效。
+- CSV-first：所有状态保存在 CSV，断点续查、易审计。
+- Playwright：单浏览器多页面并发，默认无头。
+- 智能邮件：队列+每分钟限流；验证码即时优先；SMTP 连接池。
+- 热更新：.env 改动自动生效（watchdog）。
+- 安全：频控、文件白名单、统一错误跳转、详细日志。
+- 自动日志轮换：保持日志文件大小在 2MB 以内。
 
 ## Logging & Service / 日志与服务部署
 

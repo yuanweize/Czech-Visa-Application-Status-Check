@@ -17,7 +17,7 @@ from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 from urllib.parse import urlparse
 
-from monitor.core.config import load_env_config
+from monitor.core.config import load_env_config, CodeConfig
 from monitor.core.code_manager import CodeStorageManager
 from monitor.notification import (
     send_verification_email,
@@ -93,12 +93,16 @@ _rate_limiter = RateLimiter(max_requests=100, window_seconds=60)  # 100 requests
 
 
 class APIHandler(BaseHTTPRequestHandler):
-    def __init__(self, *args, config_path='.env', site_dir='site', **kwargs):
+    def __init__(self, *args, config_path='.env', site_dir='site', scheduler=None, **kwargs):
         self.config_path = config_path
         self.site_dir = site_dir
+        self.scheduler = scheduler
         self._base_url = None  # Will be set when first request comes in
         self.store = CodeStorageManager(self.site_dir)
         self.store.ensure_initialized()
+        # Business logic rate limiting: {email: timestamp}
+        self._email_last_sent = {}
+        self._email_lock = threading.Lock()
         super().__init__(*args, **kwargs)
     
     def log_message(self, format, *args):
@@ -118,10 +122,8 @@ class APIHandler(BaseHTTPRequestHandler):
             'X-RateLimit-Reset': str(stats['reset_time'])
         }
         
-        # Allow localhost/development without actual rate limiting
-        if client_ip in ['127.0.0.1', '::1', 'localhost']:
-            return True
-            
+        # No longer blindly trusting localhost in production-like logic 
+        # to prevent proxy-based bypass
         if not _rate_limiter.is_allowed(client_ip):
             stats = _rate_limiter.get_stats(client_ip)
             print(f"[{_now_iso()}] RATE_LIMIT: Blocked {client_ip} - {stats['requests']} requests")
@@ -438,8 +440,15 @@ class APIHandler(BaseHTTPRequestHandler):
         code = data.get('code', '').strip().upper()
         email = data.get('email', '').strip().lower()
         captcha_answer = data.get('captcha_answer')
+        query_type = data.get('query_type', 'zov').lower()
         
-        print(f"[{_now_iso()}] API request: add-code for {code} to {email}")
+        # OAM-specific fields
+        oam_serial = data.get('oam_serial')
+        oam_suffix = data.get('oam_suffix')
+        oam_type = data.get('oam_type')
+        oam_year = data.get('oam_year')
+        
+        print(f"[{_now_iso()}] API request: add-code for {code} ({query_type}) to {email}")
         
         # Validate input
         if not code or not email:
@@ -447,11 +456,40 @@ class APIHandler(BaseHTTPRequestHandler):
             self._send_json_response(400, {'error': 'Code and email are required'})
             return
         
-        # Validate code format
-        if not re.match(r'^[A-Z]{4}\d{12}$', code):
-            print(f"[{_now_iso()}] API error: Invalid code format: {code}")
-            self._send_json_response(400, {'error': 'Invalid visa code format'})
+        # Validate email format
+        if not re.match(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$', email):
+            self._send_json_response(400, {'error': 'Invalid email format'})
             return
+
+        # Validate code format based on query type
+        if query_type == 'oam':
+            # OAM format validation
+            if not oam_serial or not re.match(r'^\d+$', oam_serial):
+                self._send_json_response(400, {'error': 'OAM serial number must be numeric'})
+                return
+            if not oam_type or not re.match(r'^[A-Z0-9]+$', oam_type):
+                self._send_json_response(400, {'error': 'Invalid OAM type'})
+                return
+            if not oam_year or not re.match(r'^\d{4}$', str(oam_year)):
+                self._send_json_response(400, {'error': 'Invalid OAM year'})
+                return
+            if oam_suffix and not re.match(r'^[A-Z0-9]+$', oam_suffix):
+                self._send_json_response(400, {'error': 'Invalid OAM suffix'})
+                return
+            
+            # Reconstruct code server-side to ensure safety and consistency
+            # Format: OAM-{serial}[-{suffix}]/{type}/{year}
+            code = f"OAM-{oam_serial}"
+            if oam_suffix:
+                code += f"-{oam_suffix}"
+            code += f"/{oam_type}/{oam_year}"
+            
+        else:
+            # ZOV format validation
+            if not re.match(r'^[A-Z]{4}\d{12}$', code):
+                print(f"[{_now_iso()}] API error: Invalid ZOV code format: {code}")
+                self._send_json_response(400, {'error': 'Invalid ŽOV code format (expected: PEKI202501010001)'})
+                return
         
         # 简单重复检测 - 检查配置文件和status.json
         try:
@@ -501,12 +539,31 @@ class APIHandler(BaseHTTPRequestHandler):
                 })
                 return
         
+        # 3) Business Logic Limit: Prevent email spam DoS (1 email per 2 mins per code per email)
+        now = time.time()
+        with self._email_lock:
+            last_sent = self._email_last_sent.get((email, code), 0)
+            if now - last_sent < 120:
+                print(f"[{_now_iso()}] RATE_LIMIT: Email spam prevention for {email} / {code}")
+                self._send_json_response(429, {
+                    'error': 'Too many requests',
+                    'message': 'A verification email was recently sent. Please wait 2 minutes before trying again.'
+                })
+                return
+            self._email_last_sent[(email, code)] = now
         # Generate verification token
         token = secrets.token_urlsafe(32)
         expires = (datetime.now() + timedelta(minutes=10)).isoformat()
         
-        # Save pending addition to users.json
-        self.store.add_pending_addition(token, code, email, expires)
+        # Save pending addition to users.json with OAM fields
+        self.store.add_pending_addition(
+            token, code, email, expires,
+            query_type=query_type,
+            oam_serial=oam_serial,
+            oam_suffix=oam_suffix,
+            oam_type=oam_type,
+            oam_year=int(oam_year) if oam_year else None
+        )
         print(f"[{_now_iso()}] Generated verification token for {email}")
         
         # Generate verification URL using cached base_url
@@ -573,9 +630,21 @@ class APIHandler(BaseHTTPRequestHandler):
         
         code = pending['code']
         email = pending['email']
+        query_type = pending.get('query_type', 'zov')
+        oam_serial = pending.get('oam_serial')
+        oam_suffix = pending.get('oam_suffix')
+        oam_type = pending.get('oam_type')
+        oam_year = pending.get('oam_year')
         
-        # Add to users.json codes
-        self.store.add_user_code(code, email)
+        # Add to users.json codes with OAM fields
+        self.store.add_user_code(
+            code, email, 
+            query_type=query_type,
+            oam_serial=oam_serial,
+            oam_suffix=oam_suffix,
+            oam_type=oam_type,
+            oam_year=oam_year
+        )
 
         # Create a session for this user to enable seamless management
         session_id = secrets.token_urlsafe(32)
@@ -585,14 +654,32 @@ class APIHandler(BaseHTTPRequestHandler):
         self.store.pop_pending_addition(token)
         
         print(f"[{_now_iso()}] Successfully added code {code} for {email}, session created: {session_id[:8]}...")
+        print(f"[{_now_iso()}] Successfully added code {code} for {email}, session created: {session_id[:8]}...")
         # 立即加入队列进行首次查询（插队到队首）
-        try:
-            from monitor.core.scheduler import schedule_user_code_immediately
-            ok = schedule_user_code_immediately(code)
-            if ok:
+        if self.scheduler:
+            try:
+                # Construct CodeConfig for immediate scheduling
+                # Default frequency is looked up from config or fallback
+                freq = self.scheduler.config.default_freq_minutes if self.scheduler.config else 60
+                
+                cfg = CodeConfig(
+                    code=code,
+                    channel='email',
+                    target=email,
+                    freq_minutes=freq,
+                    query_type=query_type,
+                    oam_serial=oam_serial,
+                    oam_suffix=oam_suffix,
+                    oam_type=oam_type,
+                    oam_year=int(oam_year) if oam_year else None
+                )
+                
+                self.scheduler.add_new_code_threadsafe(cfg)
                 print(f"[{_now_iso()}] Scheduled newly added user code immediately: {code}")
-        except Exception as e:
-            print(f"[{_now_iso()}] Failed to schedule user code immediately: {e}")
+            except Exception as e:
+                print(f"[{_now_iso()}] Failed to schedule user code immediately: {e}")
+        else:
+            print(f"[{_now_iso()}] Warning: No scheduler available to schedule immediate check")
         
         # Success - return HTML page with embedded session
         success_html = build_success_page(

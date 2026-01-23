@@ -8,6 +8,13 @@ import os, json
 @dataclass
 class CodeConfig:
     code: str
+    query_type: str = "zov"  # "zov" (visa application number) | "oam" (reference number)
+    # OAM-specific fields (only used when query_type="oam")
+    oam_serial: Optional[str] = None    # e.g., "12345"
+    oam_suffix: Optional[str] = None    # e.g., "XX" (optional)
+    oam_type: Optional[str] = None      # e.g., "CC", "CD"
+    oam_year: Optional[int] = None      # e.g., 2025
+    # Common fields
     channel: Optional[str] = "email"  # can be None/empty to disable notifications
     target: Optional[str] = None
     freq_minutes: Optional[int] = None  # None means use global default
@@ -42,6 +49,39 @@ def _parse_bool(v: Optional[str], default: bool) -> bool:
     if s in ("0", "false", "no", "off", "f", "n"):
         return False
     return default
+
+
+import re
+
+def _parse_oam_code(code: str) -> Optional[dict]:
+    """Parse OAM code formats into components.
+    
+    Supported formats:
+    - "OAM-12345-XX/CC/2025" -> {'serial': '12345', 'suffix': 'XX', 'type': 'CC', 'year': 2025}
+    - "OAM-12345/CC/2025" -> {'serial': '12345', 'suffix': None, 'type': 'CC', 'year': 2025}
+    - "12345-XX/CC/2025" -> {'serial': '12345', 'suffix': 'XX', 'type': 'CC', 'year': 2025}
+    - "12345/CC/2025" -> {'serial': '12345', 'suffix': None, 'type': 'CC', 'year': 2025}
+    """
+    if not code:
+        return None
+    
+    # Normalize: remove "OAM-" prefix if present
+    code = code.strip()
+    if code.upper().startswith("OAM-"):
+        code = code[4:]
+    
+    # Pattern: {serial}[-{suffix}]/{type}/{year}
+    # Examples: "12345-XX/CC/2025" or "12345/CC/2025"
+    match = re.match(r'^(\d+)(?:-([A-Z]+))?/([A-Z]+)/(\d{4})$', code, re.IGNORECASE)
+    if match:
+        return {
+            'serial': match.group(1),
+            'suffix': match.group(2).upper() if match.group(2) else None,
+            'type': match.group(3).upper(),
+            'year': int(match.group(4))
+        }
+    
+    return None
 
 
 def load_env_config(env_path: str = ".env") -> MonitorConfig:
@@ -134,9 +174,37 @@ def load_env_config(env_path: str = ".env") -> MonitorConfig:
                     freq_val = int(freq_val)
                 else:
                     freq_val = None  # Use global default
+                
+                # Query type: "zov" (default) or "oam"
+                query_type = obj.get("type", obj.get("query_type", "zov")).lower()
+                
+                # OAM-specific fields
+                oam_serial = obj.get("oam_serial")
+                oam_suffix = obj.get("oam_suffix")
+                oam_type = obj.get("oam_type")
+                oam_year = obj.get("oam_year")
+                
+                # Auto-parse OAM code format: "OAM-12345-XX/CC/2025" or "12345/CC/2025"
+                code_str = obj["code"].strip()
+                if query_type == "oam" and not oam_serial:
+                    parsed = _parse_oam_code(code_str)
+                    if parsed:
+                        oam_serial = parsed.get("serial") or oam_serial
+                        oam_suffix = parsed.get("suffix") or oam_suffix
+                        oam_type = parsed.get("type") or oam_type
+                        oam_year = parsed.get("year") or oam_year
+                
+                # Convert oam_year to int if needed
+                if oam_year is not None:
+                    oam_year = int(oam_year)
                     
                 codes.append(CodeConfig(
-                    code=obj["code"].strip(),
+                    code=code_str,
+                    query_type=query_type,
+                    oam_serial=oam_serial,
+                    oam_suffix=oam_suffix,
+                    oam_type=oam_type,
+                    oam_year=oam_year,
                     channel=channel_val,
                     target=obj.get("target"),
                     freq_minutes=freq_val,

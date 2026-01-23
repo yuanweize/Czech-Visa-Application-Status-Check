@@ -1,0 +1,23 @@
+version: '3.8'
+
+services:
+  cz-visa-monitor:
+    build: .
+    container_name: cz-visa-monitor
+    restart: always
+    env_file:
+      - .env
+    volumes:
+      # Data persistence
+      - ./logs:/app/logs
+      - ./site:/app/site
+      - ./data:/app/data
+      # Configuration persistence (especially for user-added codes)
+      - ./site/config:/app/site/config
+    # ports:
+    #   - "8000:8000" # Enable if SERVE=true in .env
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"

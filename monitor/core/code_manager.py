@@ -14,11 +14,14 @@ from __future__ import annotations
 
 import json
 import os
+import threading  # Added for thread safety
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Dict, List, Optional, Any
 
 from .config import MonitorConfig, CodeConfig
+from monitor.utils.file_ops import write_json_atomic, read_json_safe
+from monitor.utils.decorators import synchronized
 
 
 def _now_iso() -> str:
@@ -41,35 +44,270 @@ class CodeStorageManager:
         self.status_path = os.path.join(self.config_dir, 'status.json')
         self.users_path = os.path.join(self.config_dir, 'users.json')
         self.legacy_status_path = os.path.join(site_dir, 'status.json')
+        # Thread safety lock - used by @synchronized
+        self._lock = threading.RLock()
 
     # ---------- initialization & migration ----------
+    @synchronized
     def ensure_initialized(self):
         os.makedirs(self.config_dir, exist_ok=True)
         # Migrate legacy site/status.json -> site/config/status.json
         if not os.path.exists(self.status_path):
-            legacy = self._read_json_safe(self.legacy_status_path)
+            legacy = read_json_safe(self.legacy_status_path)
             if legacy is not None:
                 # Drop user_management from legacy when migrating
                 data = {
                     'generated_at': legacy.get('generated_at') or _now_iso(),
                     'items': legacy.get('items') or {}
                 }
-                self._write_json(self.status_path, data)
+                write_json_atomic(self.status_path, data)
             else:
                 # Create fresh empty status
-                self._write_json(self.status_path, {
+                write_json_atomic(self.status_path, {
                     'generated_at': _now_iso(),
                     'items': {}
                 })
         # Initialize users.json if missing
         if not os.path.exists(self.users_path):
-            self._write_json(self.users_path, {
+            write_json_atomic(self.users_path, {
                 'generated_at': _now_iso(),
                 'codes': {},
                 'sessions': {},
                 'verification_codes': {},
                 'pending_additions': {}
             })
+
+    # ---------- status.json (env) ----------
+    @synchronized
+    def load_status(self) -> Dict[str, Any]:
+        self.ensure_initialized()
+        data = read_json_safe(self.status_path)
+        if data is None:
+            data = {'generated_at': _now_iso(), 'items': {}}
+            write_json_atomic(self.status_path, data)
+        return data
+
+    @synchronized
+    def save_status(self, data: Dict[str, Any]):
+        data = data or {}
+        data.setdefault('generated_at', _now_iso())
+        data.setdefault('items', {})
+        write_json_atomic(self.status_path, data)
+
+    # ---------- users.json (user) ----------
+    @synchronized
+    def load_users(self) -> Dict[str, Any]:
+        self.ensure_initialized()
+        data = read_json_safe(self.users_path)
+        if data is None:
+            data = {
+                'generated_at': _now_iso(),
+                'codes': {},
+                'sessions': {},
+                'verification_codes': {},
+                'pending_additions': {}
+            }
+            write_json_atomic(self.users_path, data)
+        return data
+
+    @synchronized
+    def save_users(self, data: Dict[str, Any]):
+        if data is None:
+            return
+        data.setdefault('generated_at', _now_iso())
+        for k in ('codes', 'sessions', 'verification_codes', 'pending_additions'):
+            data.setdefault(k, {})
+        # 清理空结构，保持文件简洁
+        compact = dict(data)
+        for k in ('verification_codes', 'pending_additions'):
+            if not compact.get(k):
+                compact.pop(k, None)
+        write_json_atomic(self.users_path, compact)
+
+    # ---------- merge & update ----------
+    def merge_codes(self, config: MonitorConfig) -> List[ManagedCode]:
+        """Merge env codes (from .env config) with user-added codes (from users.json)."""
+        status = self.load_status()
+        users = self.load_users()
+        items = status.get('items', {}) or {}
+        user_codes = users.get('codes', {}) or {}
+
+        result: List[ManagedCode] = []
+        # env codes from config
+        cfg_map = {c.code: c for c in (config.codes or [])}
+        for code, c in cfg_map.items():
+            result.append(ManagedCode(code=code, origin='env', config=c, item=items.get(code)))
+        
+        # user codes
+        for code, rec in user_codes.items():
+            freq_val = rec.get('freq_minutes')
+            try:
+                if isinstance(freq_val, str): freq_val = int(freq_val)
+            except Exception: freq_val = None
+            
+            user_cfg = CodeConfig(code=code, channel='email', target=rec.get('target'), freq_minutes=freq_val, note=rec.get('note'))
+            result.append(ManagedCode(code=code, origin='user', config=user_cfg, item=rec))
+        return result
+
+    @synchronized
+    def update_item(self, origin: str, code: str, updated_item: Dict[str, Any]):
+        """Write updated status item to the corresponding storage based on origin."""
+        if origin == 'env':
+            data = self.load_status()
+            data.setdefault('items', {})[code] = updated_item
+            self.save_status(data)
+        else:
+            users = self.load_users()
+            codes = users.setdefault('codes', {})
+            if updated_item.get('channel'):
+                updated_item['channel'] = str(updated_item['channel']).lower()
+            updated_item.pop('email', None)
+            codes[code] = updated_item
+            self.save_users(users)
+
+    # Helpers for API layer
+    @synchronized
+    def add_pending_addition(self, token: str, code: str, email: str, expires_iso: str, **oam_fields):
+        users = self.load_users()
+        users.setdefault('pending_additions', {})[token] = {
+            'code': code, 'email': email, 'expires': expires_iso, **oam_fields
+        }
+        self.save_users(users)
+
+    @synchronized
+    def pop_pending_addition(self, token: str) -> Optional[Dict[str, Any]]:
+        users = self.load_users()
+        rec = users.setdefault('pending_additions', {}).pop(token, None)
+        self.save_users(users)
+        return rec
+
+    @synchronized
+    def add_user_code(self, code: str, email: str, **kwargs):
+        users = self.load_users()
+        users.setdefault('codes', {})[code] = {
+            'code': code, 'channel': 'email', 'target': email,
+            'status': 'Pending/等待查询', 'last_checked': None, 'last_changed': None,
+            'first_check': True, 'uses_default_freq': True, **kwargs
+        }
+        self.save_users(users)
+
+    @synchronized
+    def remove_user_code(self, code: str):
+        users = self.load_users()
+        if code in users.setdefault('codes', {}):
+            del users['codes'][code]
+            self.save_users(users)
+
+    @synchronized
+    def add_session(self, session_id: str, email: str, expires_at: str):
+        users = self.load_users()
+        users.setdefault('sessions', {})[session_id] = {
+            'email': email, 'created_at': _now_iso(),
+            'expires_at': expires_at, 'last_used': _now_iso()
+        }
+        self.save_users(users)
+
+    @synchronized
+    def update_session_last_used(self, session_id: str):
+        users = self.load_users()
+        if session_id in users.setdefault('sessions', {}):
+            users['sessions'][session_id]['last_used'] = _now_iso()
+            self.save_users(users)
+
+    @synchronized
+    def remove_session(self, session_id: str):
+        users = self.load_users()
+        if session_id in users.setdefault('sessions', {}):
+            del users['sessions'][session_id]
+            self.save_users(users)
+
+    @synchronized
+    def set_verification_code(self, email: str, code: str, expires_iso: str, vtype: str = 'manage'):
+        users = self.load_users()
+        users.setdefault('verification_codes', {})[email] = {
+            'code': code, 'expires': expires_iso, 'type': vtype
+        }
+        self.save_users(users)
+
+    @synchronized
+    def pop_verification_code(self, email: str) -> Optional[Dict[str, Any]]:
+        users = self.load_users()
+        rec = users.setdefault('verification_codes', {}).pop(email, None)
+        self.save_users(users)
+        return rec
+
+    def get_public_items(self) -> Dict[str, Dict[str, Any]]:
+        """Merge env and user items for public exposure without sensitive fields."""
+        status = self.load_status()
+        users = self.load_users()
+        public: Dict[str, Dict[str, Any]] = {}
+
+        def to_public(code, item):
+            return {
+                'code': item.get('code', code), 'status': item.get('status'),
+                'last_checked': item.get('last_checked'), 'last_changed': item.get('last_changed'),
+                'next_check': item.get('next_check'), 'note': item.get('note')
+            }
+
+        for code, item in (status.get('items') or {}).items():
+            public[code] = to_public(code, item)
+        for code, item in (users.get('codes') or {}).items():
+            public[code] = to_public(code, item)
+        return public
+
+
+def _now_iso() -> str:
+    return datetime.now().isoformat()
+
+
+@dataclass
+class ManagedCode:
+    code: str
+    origin: str  # 'env' | 'user'
+    config: CodeConfig
+    # existing stored item if any (status fields)
+    item: Optional[Dict[str, Any]] = None
+
+
+class CodeStorageManager:
+    def __init__(self, site_dir: str):
+        self.site_dir = site_dir
+        self.config_dir = os.path.join(site_dir, 'config')
+        self.status_path = os.path.join(self.config_dir, 'status.json')
+        self.users_path = os.path.join(self.config_dir, 'users.json')
+        self.legacy_status_path = os.path.join(site_dir, 'status.json')
+        # Thread safety lock
+        self._lock = threading.RLock()
+
+    # ---------- initialization & migration ----------
+    def ensure_initialized(self):
+        with self._lock:
+            os.makedirs(self.config_dir, exist_ok=True)
+            # Migrate legacy site/status.json -> site/config/status.json
+            if not os.path.exists(self.status_path):
+                legacy = self._read_json_safe(self.legacy_status_path)
+                if legacy is not None:
+                    # Drop user_management from legacy when migrating
+                    data = {
+                        'generated_at': legacy.get('generated_at') or _now_iso(),
+                        'items': legacy.get('items') or {}
+                    }
+                    self._write_json_atomic(self.status_path, data)
+                else:
+                    # Create fresh empty status
+                    self._write_json_atomic(self.status_path, {
+                        'generated_at': _now_iso(),
+                        'items': {}
+                    })
+            # Initialize users.json if missing
+            if not os.path.exists(self.users_path):
+                self._write_json_atomic(self.users_path, {
+                    'generated_at': _now_iso(),
+                    'codes': {},
+                    'sessions': {},
+                    'verification_codes': {},
+                    'pending_additions': {}
+                })
 
     # ---------- low-level IO ----------
     def _read_json_safe(self, path: str) -> Optional[Dict[str, Any]]:
@@ -83,56 +321,80 @@ class CodeStorageManager:
             return None
         return None
 
-    def _write_json(self, path: str, data: Dict[str, Any]):
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, 'w', encoding='utf-8') as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
+    def _write_json_atomic(self, path: str, data: Dict[str, Any]):
+        """Atomic write using temporary file and os.replace."""
+        import tempfile
+        dir_name = os.path.dirname(path)
+        os.makedirs(dir_name, exist_ok=True)
+        
+        # Create a backup before writing if file exists
+        if os.path.exists(path):
+            try:
+                import shutil
+                shutil.copy2(path, path + ".bak")
+            except Exception:
+                pass
+
+        fd, tmp_path = tempfile.mkstemp(dir=dir_name, prefix=".tmp_", suffix=".json")
+        try:
+            with os.fdopen(fd, 'w', encoding='utf-8') as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+            # Sync to disk to ensure it's written before replacing
+            os.replace(tmp_path, path)
+        except Exception as e:
+            if os.path.exists(tmp_path):
+                os.unlink(tmp_path)
+            raise e
 
     # ---------- status.json (env) ----------
     def load_status(self) -> Dict[str, Any]:
-        self.ensure_initialized()
-        data = self._read_json_safe(self.status_path)
-        if data is None:
-            data = {'generated_at': _now_iso(), 'items': {}}
-            self._write_json(self.status_path, data)
-        return data
+        with self._lock:
+            self.ensure_initialized()
+            data = self._read_json_safe(self.status_path)
+            if data is None:
+                data = {'generated_at': _now_iso(), 'items': {}}
+                self._write_json_atomic(self.status_path, data)
+            return data
 
     def save_status(self, data: Dict[str, Any]):
-        data = data or {}
-        if 'generated_at' not in data:
-            data['generated_at'] = _now_iso()
-        if 'items' not in data:
-            data['items'] = {}
-        self._write_json(self.status_path, data)
+        with self._lock:
+            data = data or {}
+            if 'generated_at' not in data:
+                data['generated_at'] = _now_iso()
+            if 'items' not in data:
+                data['items'] = {}
+            self._write_json_atomic(self.status_path, data)
 
     # ---------- users.json (user) ----------
     def load_users(self) -> Dict[str, Any]:
-        self.ensure_initialized()
-        data = self._read_json_safe(self.users_path)
-        if data is None:
-            data = {
-                'generated_at': _now_iso(),
-                'codes': {},
-                'sessions': {},
-                'verification_codes': {},
-                'pending_additions': {}
-            }
-            self._write_json(self.users_path, data)
-        return data
+        with self._lock:
+            self.ensure_initialized()
+            data = self._read_json_safe(self.users_path)
+            if data is None:
+                data = {
+                    'generated_at': _now_iso(),
+                    'codes': {},
+                    'sessions': {},
+                    'verification_codes': {},
+                    'pending_additions': {}
+                }
+                self._write_json_atomic(self.users_path, data)
+            return data
 
     def save_users(self, data: Dict[str, Any]):
-        if data is None:
-            return
-        if 'generated_at' not in data:
-            data['generated_at'] = _now_iso()
-        for k in ('codes', 'sessions', 'verification_codes', 'pending_additions'):
-            data.setdefault(k, {})
-        # 清理空结构，避免让用户误解（保持文件简洁）
-        compact = dict(data)
-        for k in ('verification_codes', 'pending_additions'):
-            if isinstance(compact.get(k), dict) and len(compact.get(k)) == 0:
-                compact.pop(k, None)
-        self._write_json(self.users_path, compact)
+        with self._lock:
+            if data is None:
+                return
+            if 'generated_at' not in data:
+                data['generated_at'] = _now_iso()
+            for k in ('codes', 'sessions', 'verification_codes', 'pending_additions'):
+                data.setdefault(k, {})
+            # 清理空结构，避免让用户误解（保持文件简洁）
+            compact = dict(data)
+            for k in ('verification_codes', 'pending_additions'):
+                if isinstance(compact.get(k), dict) and len(compact.get(k)) == 0:
+                    compact.pop(k, None)
+            self._write_json_atomic(self.users_path, compact)
 
     # ---------- merge & update ----------
     def merge_codes(self, config: MonitorConfig) -> List[ManagedCode]:
@@ -168,99 +430,127 @@ class CodeStorageManager:
 
     def update_item(self, origin: str, code: str, updated_item: Dict[str, Any]):
         """Write updated status item to the corresponding storage based on origin."""
-        if origin == 'env':
-            data = self.load_status()
-            items = data.setdefault('items', {})
-            items[code] = updated_item
-            data['generated_at'] = _now_iso()
-            self.save_status(data)
-        else:
+        with self._lock:
+            if origin == 'env':
+                data = self.load_status()
+                items = data.setdefault('items', {})
+                items[code] = updated_item
+                data['generated_at'] = _now_iso()
+                self.save_status(data)
+            else:
+                users = self.load_users()
+                codes = users.setdefault('codes', {})
+                # Normalize channel to lowercase 'email' for user-managed entries when notifications are enabled
+                if updated_item.get('channel'):
+                    updated_item['channel'] = str(updated_item['channel']).lower()
+                # Do not store separate 'email' field; rely solely on 'target'
+                updated_item.pop('email', None)
+                codes[code] = updated_item
+                users['generated_at'] = _now_iso()
+                self.save_users(users)
+
+    # Helpers for API layer
+    def add_pending_addition(self, token: str, code: str, email: str, expires_iso: str,
+                             query_type: str = 'zov', oam_serial: str = None,
+                             oam_suffix: str = None, oam_type: str = None, oam_year: int = None):
+        with self._lock:
             users = self.load_users()
-            codes = users.setdefault('codes', {})
-            # Normalize channel to lowercase 'email' for user-managed entries when notifications are enabled
-            if updated_item.get('channel'):
-                updated_item['channel'] = str(updated_item['channel']).lower()
-            # Do not store separate 'email' field; rely solely on 'target'
-            updated_item.pop('email', None)
-            codes[code] = updated_item
+            pend = users.setdefault('pending_additions', {})
+            pend[token] = {
+                'code': code, 
+                'email': email, 
+                'expires': expires_iso,
+                'query_type': query_type,
+                'oam_serial': oam_serial,
+                'oam_suffix': oam_suffix,
+                'oam_type': oam_type,
+                'oam_year': oam_year
+            }
             users['generated_at'] = _now_iso()
             self.save_users(users)
 
-    # Helpers for API layer
-    def add_pending_addition(self, token: str, code: str, email: str, expires_iso: str):
-        users = self.load_users()
-        pend = users.setdefault('pending_additions', {})
-        pend[token] = {'code': code, 'email': email, 'expires': expires_iso}
-        users['generated_at'] = _now_iso()
-        self.save_users(users)
-
     def pop_pending_addition(self, token: str) -> Optional[Dict[str, Any]]:
-        users = self.load_users()
-        pend = users.setdefault('pending_additions', {})
-        rec = pend.pop(token, None)
-        self.save_users(users)
-        return rec
+        with self._lock:
+            users = self.load_users()
+            pend = users.setdefault('pending_additions', {})
+            rec = pend.pop(token, None)
+            self.save_users(users)
+            return rec
 
-    def add_user_code(self, code: str, email: str):
-        users = self.load_users()
-        codes = users.setdefault('codes', {})
-        codes[code] = {
-            'code': code,
-            'channel': 'email',
-            'target': email,
-            'status': 'Pending/等待查询',
-            'last_checked': None,
-            'last_changed': None,
-            'first_check': True,
-            'uses_default_freq': True,
-        }
-        users['generated_at'] = _now_iso()
-        self.save_users(users)
+    def add_user_code(self, code: str, email: str, query_type: str = 'zov',
+                      oam_serial: str = None, oam_suffix: str = None, 
+                      oam_type: str = None, oam_year: int = None):
+        with self._lock:
+            users = self.load_users()
+            codes = users.setdefault('codes', {})
+            codes[code] = {
+                'code': code,
+                'channel': 'email',
+                'target': email,
+                'status': 'Pending/等待查询',
+                'last_checked': None,
+                'last_changed': None,
+                'first_check': True,
+                'uses_default_freq': True,
+                'query_type': query_type,
+                'oam_serial': oam_serial,
+                'oam_suffix': oam_suffix,
+                'oam_type': oam_type,
+                'oam_year': oam_year
+            }
+            users['generated_at'] = _now_iso()
+            self.save_users(users)
 
     def remove_user_code(self, code: str):
-        users = self.load_users()
-        codes = users.setdefault('codes', {})
-        if code in codes:
-            del codes[code]
-            self.save_users(users)
+        with self._lock:
+            users = self.load_users()
+            codes = users.setdefault('codes', {})
+            if code in codes:
+                del codes[code]
+                self.save_users(users)
 
     def add_session(self, session_id: str, email: str, expires_at: str):
-        users = self.load_users()
-        sessions = users.setdefault('sessions', {})
-        sessions[session_id] = {
-            'email': email,
-            'created_at': _now_iso(),
-            'expires_at': expires_at,
-            'last_used': _now_iso(),
-        }
-        self.save_users(users)
+        with self._lock:
+            users = self.load_users()
+            sessions = users.setdefault('sessions', {})
+            sessions[session_id] = {
+                'email': email,
+                'created_at': _now_iso(),
+                'expires_at': expires_at,
+                'last_used': _now_iso(),
+            }
+            self.save_users(users)
 
     def update_session_last_used(self, session_id: str):
-        users = self.load_users()
-        sessions = users.setdefault('sessions', {})
-        if session_id in sessions:
-            sessions[session_id]['last_used'] = _now_iso()
-            self.save_users(users)
+        with self._lock:
+            users = self.load_users()
+            sessions = users.setdefault('sessions', {})
+            if session_id in sessions:
+                sessions[session_id]['last_used'] = _now_iso()
+                self.save_users(users)
 
     def remove_session(self, session_id: str):
-        users = self.load_users()
-        sessions = users.setdefault('sessions', {})
-        if session_id in sessions:
-            del sessions[session_id]
-            self.save_users(users)
+        with self._lock:
+            users = self.load_users()
+            sessions = users.setdefault('sessions', {})
+            if session_id in sessions:
+                del sessions[session_id]
+                self.save_users(users)
 
     def set_verification_code(self, email: str, code: str, expires_iso: str, vtype: str = 'manage'):
-        users = self.load_users()
-        ver = users.setdefault('verification_codes', {})
-        ver[email] = {'code': code, 'expires': expires_iso, 'type': vtype}
-        self.save_users(users)
+        with self._lock:
+            users = self.load_users()
+            ver = users.setdefault('verification_codes', {})
+            ver[email] = {'code': code, 'expires': expires_iso, 'type': vtype}
+            self.save_users(users)
 
     def pop_verification_code(self, email: str) -> Optional[Dict[str, Any]]:
-        users = self.load_users()
-        ver = users.setdefault('verification_codes', {})
-        rec = ver.pop(email, None)
-        self.save_users(users)
-        return rec
+        with self._lock:
+            users = self.load_users()
+            ver = users.setdefault('verification_codes', {})
+            rec = ver.pop(email, None)
+            self.save_users(users)
+            return rec
 
     def get_public_items(self) -> Dict[str, Dict[str, Any]]:
         """Merge env and user items for public exposure without sensitive fields."""

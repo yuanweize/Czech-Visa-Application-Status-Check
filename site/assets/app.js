@@ -36,9 +36,9 @@ function statusClass(s) {
 function startCountdown() {
   let seconds = 60;
   const countdownEl = document.getElementById('countdown');
-  
+
   if (countdownInterval) clearInterval(countdownInterval);
-  
+
   countdownInterval = setInterval(() => {
     seconds--;
     if (seconds <= 0) {
@@ -48,7 +48,7 @@ function startCountdown() {
       countdownEl.textContent = `Next refresh in ${seconds}s`;
     }
   }, 1000);
-  
+
   countdownEl.textContent = `Next refresh in ${seconds}s`;
 }
 
@@ -94,8 +94,8 @@ function render(data) {
   tb.innerHTML = '';
   const entries = Object.values(data.items || {}).sort((a, b) => {
     if (sortState.key === 'status') {
-      const as = String(a.status||'').toLowerCase();
-      const bs = String(b.status||'').toLowerCase();
+      const as = String(a.status || '').toLowerCase();
+      const bs = String(b.status || '').toLowerCase();
       let cmp = 0;
       if (as < bs) cmp = -1; else if (as > bs) cmp = 1; else cmp = 0;
       if (cmp !== 0) return sortState.dir === 'asc' ? cmp : -cmp;
@@ -106,7 +106,7 @@ function render(data) {
         if (ak < bk) return sortState.dir === 'asc' ? -1 : 1;
         if (ak > bk) return sortState.dir === 'asc' ? 1 : -1;
       }
-      const slex = (String(a.code||'')).localeCompare(String(b.code||''));
+      const slex = (String(a.code || '')).localeCompare(String(b.code || ''));
       return sortState.dir === 'asc' ? slex : -slex;
     } else {
       // code sort
@@ -115,26 +115,26 @@ function render(data) {
       if (ak !== null && bk !== null) {
         if (ak < bk) return sortState.dir === 'asc' ? -1 : 1;
         if (ak > bk) return sortState.dir === 'asc' ? 1 : -1;
-        const slex = (String(a.code||'')).localeCompare(String(b.code||''));
+        const slex = (String(a.code || '')).localeCompare(String(b.code || ''));
         return sortState.dir === 'asc' ? slex : -slex;
       }
-      const slex = (String(a.code||'')).localeCompare(String(b.code||''));
+      const slex = (String(a.code || '')).localeCompare(String(b.code || ''));
       return sortState.dir === 'asc' ? slex : -slex;
     }
   });
   const q = (document.getElementById('filter').value || '').toLowerCase();
   for (const it of entries) {
-    const hay = (it.code + ' ' + (it.status||'')).toLowerCase();
+    const hay = (it.code + ' ' + (it.status || '')).toLowerCase();
     if (q && !hay.includes(q)) continue;
     const tr = document.createElement('tr');
-    
+
     // Code column with note support
-    const tdCode = document.createElement('td'); 
-    
+    const tdCode = document.createElement('td');
+
     // Create code container with two lines (similar to time display)
     const codeContainer = document.createElement('div');
     codeContainer.className = 'code-container';
-    
+
     // Main code line
     const codeDiv = document.createElement('div');
     codeDiv.className = 'code-text';
@@ -142,7 +142,7 @@ function render(data) {
     if (it.next_check) {
       codeDiv.title = `Next check: ${new Date(it.next_check).toLocaleString()}`;
     }
-    
+
     // Note line (if exists)
     if (it.note && it.note.trim()) {
       const noteDiv = document.createElement('div');
@@ -154,22 +154,22 @@ function render(data) {
       // No note, just add the code text directly
       codeContainer.appendChild(codeDiv);
     }
-    
+
     tdCode.appendChild(codeContainer);
     const tdStatus = document.createElement('td');
     const span = document.createElement('span');
     span.className = 'status-tag ' + statusClass(it.status);
     span.textContent = it.status || '';
     tdStatus.appendChild(span);
-    
+
     // Enhanced time display with Last Checked and Next Check countdown
-    const tdTime = document.createElement('td'); 
+    const tdTime = document.createElement('td');
     tdTime.className = 'time-cell';
-    
+
     // Create time container with two lines
     const timeContainer = document.createElement('div');
     timeContainer.className = 'time-container';
-    
+
     // Last Checked line
     const lastCheckedDiv = document.createElement('div');
     lastCheckedDiv.className = 'last-checked';
@@ -180,7 +180,7 @@ function render(data) {
     } else {
       lastCheckedDiv.textContent = 'Last: Never';
     }
-    
+
     // Next Check countdown line
     const nextCheckDiv = document.createElement('div');
     nextCheckDiv.className = 'next-check';
@@ -191,12 +191,12 @@ function render(data) {
       nextCheckDiv.textContent = 'Next: Not scheduled';
       nextCheckDiv.classList.add('muted');
     }
-    
+
     timeContainer.appendChild(lastCheckedDiv);
     timeContainer.appendChild(nextCheckDiv);
     tdTime.appendChild(timeContainer);
-    
-    const tdLCh = document.createElement('td'); 
+
+    const tdLCh = document.createElement('td');
     tdLCh.className = 'last-changed-cell';
     if (it.last_changed) {
       const lastChangedTime = new Date(it.last_changed);
@@ -208,7 +208,7 @@ function render(data) {
     tr.appendChild(tdCode); tr.appendChild(tdStatus); tr.appendChild(tdTime); tr.appendChild(tdLCh);
     tb.appendChild(tr);
   }
-  
+
   // Start countdown timers for each next_check
   startNextCheckCountdowns();
 }
@@ -220,27 +220,27 @@ function startNextCheckCountdowns() {
   // Clear existing intervals
   nextCheckIntervals.forEach(interval => clearInterval(interval));
   nextCheckIntervals = [];
-  
+
   // Find all next-check elements
   const nextCheckElements = document.querySelectorAll('.next-check[data-next-check]');
-  
+
   nextCheckElements.forEach(element => {
     const nextCheckTime = new Date(element.getAttribute('data-next-check'));
-    
+
     function updateCountdown() {
       const now = new Date();
       const timeRemaining = nextCheckTime - now;
-      
+
       if (timeRemaining <= 0) {
         element.textContent = 'Next: Overdue';
         element.className = 'next-check overdue';
         return;
       }
-      
+
       const minutes = Math.floor(timeRemaining / (1000 * 60));
       const hours = Math.floor(minutes / 60);
       const days = Math.floor(hours / 24);
-      
+
       let countdownText = 'Next: ';
       if (days > 0) {
         countdownText += `${days}d ${hours % 24}h`;
@@ -249,14 +249,14 @@ function startNextCheckCountdowns() {
       } else {
         countdownText += `${minutes}m`;
       }
-      
+
       element.textContent = countdownText;
       element.title = `Next check: ${nextCheckTime.toLocaleString()}`;
     }
-    
+
     // Update immediately
     updateCountdown();
-    
+
     // Update every minute
     const interval = setInterval(updateCountdown, 60000);
     nextCheckIntervals.push(interval);
@@ -265,7 +265,7 @@ function startNextCheckCountdowns() {
 
 async function refresh() {
   if (refreshInProgress) return;
-  
+
   showLoading();
   const data = await loadData();
   render(data);
@@ -285,7 +285,7 @@ const thStatus = document.getElementById('th-status');
 function setHeaderIndicators() {
   const arrowCode = document.getElementById('arrow-code');
   const arrowStatus = document.getElementById('arrow-status');
-  
+
   if (sortState.key === 'code') {
     arrowCode.textContent = sortState.dir === 'asc' ? '↓' : '↑';
     arrowStatus.textContent = '';
@@ -318,7 +318,7 @@ function generateCaptcha(questionId, answerId) {
   const num1 = Math.floor(Math.random() * 10) + 1;
   const num2 = Math.floor(Math.random() * 10) + 1;
   const answer = num1 + num2;
-  
+
   document.getElementById(questionId).textContent = `Please calculate: ${num1} + ${num2} = ?`;
   document.getElementById(questionId).dataset.answer = answer;
 }
@@ -338,15 +338,15 @@ function openModal(modalId) {
 async function resetManageModal() {
   // Clear verification code input
   document.getElementById('verification-code').value = '';
-  
+
   // Check if user is logged in with valid session
   console.log('Checking session for user login...');
   const sessionId = getSessionId();
   console.log('Found session ID:', sessionId ? sessionId.substring(0, 8) + '...' : 'None');
-  
+
   const isLoggedIn = await verifySession();
   console.log('Session verification result:', isLoggedIn);
-  
+
   if (isLoggedIn) {
     console.log('User is logged in, showing management interface');
     // Show only logged-in state
@@ -375,49 +375,114 @@ function closeModal(modalId) {
   document.getElementById('codes-list').style.display = 'none';
 }
 
+// Toggle between ZOV and OAM form fields
+function toggleQueryTypeFields() {
+  const queryType = document.getElementById('input-query-type').value;
+  const zovFields = document.getElementById('zov-fields');
+  const oamFields = document.getElementById('oam-fields');
+
+  if (queryType === 'oam') {
+    zovFields.style.display = 'none';
+    oamFields.style.display = 'block';
+  } else {
+    zovFields.style.display = 'block';
+    oamFields.style.display = 'none';
+  }
+}
+
+// Populate year dropdown with sensible range
+function populateYears() {
+  const yearSelect = document.getElementById('oam-year');
+  if (!yearSelect) return;
+
+  const currentYear = new Date().getFullYear();
+  yearSelect.innerHTML = '';
+
+  // Years from 2020 to current year + 2
+  for (let y = 2020; y <= currentYear + 2; y++) {
+    const option = document.createElement('option');
+    option.value = y;
+    option.textContent = y;
+    if (y === currentYear) option.selected = true;
+    yearSelect.appendChild(option);
+  }
+}
+
+// Initialize year dropdown on page load
+populateYears();
+
 // 添加代码表单提交
 document.getElementById('form-add-code').addEventListener('submit', async (e) => {
   e.preventDefault();
-  
-  const code = document.getElementById('input-code').value.trim();
+
+  const queryType = document.getElementById('input-query-type').value;
   const email = document.getElementById('input-email').value.trim();
   const captchaAnswer = parseInt(document.getElementById('captcha-answer').value);
   const correctAnswer = parseInt(document.getElementById('captcha-question').dataset.answer);
-  
+
   // 验证码检查
   if (captchaAnswer !== correctAnswer) {
     showResult('add-result', 'Incorrect answer to security question!', 'error');
     generateCaptcha('captcha-question', 'captcha-answer');
     return;
   }
-  
-  // 代码格式验证
-  if (!/^[A-Z]{4}\d{12}$/.test(code)) {
-    showResult('add-result', 'Invalid code format! Expected format: PEKI202501010001', 'error');
-    return;
+
+  let requestBody = { email, captcha_answer: captchaAnswer, query_type: queryType };
+
+  if (queryType === 'zov') {
+    // ZOV format validation
+    const code = document.getElementById('input-code').value.trim();
+    if (!/^[A-Z]{4}\d{12}$/.test(code)) {
+      showResult('add-result', 'Invalid ŽOV format! Expected: PEKI202501010001', 'error');
+      return;
+    }
+    requestBody.code = code;
+  } else {
+    // OAM format validation
+    const serial = document.getElementById('oam-serial').value.trim();
+    const suffix = document.getElementById('oam-suffix').value.trim();
+    const oamType = document.getElementById('oam-type').value;
+    const oamYear = document.getElementById('oam-year').value;
+
+    if (!serial || !/^\d+$/.test(serial)) {
+      showResult('add-result', 'OAM serial number must be numeric!', 'error');
+      return;
+    }
+
+    // Build OAM code string
+    let codeStr = `OAM-${serial}`;
+    if (suffix) codeStr += `-${suffix}`;
+    codeStr += `/${oamType}/${oamYear}`;
+
+    requestBody.code = codeStr;
+    requestBody.oam_serial = serial;
+    requestBody.oam_suffix = suffix || null;
+    requestBody.oam_type = oamType;
+    requestBody.oam_year = parseInt(oamYear);
   }
-  
+
   // 添加加载状态
   const submitBtn = e.target.querySelector('button[type="submit"]');
   const originalText = submitBtn.textContent;
   submitBtn.disabled = true;
   submitBtn.innerHTML = '<span class="spinner">⟳</span> Sending...';
-  
+
   // 清除之前的结果消息
   document.getElementById('add-result').style.display = 'none';
-  
+
   try {
     const response = await fetch('/api/add-code', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ code, email, captcha_answer: captchaAnswer })
+      body: JSON.stringify(requestBody)
     });
-    
+
     const result = await response.json();
-    
+
     if (response.ok) {
       showResult('add-result', 'Verification email sent! Please check your inbox and click the verification link.', 'success');
       document.getElementById('form-add-code').reset();
+      toggleQueryTypeFields(); // Reset form visibility
       generateCaptcha('captcha-question', 'captcha-answer');
     } else {
       showResult('add-result', result.error || 'Failed to submit request', 'error');
@@ -435,53 +500,53 @@ document.getElementById('form-add-code').addEventListener('submit', async (e) =>
 // 邮箱验证表单提交
 document.getElementById('form-verify-email').addEventListener('submit', async (e) => {
   e.preventDefault();
-  
+
   const email = document.getElementById('verify-email').value.trim();
   const captchaAnswer = parseInt(document.getElementById('captcha-answer-2').value);
   const correctAnswer = parseInt(document.getElementById('captcha-question-2').dataset.answer);
-  
+
   if (captchaAnswer !== correctAnswer) {
     showResult('manage-result', 'Incorrect answer to security question!', 'error');
     generateCaptcha('captcha-question-2', 'captcha-answer-2');
     return;
   }
-  
+
   // Check if email was sent recently (60 seconds cooldown)
   const lastSentKey = `lastEmailSent_${email}`;
   const lastSent = localStorage.getItem(lastSentKey);
   const now = Date.now();
-  
+
   if (lastSent && (now - parseInt(lastSent)) < 60000) {
     const remainingSeconds = Math.ceil((60000 - (now - parseInt(lastSent))) / 1000);
     showResult('manage-result', `Please wait ${remainingSeconds} seconds before sending another code`, 'error');
     return;
   }
-  
+
   // Disable button and show sending state
   const submitBtn = e.target.querySelector('button[type="submit"]');
   const originalText = submitBtn.textContent;
   submitBtn.disabled = true;
   submitBtn.innerHTML = '<span class="spinner">⟳</span> Sending...';
-  
+
   // 清除之前的结果消息
   document.getElementById('manage-result').style.display = 'none';
-  
+
   try {
     const response = await fetch('/api/send-manage-code', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, captcha_answer: captchaAnswer })
     });
-    
+
     const result = await response.json();
-    
+
     if (response.ok) {
       // Store send time
       localStorage.setItem(lastSentKey, now.toString());
-      
+
       showResult('manage-result', 'Verification code sent to your email!', 'success');
       document.getElementById('verification-step').style.display = 'block';
-      
+
       // Start countdown
       startSendCooldown(submitBtn, originalText, 60);
     } else {
@@ -538,14 +603,14 @@ function clearSession() {
 async function verifySession() {
   const sessionId = getSessionId();
   if (!sessionId) return false;
-  
+
   try {
     const response = await fetch('/api/verify-session', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ session_id: sessionId })
     });
-    
+
     if (response.ok) {
       const result = await response.json();
       return result.valid;
@@ -562,37 +627,37 @@ async function verifySession() {
 async function loginWithVerificationCode() {
   const email = document.getElementById('verify-email').value.trim();
   const verificationCode = document.getElementById('verification-code').value.trim();
-  
+
   if (!/^\d{6}$/.test(verificationCode)) {
     showResult('manage-result', 'Please enter a valid 6-digit verification code', 'error');
     return;
   }
-  
+
   try {
     const response = await fetch('/api/verify-manage', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, verification_code: verificationCode })
     });
-    
+
     const result = await response.json();
-    
+
     if (response.ok) {
       // Save session if provided
       if (result.session_id) {
         setSessionId(result.session_id);
         console.log('Session created for seamless management experience');
       }
-      
+
       // Display user codes
       displayUserCodes(result.codes);
-      
+
       // Hide login forms and show only codes management
       document.getElementById('form-verify-email').style.display = 'none';
       document.getElementById('verification-step').style.display = 'none';
       document.getElementById('codes-list').style.display = 'block';
       document.getElementById('logout-section').style.display = 'block';
-      
+
       showResult('manage-result', 'Login successful!', 'success');
     } else {
       showResult('manage-result', result.error || 'Invalid verification code', 'error');
@@ -615,19 +680,19 @@ async function logout() {
       console.log('Logout request failed, but clearing local session');
     }
   }
-  
+
   clearSession();
-  
+
   // Restore login interface
   document.getElementById('form-verify-email').style.display = 'block';
   document.getElementById('verification-step').style.display = 'none';
   document.getElementById('codes-list').style.display = 'none';
   document.getElementById('logout-section').style.display = 'none';
-  
+
   // Clear forms
   document.getElementById('verify-email').value = '';
   document.getElementById('verification-code').value = '';
-  
+
   showResult('manage-result', 'Logged out successfully', 'success');
 }
 
@@ -639,16 +704,16 @@ async function verifyAndShowCodes() {
 // 显示用户代码列表
 function displayUserCodes(codes) {
   const container = document.getElementById('user-codes-container');
-  
+
   if (codes.length === 0) {
     container.innerHTML = '<p>No codes found for this email address.</p>';
     return;
   }
-  
+
   container.innerHTML = codes.map(code => {
-    const nextCheckTooltip = code.next_check ? 
+    const nextCheckTooltip = code.next_check ?
       `title="Next check: ${new Date(code.next_check).toLocaleString()}"` : '';
-    
+
     return `
     <div class="user-code-item" ${nextCheckTooltip}>
       <span class="code">${code.code}</span>
@@ -663,16 +728,16 @@ function displayUserCodes(codes) {
 async function loadUserCodes() {
   const sessionId = getSessionId();
   if (!sessionId) return;
-  
+
   try {
     const response = await fetch('/api/verify-manage', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ session_id: sessionId })
     });
-    
+
     const result = await response.json();
-    
+
     if (response.ok) {
       displayUserCodes(result.codes);
     } else {
@@ -693,22 +758,22 @@ async function deleteCode(code, email) {
   if (!confirm(`Are you sure you want to delete ${code}?`)) {
     return;
   }
-  
+
   const sessionId = getSessionId();
   if (!sessionId) {
     showResult('manage-result', 'Please log in first', 'error');
     return;
   }
-  
+
   try {
     const response = await fetch('/api/delete-code', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ code, email, session_id: sessionId })
     });
-    
+
     const result = await response.json();
-    
+
     if (response.ok) {
       showResult('manage-result', `Code ${code} deleted successfully!`, 'success');
       // 重新获取并显示代码列表
@@ -740,7 +805,7 @@ function showResult(elementId, message, type) {
 function handleHashRouting() {
   const hash = window.location.hash.substring(1); // Remove #
   console.log('Handling hash routing:', hash);
-  
+
   switch (hash) {
     case 'manage':
       console.log('Opening manage modal from hash');
@@ -774,17 +839,17 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('codes-list').style.display = 'block';
     document.getElementById('logout-section').style.display = 'block';
   }
-  
+
   // Handle URL hash routing
   handleHashRouting();
-  
+
   // Listen for hash changes
   window.addEventListener('hashchange', handleHashRouting);
-  
+
   // 按钮点击事件
   document.getElementById('btn-add-code').addEventListener('click', () => openModal('modal-add'));
   document.getElementById('btn-manage-codes').addEventListener('click', () => openModal('modal-manage'));
-  
+
   // 关闭按钮事件
   document.querySelectorAll('.close').forEach(closeBtn => {
     closeBtn.addEventListener('click', (e) => {
@@ -792,7 +857,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       closeModal(modal.id);
     });
   });
-  
+
   // 点击模态框外部关闭
   window.addEventListener('click', (e) => {
     if (e.target.classList.contains('modal')) {
