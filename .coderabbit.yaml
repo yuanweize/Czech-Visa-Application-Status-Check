@@ -1,11 +1,11 @@
 # CodeRabbit Configuration for CZ Visa Status Monitor
 # Optimized for Python SRE, Playwright & High Availability Architecture
 
-language: "zh-CN"
+language: "en-US"
 yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
 
 reviews:
-  profile: "assertive" # 采用严格模式，符合 SRE 高可用性要求
+  profile: "assertive" # Use assertive mode for high availability SRE requirements
   request_changes_workflow: false
   high_level_summary: true
   auto_review:
@@ -14,58 +14,57 @@ reviews:
       - "doc"
       - "docs"
       - "document"
-      - "文档"
 
-  # 【深度定制指令】基于项目实际架构 (Atomic Writes / Resource Safety / LKVS)
+  # [Deep Customization] Based on Project Architecture (Atomic Writes / Resource Safety / LKVS)
   instructions: |
-    你不仅是资深 Python SRE，还是该项目的核心架构师。该项目是一个基于 Playwright 和 Python asyncio 的高可用签证监控系统。
+    You are a Senior Python SRE and the Core Architect of this project. This is a high-availability visa monitoring system based on Playwright and Python asyncio.
     
-    审查核心原则：**零信任持久化 (Zero-Trust Persistence)** 和 **资源闭环 (Resource Closed-Loop)**。
+    Core Review Principles: **Zero-Trust Persistence** and **Resource Closed-Loop**.
 
-    在审查 PR 时，请严格执行以下检查清单：
+    When reviewing PRs, you must strictly enforce the following checklist:
 
-    1.  **数据原子性与持久化 (Critical)**：
-        -   禁止使用 Python 原生 `open(..., 'w')` 直接写入数据文件。
-        -   **必须**使用 `monitor.utils.file_ops` 模块中的 `write_json_atomic` 或 `write_csv_atomic`。
-        -   检查是否破坏了 "Write to Temp -> Atomic Rename (os.replace)" 的模式。
-        -   检查 `CodeStorageManager` 中的方法是否正确使用了 `@synchronized` 装饰器以防止竞态条件。
+    1.  **Data Atomicity & Persistence (Critical)**:
+        -   Direct use of Python's native `open(..., 'w')` for data writing is **PROHIBITED**.
+        -   **MUST** use `write_json_atomic` or `write_csv_atomic` from `monitor.utils.file_ops`.
+        -   Verify that the "Write to Temp -> Atomic Rename (os.replace)" pattern is not violated.
+        -   Ensure methods in `CodeStorageManager` correctly use the `@synchronized` decorator to prevent race conditions.
 
-    2.  **Playwright 资源泄露防御 (Critical)**：
-        -   在任何使用 BrowserContext 或 Page 的地方，检查是否包裹在 `try...finally` 块中。
-        -   必须确保 invoke `await context.close()`，即使发生异常。
-        -   如果涉及新的查询逻辑，确保复用了 `query_modules.cz` 中的 `_create_browser_context` 统一工厂方法（包含反检测配置）。
+    2.  **Playwright Resource Leak Defense (Critical)**:
+        -   Check that ANY instantiation of BrowserContext or Page is wrapped in a `try...finally` block.
+        -   Ensure `await context.close()` is invoked without fail, even if exceptions occur.
+        -   If new query logic is introduced, ensure it reuses the unified factory method `_create_browser_context` in `query_modules.cz` (which includes anti-detection config).
 
-    3.  **通知逻辑完整性 (LKVS)**：
-        -   涉及通知逻辑（`status_notifications.py` 或 `scheduler.py`）的修改时，必须检查是否遵循 **LKVS (Last Known Valid Status)** 机制。
-        -   **严禁**回滚 "Query Failed" 的相关判断逻辑。从 "Query Failed" 恢复到相同有效状态时，**绝不能**发送通知。
+    3.  **Notification Logic Integrity (LKVS)**:
+        -   Modifications to notification logic (`status_notifications.py` or `scheduler.py`) MUST adhere to the **LKVS (Last Known Valid Status)** mechanism.
+        -   **STRICTLY FORBIDDEN** to roll back logic related to "Query Failed". When recovering from "Query Failed" to the same valid status, you must **NEVER** send a notification.
 
-    4.  **异步安全 (Async Safety)**：
-        -   检查 `api_handler.py` 或 `scheduler.py` 中是否存在阻塞 Event Loop 的同步 IO 操作。
-        -   确保定时任务（Scheduler）中的异常被捕获，不会导致 Loop 崩溃。
+    4.  **Async Safety**:
+        -   Check `api_handler.py` or `scheduler.py` for any blocking I/O operations blocking the Event Loop.
+        -   Ensure exceptions in scheduled tasks (Scheduler) are caught to prevent Loop crashes.
 
-    5.  **Web 前端 (Premium UI)**：
-        -   涉及 UI 修改时，检查是否破坏了 Glassmorphism（玻璃拟态）风格。
-        -   检查 `site/assets/style.css` 中的 CSS 变量使用是否规范（如 `--primary`, `--glass-bg`）。
-        -   JavaScript 必须使用事件委托 (Event Delegation) 处理像模态框关闭这样的动态元素交互。
+    5.  **Web Frontend (Premium UI)**:
+        -   For UI changes, ensure the Glassmorphism style is preserved.
+        -   Verify standard usage of CSS variables (e.g., `--primary`, `--glass-bg`) in `site/assets/style.css`.
+        -   JavaScript MUST use Event Delegation for handling dynamic element interactions (like modal closing).
 
-    6.  **安全与配置**：
-        -   严禁在代码中硬编码 SMTP 密码或 API 密钥。
-        -   Docker 修改需确保非 root 用户运行，并正确处理 TZ (Timezone) 环境变量。
+    6.  **Security & Configuration**:
+        -   Hardcoding SMTP passwords or API keys is **STRICTLY PROHIBITED**.
+        -   Docker changes must ensure execution as a non-root user and handle the TZ (Timezone) environment variable correctly.
 
   tools:
-    # 代码质量静态分析
+    # Code Quality Static Analysis
     ruff:
       enabled: true
       
-    # Docker 最佳实践检查
+    # Docker Best Practices
     hadolint:
       enabled: true
     
-    # 密钥扫描 (SMTP credentials protection)
+    # Secret Scanning (SMTP credentials protection)
     gitleaks:
       enabled: true
       
-    # Shell 脚本检查 (deployment/ scripts)
+    # Shell Script Analysis (deployment/ scripts)
     shellcheck:
       enabled: true
 
