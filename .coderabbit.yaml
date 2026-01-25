@@ -9,7 +9,7 @@ reviews:
   high_level_summary: true
   auto_review:
     enabled: true
-    ignore_title_keywords:
+    ignore_title_keywords: []
 
   # [Deep Customization] Based on Project Architecture (Atomic Writes / Resource Safety / LKVS)
   instructions: |
