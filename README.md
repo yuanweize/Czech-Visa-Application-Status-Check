@@ -233,3 +233,10 @@ python visa_status.py monitor -e .env
 - **频率限制韧性**: 实施 SMTP 流量控制（如 10 封/分钟）与业务层去重，防止 IP 或发信账号被拉黑。
 
 ---
+
+### 📧 Intelligent Notification System (LKVS)
+To prevent spam during network fluctuations, the system implements a **Last Known Valid Status (LKVS)** mechanism:
+1. **Transient Failure Suppression**: If a query fails ("Query Failed"), no notification is sent.
+2. **State Recovery**: When recovering from a failure, the new status is compared against the *Last Known Valid Status*, not the failure state.
+   - `Proceedings` -> `Query Failed` -> `Proceedings`: **No Email** (Recovered)
+   - `Proceedings` -> `Query Failed` -> `Granted`: **Email Sent** (Real Change)
