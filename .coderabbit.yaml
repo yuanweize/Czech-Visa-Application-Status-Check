@@ -2,7 +2,6 @@
 # Optimized for Python SRE, Playwright & High Availability Architecture
 
 language: "en-US"
-language: "en-US"
 
 reviews:
   profile: "assertive" # Use assertive mode for high availability SRE requirements
