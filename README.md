@@ -7,6 +7,7 @@
 [![Docker Support](https://img.shields.io/badge/Docker-Ready-2496ED.svg?logo=docker&logoColor=white)](docker-compose.yml)
 [![SRE Hardened](https://img.shields.io/badge/SRE-Hardened-success.svg?logo=serverfault&logoColor=white)](#-sre-compliance--safety)
 [![Code Style: Ruff](https://img.shields.io/badge/code%20style-Ruff-000000.svg)](https://github.com/astral-sh/ruff)
+[![CodeRabbit Pull Request Reviews](https://img.shields.io/coderabbit/prs/github/yuanweize/Czech-Visa-Application-Status-Check?utm_source=oss&utm_medium=github&utm_campaign=yuanweize%2FCzech-Visa-Application-Status-Check&labelColor=171717&color=FF570A&link=https%3A%2F%2Fcoderabbit.ai&label=CodeRabbit+Reviews)](https://coderabbit.ai)
 
 **A high-availability, automated monitoring solution for Czech visa applications.**  
 **高效、稳健的捷克签证申请状态自动化监控解决方案。**
