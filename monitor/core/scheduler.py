@@ -673,6 +673,8 @@ class PriorityScheduler:
         # 获取旧状态
         old_item = self.status_data.get('items', {}).get(code, {})
         old_status = old_item.get('status')
+        # LKVS: Last Known Valid Status (non-Query-Failed)
+        last_valid_status = old_item.get('last_valid_status')
         
         # 确定新状态
         if result and result.get('status'):
@@ -707,6 +709,14 @@ class PriorityScheduler:
             "freq_minutes": freq_minutes,
             "note": task.code_config.note
         }
+        
+        # LKVS: Update last_valid_status only when current status is NOT a failure
+        is_query_failed = "Query Failed" in new_status or "查询失败" in new_status
+        if not is_query_failed:
+            updated_item["last_valid_status"] = new_status
+        elif last_valid_status:
+            # Preserve the existing LKVS during failures
+            updated_item["last_valid_status"] = last_valid_status
         
         # 只有非已通过状态才设置next_check
         if next_check_iso:
@@ -770,11 +780,11 @@ class PriorityScheduler:
         try:
             # 调试：打印一次邮件决策（仅在首次或变化时会发送）
             # 注意：正式环境可考虑降级为更少的日志
-            asyncio.create_task(self._send_email_notification(task, result, changed, old_status, is_first_check))
+            asyncio.create_task(self._send_email_notification(task, result, changed, old_status, is_first_check, last_valid_status))
         except Exception:
             pass
     
-    async def _send_email_notification(self, task: ScheduledTask, result: Dict[str, Any], changed: bool, old_status: Optional[str], is_first_check: bool = False):
+    async def _send_email_notification(self, task: ScheduledTask, result: Dict[str, Any], changed: bool, old_status: Optional[str], is_first_check: bool = False, last_valid_status: Optional[str] = None):
         """发送邮件通知 - 使用队列机制避免SMTP服务器过载"""
         if not EMAIL_AVAILABLE or not self._is_email_configured(task.code_config):
             return
@@ -782,8 +792,8 @@ class PriorityScheduler:
         code = task.code_config.code
         new_status = result.get('status', 'Unknown')
         
-        # 判断是否应该发送通知
-        should_notify, notif_label = should_send_notification(old_status, new_status, is_first_check)
+        # 判断是否应该发送通知 (使用 LKVS 进行智能比较)
+        should_notify, notif_label = should_send_notification(old_status, new_status, is_first_check, last_valid_status=last_valid_status)
 
         # 用户新增的 code：首次查询时，即便是 "Not Found" 也发送一次通知（便于用户确认已接管监控）
         try:

@@ -97,31 +97,52 @@ def build_email_body(
 def should_send_notification(
     old_status: Optional[str],
     new_status: str,
-    is_first_check: bool = False
+    is_first_check: bool = False,
+    *,
+    last_valid_status: Optional[str] = None
 ) -> Tuple[bool, str]:
     """
     Determine whether to send notification for status change
     判断是否应该发送通知
     
     Args:
-        old_status: Previous status
+        old_status: Previous status (may be Query Failed)
         new_status: Current status  
         is_first_check: Whether this is the first check
+        last_valid_status: Last non-"Query Failed" status (for LKVS comparison)
         
     Returns:
         Tuple of (should_send: bool, notification_label: str)
     """
-    # Don't send notification for query failures
-    if "查询失败" in new_status or "Query Failed" in new_status:
+    # Helper to check if a status is a transient failure
+    def is_query_failed(s: Optional[str]) -> bool:
+        if not s:
+            return False
+        return "查询失败" in s or "Query Failed" in s
+    
+    # Rule 1: Don't send notification for query failures
+    if is_query_failed(new_status):
         return False, ""
     
-    # First check: do NOT notify if it's Not Found
+    # Rule 2: First check handling
     if is_first_check:
         if ("Not Found" in new_status) or ("未找到" in new_status):
             return False, ""
         return True, "首次查询"
     
-    # Status has changed
+    # Rule 3: Recovery from Query Failed
+    # If old_status was a transient failure, compare against Last Known Valid Status (LKVS)
+    if is_query_failed(old_status):
+        # If no LKVS recorded, treat this as a first valid status -> notify
+        if not last_valid_status:
+            return True, "状态变化"
+        # Compare new status against the LAST VALID status, not the failed one
+        if new_status != last_valid_status:
+            return True, "状态变化"
+        # new_status == last_valid_status -> recovered to same state, NO spam
+        return False, ""
+    
+    # Rule 4: Normal status change (neither old nor new is Query Failed)
     if old_status and old_status != new_status:
         return True, "状态变化"
     
