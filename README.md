@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🇨🇿 CZ Visa Status Monitor
+# CZ Visa Status Monitor
 
 [![Python Version](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
@@ -20,7 +20,7 @@
 
 <a name="english"></a>
 
-## 🌟 English Edition
+## English Edition
 
 ### 1. Overview
 **CZ Visa Status Monitor** is designed for individuals and agencies of all sizes. It automates the tedious task of monitoring the Czech Ministry of Interior (MOI) application statuses. The system handles everything from automated queries via Playwright to multi-channel notifications and multi-user management.
@@ -28,7 +28,7 @@
 ### 2. System Architecture
 The system is built on a decoupled, asynchronous reactor pattern to ensure maximum scalability and fault tolerance.
 
-#### 🧩 Component Map
+#### Component Map
 ```mermaid
 graph TD
     subgraph "Control Plane"
@@ -60,7 +60,7 @@ graph TD
     end
 ```
 
-#### 🔄 Internal Data Flow
+#### Internal Data Flow
 1.  **Ingestion**: Configuration is loaded from `.env` or matched from `query_codes.csv`.
 2.  **Scheduling**: The `Scheduler` generates periodic check-points for each code based on `DEFAULT_FREQ_MINUTES`.
 3.  **Execution**: `Playwright` instances are launched with resource-blocking (no images/fonts) to save bandwidth.
@@ -91,7 +91,7 @@ Managed automatically via Web UI, but can be manually edited.
 
 ### 4. Deployment Manual
 
-#### 🐳 Docker Compose (Production Ready)
+#### Docker Compose (Production Ready)
 ```bash
 # 1. Setup config
 cp .env.example .env && vi .env
@@ -103,7 +103,7 @@ docker-compose up -d
 docker logs -f cz-visa-monitor
 ```
 
-#### 🐍 Bare Metal / Python
+#### Bare Metal / Python
 ```bash
 # Setup environment
 pip install -r requirements.txt
@@ -113,7 +113,7 @@ playwright install chromium
 python visa_status.py monitor -e .env
 ```
 
-#### 🖥️ Systemd (Linux Service)
+#### Systemd (Linux Service)
 1. Edit `deployment/cz-visa-monitor.service` with your absolute paths.
 2. Link the service: `sudo ln -s $(pwd)/deployment/cz-visa-monitor.service /etc/systemd/system/`
 3. Reload & Start: `sudo systemctl daemon-reload && sudo systemctl enable --now cz-visa-monitor`
@@ -128,7 +128,7 @@ Built for long-term stability:
 
 <a name="中文"></a>
 
-## 🌟 中文说明
+## 中文说明
 
 ### 1. 项目概览
 **CZ Visa Status Monitor** 专为个人及代理机构设计，旨在彻底自动化监控捷克移民局 (MOI) 申请状态这一繁琐任务。系统涵盖了从基于 Playwright 的自动化查询、多渠道通知、到支持多用户的 Web 管理全流程。
@@ -136,7 +136,7 @@ Built for long-term stability:
 ### 2. 系统架构
 系统采用解耦的、异步反应堆模式构建，以确保最大的可扩展性与容错能力。
 
-#### 🧩 组件图谱
+#### 组件图谱
 ```mermaid
 graph TD
     subgraph "控制面"
@@ -168,7 +168,7 @@ graph TD
     end
 ```
 
-#### 🔄 内部数据流
+#### 内部数据流
 1.  **接入**: 系统从 `.env` 加载基础配置，或从 `query_codes.csv` 匹配初始查询码。
 2.  **调度**: `调度器` 根据 `DEFAULT_FREQ_MINUTES` 为每个代码生成周期性的检查时间点。
 3.  **执行**: `Playwright` 启动时自动屏蔽流量消耗（如图像/字体），仅抓取核心状态数据。
@@ -199,7 +199,7 @@ graph TD
 
 ### 4. 部署手册
 
-#### 🐳 Docker Compose (生产就绪)
+#### Docker Compose (生产就绪)
 ```bash
 # 1. 设置配置
 cp .env.example .env && vi .env
@@ -211,7 +211,7 @@ docker-compose up -d
 docker logs -f cz-visa-monitor
 ```
 
-#### 🐍 裸机 / Python 环境
+#### 裸机 / Python 环境
 ```bash
 # 安装依赖
 pip install -r requirements.txt
@@ -221,7 +221,7 @@ playwright install chromium
 python visa_status.py monitor -e .env
 ```
 
-#### 🖥️ Systemd (Linux 服务托管)
+#### Systemd (Linux 服务托管)
 1. 修改 `deployment/cz-visa-monitor.service` 中的绝对路径。
 2. 软链接服务：`sudo ln -s $(pwd)/deployment/cz-visa-monitor.service /etc/systemd/system/`
 3. 重载并启动：`sudo systemctl daemon-reload && sudo systemctl enable --now cz-visa-monitor`
@@ -234,7 +234,7 @@ python visa_status.py monitor -e .env
 
 ---
 
-### 📧 Intelligent Notification System (LKVS)
+### Intelligent Notification System (LKVS)
 To prevent spam during network fluctuations, the system implements a **Last Known Valid Status (LKVS)** mechanism:
 1. **Transient Failure Suppression**: If a query fails ("Query Failed"), no notification is sent.
 2. **State Recovery**: When recovering from a failure, the new status is compared against the *Last Known Valid Status*, not the failure state.
