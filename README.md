@@ -240,3 +240,12 @@ To prevent spam during network fluctuations, the system implements a **Last Know
 2. **State Recovery**: When recovering from a failure, the new status is compared against the *Last Known Valid Status*, not the failure state.
    - `Proceedings` -> `Query Failed` -> `Proceedings`: **No Email** (Recovered)
    - `Proceedings` -> `Query Failed` -> `Granted`: **Email Sent** (Real Change)
+
+---
+
+## 📄 License & Disclaimer
+
+This project is licensed under the [MIT License](LICENSE).
+
+> **Disclaimer**: This is an independent open-source utility that queries publicly accessible Czech visa status interfaces. It is not affiliated with, authorized, maintained, or endorsed by the Czech Ministry of the Interior (MVČR), the Ministry of Foreign Affairs (MZV), or any official Czech immigration authority. It does not provide legal advice or guaranteed status determinations.
+
